@@ -35,7 +35,6 @@ var (
 	getSaveFileNameW     = comdlg32.NewProc("GetSaveFileNameW")
 	commDlgExtendedError = comdlg32.NewProc("CommDlgExtendedError")
 	shellExecuteExW      = shell32.NewProc("ShellExecuteExW")
-	shFileOperationW     = shell32.NewProc("SHFileOperationW")
 	isIconic             = user32.NewProc("IsIconic")
 	setForegroundWindow  = user32.NewProc("SetForegroundWindow")
 	bringWindowToTop     = user32.NewProc("BringWindowToTop")
@@ -265,27 +264,143 @@ func (w *window) revealFile(f driver.SharedFile, id uint32) {
 	w.engine.Dispatch(ev)
 }
 
-type shellFileOp struct {
-	Wnd                  uintptr
-	Func                 uint32
-	From                 *uint16
-	To                   *uint16
-	Flags                uint16
-	AnyOperationsAborted int32
-	NameMappings         uintptr
-	Title                *uint16
+var (
+	clsidFileOperation           = parseGUID("3AD05575-8857-4850-9277-11B85BDB8E09")
+	iidFileOperation             = parseGUID("947AAB5F-0A5C-4C13-B4D6-4BF7836FC9F8")
+	iidFileOperationProgressSink = parseGUID("04B0F1A7-9490-44BC-96E1-4296A31252E2")
+
+	// recycleSinkVtbl is IFileOperationProgressSink's: PreDeleteItem refuses an item the Recycle Bin cannot take, PostDeleteItem records the outcome, and the rest accept. Each callback takes exactly the method's arguments, which 386's stdcall pops.
+	recycleSinkVtbl = [19]uintptr{
+		syscall.NewCallback(recycleSinkQueryInterface),
+		syscall.NewCallback(recycleSinkAddRef),
+		syscall.NewCallback(recycleSinkRelease),
+		syscall.NewCallback(func(s *recycleSink) uintptr { return sOK }),                                                       // StartOperations
+		syscall.NewCallback(func(s *recycleSink, hr uintptr) uintptr { return sOK }),                                           // FinishOperations
+		syscall.NewCallback(func(s *recycleSink, flags, item, name uintptr) uintptr { return sOK }),                            // PreRenameItem
+		syscall.NewCallback(func(s *recycleSink, flags, item, name, hr, created uintptr) uintptr { return sOK }),               // PostRenameItem
+		syscall.NewCallback(func(s *recycleSink, flags, item, dest, name uintptr) uintptr { return sOK }),                      // PreMoveItem
+		syscall.NewCallback(func(s *recycleSink, flags, item, dest, name, hr, created uintptr) uintptr { return sOK }),         // PostMoveItem
+		syscall.NewCallback(func(s *recycleSink, flags, item, dest, name uintptr) uintptr { return sOK }),                      // PreCopyItem
+		syscall.NewCallback(func(s *recycleSink, flags, item, dest, name, hr, created uintptr) uintptr { return sOK }),         // PostCopyItem
+		syscall.NewCallback(recycleSinkPreDelete),                                                                              // PreDeleteItem
+		syscall.NewCallback(recycleSinkPostDelete),                                                                             // PostDeleteItem
+		syscall.NewCallback(func(s *recycleSink, flags, dest, name uintptr) uintptr { return sOK }),                            // PreNewItem
+		syscall.NewCallback(func(s *recycleSink, flags, dest, name, template, attrs, hr, item uintptr) uintptr { return sOK }), // PostNewItem
+		syscall.NewCallback(func(s *recycleSink, total, done uintptr) uintptr { return sOK }),                                  // UpdateProgress
+		syscall.NewCallback(func(s *recycleSink) uintptr { return sOK }),                                                       // ResetTimer
+		syscall.NewCallback(func(s *recycleSink) uintptr { return sOK }),                                                       // PauseTimer
+		syscall.NewCallback(func(s *recycleSink) uintptr { return sOK }),                                                       // ResumeTimer
+	}
+)
+
+// IFileOperation's methods, and the flags trashFile sets.
+const (
+	fileOperationSetOperationFlags       = 5
+	fileOperationDeleteItem              = 18
+	fileOperationPerformOperations       = 21
+	fileOperationGetAnyOperationsAborted = 22
+
+	fofAllowUndo               = 0x40
+	fofNoUI                    = 0x4 | 0x10 | 0x400 | 0x200 // FOF_NO_UI: FOF_SILENT, FOF_NOCONFIRMATION, FOF_NOERRORUI and FOF_NOCONFIRMMKDIR
+	fofxRecycleOnDelete        = 0x00080000
+	tsfDeleteRecycleIfPossible = 0x80 // TSF_DELETE_RECYCLE_IF_POSSIBLE
+	eAbort                     = 0x80004004
+)
+
+// recycleSink is trashFile's IFileOperationProgressSink, implemented in Go. The operation calls it on the window's thread while it performs, and trashFile keeps it alive until the operation is released, so nothing is freed when it is released.
+type recycleSink struct {
+	vtbl *[19]uintptr
+	refs atomic.Int32
+	// refused is whether an item would have been deleted permanently. deleted is whether PostDeleteItem ran, with the delete's result, whether the item went to the Recycle Bin and its path there.
+	refused, deleted, recycled bool
+	result                     uint32
+	at                         string
 }
 
+func recycleSinkQueryInterface(s *recycleSink, iid *guid, out *unsafe.Pointer) uintptr {
+	if *iid == iidUnknown || *iid == iidFileOperationProgressSink {
+		*out = unsafe.Pointer(s)
+		s.refs.Add(1)
+		return sOK
+	}
+	*out = nil
+	return eNoInterface
+}
+
+func recycleSinkAddRef(s *recycleSink) uintptr { return uintptr(s.refs.Add(1)) }
+
+func recycleSinkRelease(s *recycleSink) uintptr { return uintptr(s.refs.Add(-1)) }
+
+// recycleSinkPreDelete cancels the operation before an item the shell would delete instead of recycling: one on a volume without a Recycle Bin, such as a network share, one over the Recycle Bin's size, or any when the user has the Recycle Bin remove files at once. The flags are a DWORD, whose register's upper half is undefined.
+func recycleSinkPreDelete(s *recycleSink, flags uintptr, item *comObject) uintptr {
+	if uint32(flags)&tsfDeleteRecycleIfPossible == 0 {
+		s.refused = true
+		return eAbort
+	}
+	return sOK
+}
+
+// recycleSinkPostDelete records the delete's HRESULT, a 32-bit value, and the item now in the Recycle Bin, nil when it was deleted for good.
+func recycleSinkPostDelete(s *recycleSink, flags uintptr, item *comObject, hr uintptr, created *comObject) uintptr {
+	s.deleted, s.result, s.recycled = true, uint32(hr), created != nil
+	if created != nil {
+		var name *uint16
+		if !failed(created.call(shellItemGetName, sigdnFileSysPath, uintptr(unsafe.Pointer(&name)))) {
+			s.at = takeString(name)
+		}
+	}
+	return sOK
+}
+
+// trashFile has the shell move f to the Recycle Bin without UI, as IFileOperation does with FOFX_RECYCLEONDELETE, and answers NoTrash, leaving f where it is, when the Recycle Bin cannot take it: FOF_ALLOWUNDO alone recycles only if possible and silently deletes the rest for good. It answers the item's path in the Recycle Bin when the shell gives one.
 func (w *window) trashFile(f driver.SharedFile, id uint32) {
-	from, _ := syscall.UTF16FromString(f.Path)
-	from = append(from, 0)
-	op := shellFileOp{Wnd: w.hwnd, Func: 3, From: &from[0], Flags: 0x0040 | 0x0010 | 0x0400 | 0x0004}
-	r, _, _ := shFileOperationW.Call(uintptr(unsafe.Pointer(&op)))
-	ev := driver.Event{Kind: driver.EventFiles, Count: id, Finished: r == 0}
-	if r == 0 {
-		ev.Data = f.Path
-	} else {
+	ev := driver.Event{Kind: driver.EventFiles, Count: id}
+	what := "Windows could not move " + f.Path + " to the Recycle Bin"
+	sink := &recycleSink{vtbl: &recycleSinkVtbl}
+	// The operation holds the sink until it is released, which the deferred release below does first.
+	defer runtime.KeepAlive(sink)
+	if err := initCOM(); err != nil {
+		ev.Text = err.Error()
+		w.engine.Dispatch(ev)
+		return
+	}
+	var op *comObject
+	if hr, _, _ := coCreateInstance.Call(uintptr(unsafe.Pointer(&clsidFileOperation)), 0, clsctxInprocServer,
+		uintptr(unsafe.Pointer(&iidFileOperation)), uintptr(unsafe.Pointer(&op))); failed(hr) || op == nil {
+		ev.Text = hresultError(what, hr).Error()
+		w.engine.Dispatch(ev)
+		return
+	}
+	defer op.release()
+	var item *comObject
+	hr, _, _ := shCreateItemFromParsingName.Call(uintptr(unsafe.Pointer(wide(f.Path))), 0,
+		uintptr(unsafe.Pointer(&iidShellItem)), uintptr(unsafe.Pointer(&item)))
+	if failed(hr) || item == nil {
+		ev.Text = hresultError(what, hr).Error()
+		w.engine.Dispatch(ev)
+		return
+	}
+	defer item.release()
+	if hr = op.call(fileOperationSetOperationFlags, fofAllowUndo|fofNoUI|fofxRecycleOnDelete); !failed(hr) {
+		if hr = op.call(fileOperationDeleteItem, item.ptr(), uintptr(unsafe.Pointer(sink))); !failed(hr) {
+			hr = op.call(fileOperationPerformOperations)
+		}
+	}
+	var aborted int32
+	op.call(fileOperationGetAnyOperationsAborted, uintptr(unsafe.Pointer(&aborted)))
+	switch {
+	case sink.refused:
 		ev.Text = driver.NoTrash
+	case failed(hr):
+		ev.Text = hresultError(what, hr).Error()
+	case sink.deleted && failed(uintptr(sink.result)):
+		ev.Text = hresultError(what, uintptr(sink.result)).Error()
+	case aborted != 0 || !sink.deleted:
+		ev.Text = what
+	case !sink.recycled:
+		ev.Text = "Windows deleted " + f.Path + " instead of moving it to the Recycle Bin"
+	default:
+		ev.Finished, ev.Data = true, sink.at
 	}
 	w.engine.Dispatch(ev)
 }

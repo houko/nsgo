@@ -111,7 +111,7 @@ The desktops show no camera ([roadmap](../roadmap.md#finish-the-existing-platfor
 | macOS | `NSWorkspace openURL:` | `NSWorkspace activateFileViewerSelectingURLs:` | `NSFileManager trashItemAtURL:` | `NSSharingServicePicker` |
 | iOS | `UIDocumentInteractionController`'s Open In menu | Unavailable | Unavailable | `UIActivityViewController` |
 | Android | `Intent.ACTION_VIEW` | Unavailable | Unavailable | An `ACTION_SEND` or `ACTION_SEND_MULTIPLE` chooser |
-| Windows | `ShellExecuteExW` without UI | Explorer `/select` | Shell recycle operation with `FOF_ALLOWUNDO` | None: `NoShareSheet` |
+| Windows | `ShellExecuteExW` without UI | Explorer `/select` | `IFileOperation` with `FOFX_RECYCLEONDELETE` and no UI, whose progress sink stops before an item the Recycle Bin cannot take | None: `NoShareSheet` |
 | Linux | `GtkFileLauncher`, through the desktop portal | `gtk_file_launcher_open_containing_folder` | GIO `g_file_trash` | None: `NoShareSheet` |
 | Web | None: `NoFileOpener` | Unavailable | Unavailable | None: `NoShareSheet` |
 
