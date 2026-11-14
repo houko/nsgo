@@ -219,6 +219,7 @@ type window struct {
 	popover   uintptr
 	popoverID uint32
 	popupRefs map[uintptr]menuRef
+	trays     map[uint32]*linuxTray
 	// appearance is the one the app forces; preferDark the session's
 	// gtk-application-prefer-dark-theme, read once it is first forced.
 	appearance                  driver.Appearance
@@ -302,6 +303,7 @@ func newWindow(opts Options, embedded bool) *window {
 	w := &window{
 		entries: map[uintptr]*view{},
 		natives: map[uintptr]*view{},
+		trays:   map[uint32]*linuxTray{},
 		appID:   opts.ID,
 
 		actionRefs: map[uintptr]menuRef{},
@@ -325,6 +327,7 @@ func (w *window) startEngine(app engine.App, opts Options, size driver.Size) {
 		Host:        opts.Host,
 		// The app's own window takes its global shortcuts; a host's widget leaves them to the host.
 		HotKeys: !w.embedded,
+		Tray:        !w.embedded,
 	}
 	eopts.SetDirs(engine.AppDirs(opts.ID))
 	if opts.test != nil {
@@ -605,6 +608,7 @@ func (w *window) close() {
 	}
 	w.closing = true
 	w.closeHotKeys()
+	w.removeTrays()
 	if w.tickID != 0 {
 		gSourceRemove(w.tickID)
 		w.tickID = 0
@@ -701,6 +705,14 @@ func (w *window) apply(b *driver.MountBatch) {
 			continue
 		case driver.ItemPopupMenu:
 			w.popupMenu(it.Menu, it.Point, it.Count)
+			continue
+		case driver.ItemTray:
+			w.applyTray(*it.Tray)
+			continue
+		case driver.ItemTrayMenu:
+			// StatusNotifierItem's ContextMenu call reports the secondary
+			// click. A host without a DBus menu closes this request here.
+			w.engine.Dispatch(driver.Event{Kind: driver.EventMenuClosed, Count: it.Count})
 			continue
 		case driver.ItemAppearance:
 			// The settings are the process's, which a host's widget
