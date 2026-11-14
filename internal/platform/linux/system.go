@@ -296,11 +296,9 @@ func (w *window) revealFile(f driver.SharedFile, id uint32) {
 		ev := driver.Event{Kind: driver.EventFiles, Count: id}
 		ev.Finished = gtkFileLauncherOpenContainingFolderFinish(source, result, uintptr(unsafe.Pointer(&gerr))) != 0
 		gObjectUnref(source)
-		if gerr != 0 {
-			if err := dialogError(gerr); err != nil {
-				ev.Text = err.Error()
-			}
-			gErrorFree(gerr)
+		// dialogError frees the error.
+		if err := dialogError(gerr); err != nil {
+			ev.Text = err.Error()
 		}
 		if !w.closing {
 			w.engine.Dispatch(ev)
@@ -321,10 +319,10 @@ func (w *window) trashFile(f driver.SharedFile, id uint32) {
 		e := (*gError)(cPointer(gerr))
 		if e.domain == gIOErrorQuark() && e.code == notSupported {
 			ev.Text = driver.NoTrash
-		} else if err := dialogError(gerr); err != nil {
+			gErrorFree(gerr)
+		} else if err := dialogError(gerr); err != nil { // dialogError frees the error
 			ev.Text = err.Error()
 		}
-		gErrorFree(gerr)
 	} else {
 		ev.Text = "GTK could not move " + f.Path + " to the Trash"
 	}
