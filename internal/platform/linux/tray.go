@@ -18,11 +18,11 @@ import (
 	"github.com/nsgo-dev/nsgo/internal/driver"
 )
 
-// Linux tray icons use the freedesktop StatusNotifierItem protocol. The watcher owns the visual presentation; the app owns one item per tray ID, each on a session bus connection of its own so that it has the protocol's /StatusNotifierItem path and its bus name to itself, and receives Activate, SecondaryActivate and ContextMenu calls. Its menu is a com.canonical.dbusmenu object at /Menu on the same connection.
+// Linux tray icons use the StatusNotifierItem protocol under the org.kde names that its hosts use, KDE Plasma's and GNOME's AppIndicator extension, which reach an item only through org.kde.StatusNotifierItem rather than the freedesktop draft's name. The watcher owns the visual presentation; the app owns one item per tray ID, each on a session bus connection of its own so that it has the protocol's /StatusNotifierItem path and its bus name to itself, and receives Activate, SecondaryActivate and ContextMenu calls. Its menu is a com.canonical.dbusmenu object at /Menu on the same connection.
 
 const (
-	trayServicePrefix = "org.freedesktop.StatusNotifierItem-"
-	trayItemInterface = "org.freedesktop.StatusNotifierItem"
+	trayServicePrefix = "org.kde.StatusNotifierItem-"
+	trayItemInterface = "org.kde.StatusNotifierItem"
 	trayMenuInterface = "com.canonical.dbusmenu"
 	trayItemPath      = "/StatusNotifierItem"
 	trayMenuPath      = "/Menu"
@@ -39,7 +39,7 @@ const (
 // GDBus answers org.freedesktop.DBus.Properties itself, from the properties declared here and the vtable's GetProperty, with an error for a property the interface lacks.
 const trayIntrospection = `
 <node>
-  <interface name="org.freedesktop.StatusNotifierItem">
+  <interface name="org.kde.StatusNotifierItem">
     <method name="Activate"><arg name="x" type="i" direction="in"/><arg name="y" type="i" direction="in"/></method>
     <method name="SecondaryActivate"><arg name="x" type="i" direction="in"/><arg name="y" type="i" direction="in"/></method>
     <method name="ContextMenu"><arg name="x" type="i" direction="in"/><arg name="y" type="i" direction="in"/></method>
