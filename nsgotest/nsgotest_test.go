@@ -1,6 +1,7 @@
 package nsgotest
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,5 +66,45 @@ func TestCaptureSkipsHeadlessAndScreenshotNamesStayInside(t *testing.T) {
 	}
 	if msg := fails(t, func(tb testing.TB) { Start(tb, root).Screenshot("en/my library") }); msg != "" {
 		t.Errorf("Screenshot of a relative name failed headless: %s", msg)
+	}
+}
+
+// The model records reveals and trashes, answers them as the test says, and passes core.ErrNoTrash on as itself.
+func TestRevealAndTrashAnswerAsTheTestSays(t *testing.T) {
+	var cx *core.Scope
+	app := Start(t, func(c *core.Scope) core.Node { cx = c; return core.View{} })
+	path := filepath.Join(t.TempDir(), "film.mp4")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var revealed error = errors.New("no answer")
+	cx.RevealFile(path, func(err error) { revealed = err })
+	app.Settle()
+	if revealed != nil || len(app.RevealedFiles) != 1 || app.RevealedFiles[0] != path {
+		t.Fatalf("reveal answered %v, recorded %q", revealed, app.RevealedFiles)
+	}
+	var at string
+	var trashed error
+	trash := func() {
+		at, trashed = "unanswered", nil
+		cx.TrashFile(path, func(a string, err error) { at, trashed = a, err })
+		app.Settle()
+	}
+	trash()
+	if at != "" || trashed != nil {
+		t.Fatalf("default trash answered %q, %v", at, trashed)
+	}
+	app.TrashFile = func(string) (string, error) { return "/Trash/film.mp4", nil }
+	trash()
+	if at != "/Trash/film.mp4" || trashed != nil {
+		t.Fatalf("trash answered %q, %v", at, trashed)
+	}
+	app.TrashFile = func(string) (string, error) { return "", core.ErrNoTrash }
+	trash()
+	if !errors.Is(trashed, core.ErrNoTrash) {
+		t.Fatalf("no trash answered %v", trashed)
+	}
+	if len(app.TrashedFiles) != 3 {
+		t.Fatalf("recorded %q", app.TrashedFiles)
 	}
 }

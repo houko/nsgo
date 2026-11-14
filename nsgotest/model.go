@@ -2,6 +2,7 @@ package nsgotest
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -516,7 +517,9 @@ func (a *App) apply(b *driver.MountBatch) {
 			ev := driver.Event{Kind: driver.EventFiles, Count: it.Count}
 			if a.TrashFile == nil {
 				ev.Finished = true
-			} else if path, err := a.TrashFile(it.Open.Path); err != nil {
+			} else if path, err := a.TrashFile(it.Open.Path); errors.Is(err, core.ErrNoTrash) {
+				ev.Text = driver.NoTrash
+			} else if err != nil {
 				ev.Text = err.Error()
 			} else {
 				ev.Finished, ev.Data = true, path
