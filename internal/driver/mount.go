@@ -334,6 +334,10 @@ const (
 	ItemQuitResponse
 	// ItemPermission, after the kinds Android's Protocol.java mirrors, carries Permission, a request numbered Count about one of the system's permissions; the platform answers each one but PermissionStopGuide with EventPermission carrying Count, the status as Index.
 	ItemPermission
+	// ItemRevealFile shows Open in the system file manager, selected.
+	ItemRevealFile
+	// ItemTrashFile moves Open to the system Trash or Recycle Bin.
+	ItemTrashFile
 )
 
 // Biometric kinds, as reported by an availability request.

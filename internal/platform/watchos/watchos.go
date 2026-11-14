@@ -457,7 +457,7 @@ func (s *surface) apply(b *driver.MountBatch) {
 			driver.AnswerPermission(it.Count, *it.Permission, watchPermission, s.engine.Dispatch)
 			continue
 		case driver.ItemReadClipboard, driver.ItemPickImages, driver.ItemTakePhoto, driver.ItemPickFiles,
-			driver.ItemPickDirectories, driver.ItemOpenFile, driver.ItemShare, driver.ItemSaveFile:
+			driver.ItemPickDirectories, driver.ItemOpenFile, driver.ItemRevealFile, driver.ItemTrashFile, driver.ItemShare, driver.ItemSaveFile:
 			s.unsupported(it)
 			continue
 		}

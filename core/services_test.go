@@ -393,6 +393,48 @@ func TestOpenFile(t *testing.T) {
 	}
 }
 
+func TestRevealAndTrashFile(t *testing.T) {
+	var cx *Scope
+	h := newHost(t, Size{Width: 100, Height: 100}, func(c *Scope) Node { cx = c; return View{} })
+	h.commit()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "report.txt")
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var revealErr error
+	cx.RevealFile(path, func(err error) { revealErr = err })
+	it := command(h.commit(), driver.ItemRevealFile)
+	if it == nil || it.Open.Path != path {
+		t.Fatalf("reveal = %+v", it)
+	}
+	h.tree.Dispatch(driver.Event{Kind: driver.EventFiles, Count: it.Count, Finished: true})
+	if revealErr != nil {
+		t.Fatal(revealErr)
+	}
+	var trashed string
+	var trashErr error
+	cx.TrashFile(path, func(at string, err error) { trashed, trashErr = at, err })
+	it = command(h.commit(), driver.ItemTrashFile)
+	if it == nil || it.Open.Path != path {
+		t.Fatalf("trash = %+v", it)
+	}
+	h.tree.Dispatch(driver.Event{Kind: driver.EventFiles, Count: it.Count, Finished: true, Data: "/Trash/report.txt"})
+	if trashed != "/Trash/report.txt" || trashErr != nil {
+		t.Fatalf("trashed = %q, %v", trashed, trashErr)
+	}
+	cx.TrashFile(filepath.Join(dir, "missing"), nil)
+	if command(h.commit(), driver.ItemTrashFile) != nil {
+		t.Fatal("missing path asked platform")
+	}
+	cx.TrashFile(path, func(_ string, err error) { trashErr = err })
+	it = command(h.commit(), driver.ItemTrashFile)
+	h.tree.Dispatch(driver.Event{Kind: driver.EventFiles, Count: it.Count, Text: driver.NoTrash})
+	if !errors.Is(trashErr, ErrNoTrash) {
+		t.Fatalf("no trash = %v", trashErr)
+	}
+}
+
 func TestShare(t *testing.T) {
 	var cx *Scope
 	var anchor Ref

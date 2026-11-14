@@ -211,6 +211,14 @@ type App struct {
 	// when it is nil.
 	OpenedFiles []driver.SharedFile
 	OpenFile    func(f driver.SharedFile) bool
+	// RevealedFiles records paths shown in the system file manager. RevealFile
+	// answers whether the manager accepted each request; nil accepts all.
+	RevealedFiles []string
+	RevealFile    func(path string) bool
+	// TrashedFiles records paths moved to the system trash. TrashFile returns
+	// the resulting path and an error; nil returns the original path.
+	TrashedFiles []string
+	TrashFile    func(path string) (string, error)
 	// Shares are the shares the app asked for, oldest first; each sheet
 	// shows.
 	Shares []driver.ShareRequest

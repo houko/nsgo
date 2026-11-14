@@ -12,7 +12,7 @@ A service is a command item in the batch. One that answers, such as a clipboard 
 
 - `Tree.request` keeps the callback under the owner that asked, and the root runs it when that owner is gone, so a closed menu still hears its answer.
 - Platforms answer on any goroutine through `Engine.Dispatch`; slow work, such as encoding a photo, runs off the main thread first.
-- `nsgotest` answers from its model: `App.Clipboard`, `ClipboardImage` and `ClipboardFiles`, `OpenURL`, `PickImages`, `TakePhoto` (recording `Photos`), `PickFiles`, `PickDirectories`, `SaveFile`, `OpenFile` and `CanInstallPackages`, and it records the shares, the packages installed, the install settings opened, the appearance, quits and the context menu shown. A speech session it runs hears what `HearSpeech` says and ends with `EndSpeech`.
+- `nsgotest` answers from its model: `App.Clipboard`, `ClipboardImage` and `ClipboardFiles`, `OpenURL`, `PickImages`, `TakePhoto` (recording `Photos`), `PickFiles`, `PickDirectories`, `SaveFile`, `OpenFile`, `RevealFile`, `TrashFile` and `CanInstallPackages`, and it records the shares, the packages installed, the install settings opened, the appearance, quits and the context menu shown. A speech session it runs hears what `HearSpeech` says and ends with `EndSpeech`.
 
 ## Clipboard
 
@@ -99,21 +99,21 @@ The desktops show no camera ([roadmap](../roadmap.md#finish-the-existing-platfor
 
 ## Opening and sharing files
 
-`OpenFile` opens a file the app has in the app the system associates with its type, and `Share` shows the system's share sheet for files, text or both. Each `SharedFile` is a path, with the name the other app sees and its type, which the file's name and extension say by default. Files go by path or content URI, so their size costs the bridge nothing.
+`OpenFile` opens a file the app has in the app the system associates with its type. `RevealFile` opens the system file manager with a file or folder selected, and `TrashFile` moves it to the user's recoverable Trash or Recycle Bin; it never deletes permanently and returns `ErrNoTrash` when the volume has no trash. `Share` shows the system's share sheet for files, text or both. Each `SharedFile` is a path, with the name the other app sees and its type, which the file's name and extension say by default. Files go by path or content URI, so their size costs the bridge nothing.
 
-- `core` checks each file is a regular file before asking the platform, and fails a share of neither files nor text. `OpenFile` also takes a folder on macOS, Windows and Linux, whose openers hand it to the file manager; phones have no file manager an app can open a folder of its own in, so `core` fails it there.
+- `core` resolves and stats paths before asking the platform. `OpenFile`, `RevealFile` and `TrashFile` accept folders only where the platform has a file manager; phones and the web answer an error. A missing path fails before a command reaches the platform.
 - `OpenFile` tells a type no app opens (`opened == false`, no error) from a failure. `Share` answers once the sheet shows, which says nothing of what the app chosen did with the files.
 - Where a platform hands files on by path and shows their own names, a file whose `Name` differs is linked under it in a directory of the temporary one (`SharedFile.Stage`), which a later share removes after `ShareStageAge`. Desktops open a file itself, under its own name.
 - `ShareOptions.Anchor` is the element a sheet shown as a popover points at, on macOS and iPads; it points at the root's center without one.
 
-| Target | `OpenFile` | `Share` |
-| --- | --- | --- |
-| macOS | `NSWorkspace openURL:` once `URLForApplicationToOpenURL:` finds an app | `NSSharingServicePicker` |
-| iOS | `UIDocumentInteractionController`'s Open In menu, which shows no apps when none opens the type | `UIActivityViewController` |
-| Android | `Intent.ACTION_VIEW` | An `ACTION_SEND` or `ACTION_SEND_MULTIPLE` chooser, whose clip carries the grants and the preview |
-| Windows | `ShellExecuteExW` without UI, false on `ERROR_NO_ASSOCIATION` | None: `NoShareSheet` ([roadmap](../roadmap.md#finish-the-existing-platforms)) |
-| Linux | `GtkFileLauncher`, through the desktop portal, which may ask for an app; false on `G_IO_ERROR_NOT_SUPPORTED` or a dismissed chooser | None: `NoShareSheet` |
-| Web | None: `NoFileOpener` | None: `NoShareSheet` |
+| Target | `OpenFile` | `RevealFile` | `TrashFile` | `Share` |
+| --- | --- | --- | --- | --- |
+| macOS | `NSWorkspace openURL:` | `NSWorkspace activateFileViewerSelectingURLs:` | `NSFileManager trashItemAtURL:` | `NSSharingServicePicker` |
+| iOS | `UIDocumentInteractionController`'s Open In menu | Unavailable | Unavailable | `UIActivityViewController` |
+| Android | `Intent.ACTION_VIEW` | Unavailable | Unavailable | An `ACTION_SEND` or `ACTION_SEND_MULTIPLE` chooser |
+| Windows | `ShellExecuteExW` without UI | Explorer `/select` | Shell recycle operation with `FOF_ALLOWUNDO` | None: `NoShareSheet` |
+| Linux | `GtkFileLauncher`, through the desktop portal | `gtk_file_launcher_open_containing_folder` | GIO `g_file_trash` | None: `NoShareSheet` |
+| Web | None: `NoFileOpener` | Unavailable | Unavailable | None: `NoShareSheet` |
 
 Android hands files on as content URIs from the runtime's `FileProvider`, which the manifest declares unexported, granting URIs, with an authority named after the app's package. A URI names one of its roots, the app's data directory (which holds `DataDir` and `CacheDir`) or its external one, the path under it and the name the other app sees, with the type as a parameter; a file elsewhere fails, and the provider serves nothing outside its roots, whatever the path says. The intent grants the app chosen read access until its activity finishes, so the app keeps the file there until then and deletes it itself.
 

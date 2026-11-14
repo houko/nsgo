@@ -200,8 +200,10 @@ type ShareRequest struct {
 // What a platform that cannot open a file or share answers ItemOpenFile
 // or ItemShare with.
 const (
-	NoFileOpener = "this platform opens no files in other apps"
-	NoShareSheet = "this platform has no share sheet"
+	NoFileOpener   = "this platform opens no files in other apps"
+	NoShareSheet   = "this platform has no share sheet"
+	NoFileRevealer = "this platform has no file manager"
+	NoTrash        = "the volume has no trash"
 )
 
 // ShareStageAge is how long a file Stage made stays before a later stage

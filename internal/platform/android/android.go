@@ -813,6 +813,20 @@ func (s *surface) RequestFrame() {
 // loads of the image sources it changed.
 func (s *surface) Mount(b *driver.MountBatch) {
 	b = s.withoutPermissions(s.withoutUpdateChecks(withoutEffects(b)))
+	items := b.Items[:0]
+	for i := range b.Items {
+		it := b.Items[i]
+		if it.Kind == driver.ItemRevealFile || it.Kind == driver.ItemTrashFile {
+			s.engine.Dispatch(driver.Event{Kind: driver.EventFiles, Count: it.Count, Text: driver.NoFileRevealer})
+			continue
+		}
+		items = append(items, it)
+	}
+	if len(items) != len(b.Items) {
+		copy := *b
+		copy.Items = items
+		b = &copy
+	}
 	requests, loads := s.trackImages(b)
 	s.stage(b)
 	for i := range b.Items {

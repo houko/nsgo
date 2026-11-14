@@ -507,6 +507,21 @@ func (a *App) apply(b *driver.MountBatch) {
 			a.OpenedFiles = append(a.OpenedFiles, *it.Open)
 			opened := a.OpenFile == nil || a.OpenFile(*it.Open)
 			a.post(driver.Event{Kind: driver.EventFiles, Count: it.Count, Finished: opened})
+		case driver.ItemRevealFile:
+			a.RevealedFiles = append(a.RevealedFiles, it.Open.Path)
+			ok := a.RevealFile == nil || a.RevealFile(it.Open.Path)
+			a.post(driver.Event{Kind: driver.EventFiles, Count: it.Count, Finished: ok})
+		case driver.ItemTrashFile:
+			a.TrashedFiles = append(a.TrashedFiles, it.Open.Path)
+			ev := driver.Event{Kind: driver.EventFiles, Count: it.Count}
+			if a.TrashFile == nil {
+				ev.Finished, ev.Data = true, it.Open.Path
+			} else if path, err := a.TrashFile(it.Open.Path); err != nil {
+				ev.Text = err.Error()
+			} else {
+				ev.Finished, ev.Data = true, path
+			}
+			a.post(ev)
 		case driver.ItemInstallPackage:
 			a.Installs = append(a.Installs, *it.Open)
 			a.post(driver.Event{Kind: driver.EventFiles, Count: it.Count, Finished: true})

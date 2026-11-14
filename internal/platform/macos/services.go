@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"unsafe"
 
 	"github.com/ebitengine/purego"
 	"github.com/ebitengine/purego/objc"
@@ -138,6 +139,32 @@ func (s *surface) openFile(f driver.SharedFile, id uint32) {
 		if !ev.Finished {
 			ev.Text = "macOS could not open " + f.Path
 		}
+	}
+	s.engine.Dispatch(ev)
+}
+
+func (s *surface) revealFile(f driver.SharedFile, id uint32) {
+	u := objc.ID(apple.Class("NSURL")).Send(sel("fileURLWithPath:"), apple.NSString(f.Path))
+	urls := objc.ID(apple.Class("NSArray")).Send(sel("arrayWithObject:"), u)
+	ws := objc.ID(apple.Class("NSWorkspace")).Send(sel("sharedWorkspace"))
+	ok := objc.Send[bool](ws, sel("activateFileViewerSelectingURLs:"), urls)
+	ev := driver.Event{Kind: driver.EventFiles, Count: id, Finished: ok}
+	if !ok {
+		ev.Text = "macOS could not reveal " + f.Path
+	}
+	s.engine.Dispatch(ev)
+}
+
+func (s *surface) trashFile(f driver.SharedFile, id uint32) {
+	u := objc.ID(apple.Class("NSURL")).Send(sel("fileURLWithPath:"), apple.NSString(f.Path))
+	fm := objc.ID(apple.Class("NSFileManager")).Send(sel("defaultManager"))
+	var result objc.ID
+	ok := objc.Send[bool](fm, sel("trashItemAtURL:resultingItemURL:error:"), u, unsafe.Pointer(&result), objc.ID(0))
+	ev := driver.Event{Kind: driver.EventFiles, Count: id, Finished: ok}
+	if ok && result != 0 {
+		ev.Data = apple.GoString(result.Send(sel("path")))
+	} else if !ok {
+		ev.Text = "macOS could not move " + f.Path + " to the Trash"
 	}
 	s.engine.Dispatch(ev)
 }

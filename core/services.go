@@ -659,6 +659,92 @@ func (cx *Scope) OpenFile(f SharedFile, done func(opened bool, err error)) {
 	})
 }
 
+// ErrNoTrash is returned when the volume has no recoverable trash location.
+var ErrNoTrash = errors.New("core: the volume has no trash")
+
+// RevealFile opens the file manager with path selected. It accepts files and
+// folders and reports an error when the path is missing or unsupported.
+func (cx *Scope) RevealFile(path string, done func(error)) {
+	answer := func(err error) {
+		if done != nil {
+			done(err)
+		}
+	}
+	t := cx.tree()
+	if t == nil {
+		return
+	}
+	f, err := resolvePath(path, true)
+	if err != nil {
+		answer(err)
+		return
+	}
+	t.request(cx, driver.MountItem{Kind: driver.ItemRevealFile, Open: &f}, func(ev driver.Event) {
+		if ev.Text != "" {
+			answer(errors.New(ev.Text))
+			return
+		}
+		if !ev.Finished {
+			answer(errors.New(driver.NoFileRevealer))
+			return
+		}
+		answer(nil)
+	})
+}
+
+// TrashFile moves path to the user's Trash or Recycle Bin. It never deletes
+// permanently; trashedAt is the resulting path when the platform reports it.
+func (cx *Scope) TrashFile(path string, done func(trashedAt string, err error)) {
+	answer := func(at string, err error) {
+		if done != nil {
+			done(at, err)
+		}
+	}
+	t := cx.tree()
+	if t == nil {
+		return
+	}
+	f, err := resolvePath(path, true)
+	if err != nil {
+		answer("", err)
+		return
+	}
+	t.request(cx, driver.MountItem{Kind: driver.ItemTrashFile, Open: &f}, func(ev driver.Event) {
+		if ev.Text != "" {
+			if ev.Text == driver.NoTrash {
+				answer("", ErrNoTrash)
+			} else {
+				answer("", errors.New(ev.Text))
+			}
+			return
+		}
+		at, _ := ev.Data.(string)
+		if !ev.Finished {
+			answer(at, errors.New("core: file could not be trashed"))
+			return
+		}
+		answer(at, nil)
+	})
+}
+
+func resolvePath(path string, folders bool) (driver.SharedFile, error) {
+	if path == "" {
+		return driver.SharedFile{}, errors.New("core: a path is required")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return driver.SharedFile{}, err
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return driver.SharedFile{}, err
+	}
+	if !folders && !info.Mode().IsRegular() {
+		return driver.SharedFile{}, fmt.Errorf("core: %s is not a file", path)
+	}
+	return driver.SharedFile{Path: abs, Name: filepath.Base(abs), MIME: driver.MIMEForFile(filepath.Base(abs))}, nil
+}
+
 // ShareOptions say what Share shares: files, text, or both.
 type ShareOptions struct {
 	Files []SharedFile

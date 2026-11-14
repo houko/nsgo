@@ -920,6 +920,9 @@ func (s *surface) apply(b *driver.MountBatch) {
 		case driver.ItemOpenFile:
 			s.openFile(*it.Open, it.Count)
 			continue
+		case driver.ItemRevealFile, driver.ItemTrashFile:
+			s.engine.Dispatch(driver.Event{Kind: driver.EventFiles, Count: it.Count, Text: driver.NoFileRevealer})
+			continue
 		case driver.ItemShare:
 			s.share(*it.Share, it.Count)
 			continue

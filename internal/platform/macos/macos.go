@@ -1477,6 +1477,12 @@ func (s *surface) apply(b *driver.MountBatch) {
 		case driver.ItemOpenFile:
 			s.openFile(*it.Open, it.Count)
 			continue
+		case driver.ItemRevealFile:
+			s.revealFile(*it.Open, it.Count)
+			continue
+		case driver.ItemTrashFile:
+			s.trashFile(*it.Open, it.Count)
+			continue
 		case driver.ItemShare:
 			s.share(*it.Share, it.Count)
 			continue

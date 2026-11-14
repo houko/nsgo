@@ -35,6 +35,7 @@ var (
 	getSaveFileNameW     = comdlg32.NewProc("GetSaveFileNameW")
 	commDlgExtendedError = comdlg32.NewProc("CommDlgExtendedError")
 	shellExecuteExW      = shell32.NewProc("ShellExecuteExW")
+	shFileOperationW     = shell32.NewProc("SHFileOperationW")
 	isIconic             = user32.NewProc("IsIconic")
 	setForegroundWindow  = user32.NewProc("SetForegroundWindow")
 	bringWindowToTop     = user32.NewProc("BringWindowToTop")
@@ -247,6 +248,44 @@ func (w *window) openFile(f driver.SharedFile, id uint32) {
 		ev.Finished = true
 	case err != syscall.Errno(errNoAssociation):
 		ev.Text = err.Error()
+	}
+	w.engine.Dispatch(ev)
+}
+
+func (w *window) revealFile(f driver.SharedFile, id uint32) {
+	const flagNoUI = 0x00000400 // SEE_MASK_FLAG_NO_UI
+	params := wide(`/select,"` + f.Path + `"`)
+	info := shellExecuteInfo{Mask: flagNoUI, Hwnd: w.hwnd, Verb: wide("open"), File: wide("explorer.exe"), Parameters: params, Show: swShowNormal}
+	info.Size = uint32(unsafe.Sizeof(info))
+	r, _, err := shellExecuteExW.Call(uintptr(unsafe.Pointer(&info)))
+	ev := driver.Event{Kind: driver.EventFiles, Count: id, Finished: r != 0}
+	if r == 0 {
+		ev.Text = err.Error()
+	}
+	w.engine.Dispatch(ev)
+}
+
+type shellFileOp struct {
+	Wnd                  uintptr
+	Func                 uint32
+	From                 *uint16
+	To                   *uint16
+	Flags                uint16
+	AnyOperationsAborted int32
+	NameMappings         uintptr
+	Title                *uint16
+}
+
+func (w *window) trashFile(f driver.SharedFile, id uint32) {
+	from, _ := syscall.UTF16FromString(f.Path)
+	from = append(from, 0)
+	op := shellFileOp{Wnd: w.hwnd, Func: 3, From: &from[0], Flags: 0x0040 | 0x0010 | 0x0400 | 0x0004}
+	r, _, _ := shFileOperationW.Call(uintptr(unsafe.Pointer(&op)))
+	ev := driver.Event{Kind: driver.EventFiles, Count: id, Finished: r == 0}
+	if r == 0 {
+		ev.Data = f.Path
+	} else {
+		ev.Text = driver.NoTrash
 	}
 	w.engine.Dispatch(ev)
 }

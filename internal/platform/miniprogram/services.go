@@ -75,6 +75,8 @@ func (s *surface) service(it *driver.MountItem) {
 		s.engine.Dispatch(driver.Event{Kind: driver.EventFiles, Count: it.Count, Text: driver.NoDirectoryPicker})
 	case driver.ItemOpenFile:
 		s.openFile(it.Open, it.Count)
+	case driver.ItemRevealFile, driver.ItemTrashFile:
+		s.engine.Dispatch(driver.Event{Kind: driver.EventFiles, Count: it.Count, Text: driver.NoFileRevealer})
 	case driver.ItemShare:
 		s.engine.Dispatch(driver.Event{Kind: driver.EventFiles, Count: it.Count, Text: driver.NoShareSheet})
 	case driver.ItemSaveFile, driver.ItemInstallPackage, driver.ItemCanInstallPackages, driver.ItemInstallSettings,
