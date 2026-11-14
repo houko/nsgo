@@ -93,10 +93,11 @@ type window struct {
 	// loop, but closing one must not end the app.
 	primary    bool
 	kind       driver.SurfaceKind
-	destroying bool
 	hideOnBlur bool
 	visible    bool
 	focused    bool
+	// settingsHandlers are the handlers setupSettings connects to GTK's settings, which outlive the window.
+	settingsHandlers []uint64
 	// embedded is set for a host's widget (NewView): the host owns the
 	// window, its chrome and the main loop. app and opts start its engine
 	// once GTK first allocates it.
@@ -567,7 +568,7 @@ func (w *window) setupSettings() {
 	gSignalConnect(w.surface, "unmap", cbMapped, w.handle)
 	if settings := gtkSettingsGetDefault(); settings != 0 {
 		for _, name := range []string{"gtk-theme-name", "gtk-application-prefer-dark-theme", "gtk-xft-dpi", "gtk-enable-animations"} {
-			gSignalConnect(settings, "notify::"+name, cbSettingsChanged, w.handle)
+			w.settingsHandlers = append(w.settingsHandlers, gSignalConnect(settings, "notify::"+name, cbSettingsChanged, w.handle))
 		}
 	}
 }
@@ -637,14 +638,11 @@ func closeRequestCallback(win uintptr, data uintptr) int32 {
 			w.close()
 			return 1
 		}
-		if w.destroying {
-			w.close()
-			return 0
-		}
-		if w.engine != nil {
+		// An opened window's close is the app's to decide (core.Window.OnClosing): it stays until WindowDestroy.
+		if w.engine != nil && !w.closing {
 			w.engine.Dispatch(driver.Event{Kind: driver.EventWindowClose})
 		}
-		return 0
+		return 1
 	}
 	return 1
 }
@@ -696,6 +694,39 @@ func (w *window) close() {
 	if w.loop != 0 {
 		gMainLoopQuit(w.loop)
 	}
+}
+
+// destroy ends an opened surface once its tree is gone (WindowDestroy): its views, its window and the handle its callbacks find it by go with it.
+func (w *window) destroy() {
+	if w.primary || w.embedded || w.win == 0 {
+		return
+	}
+	w.close()
+	for _, v := range w.views {
+		if v != nil {
+			w.delete(v)
+		}
+	}
+	if settings := gtkSettingsGetDefault(); settings != 0 {
+		for _, id := range w.settingsHandlers {
+			gSignalHandlerDisconnect(settings, id)
+		}
+	}
+	w.settingsHandlers = nil
+	w.hitMu.Lock()
+	for i, m := range w.hitMap {
+		if m != 0 {
+			gObjectUnref(m)
+			w.hitMap[i] = 0
+		}
+	}
+	w.hitMu.Unlock()
+	gtkWindowDestroy(w.win)
+	forgetWidget(w.surface)
+	gObjectUnref(w.surface)
+	w.win, w.surface = 0, 0
+	windowHandles.Delete(w.handle)
+	updateAppSurface()
 }
 
 func (w *window) view(id driver.NodeID) *view {
@@ -834,6 +865,11 @@ func (w *window) apply(b *driver.MountBatch) {
 			w.setKeymap(it.Keys)
 			continue
 		case driver.ItemTitle, driver.ItemWindow, driver.ItemMenu:
+			if it.Kind == driver.ItemWindow && it.Window != nil && it.Window.Action == driver.WindowDestroy {
+				// Nothing follows the surface's last item.
+				w.destroy()
+				return
+			}
 			// An embedding host owns its window and menus.
 			if !w.embedded {
 				w.chromeItem(it)
@@ -1131,16 +1167,6 @@ func (w *window) delete(v *view) {
 // windowCommand carries out a Window item.
 func (w *window) windowCommand(c *driver.WindowCommand) {
 	switch c.Action {
-	case driver.WindowDestroy:
-		w.destroying = true
-		w.visible = false
-		if !w.primary && !w.embedded {
-			w.close()
-			w.closeNatives()
-		}
-		if w.win != 0 {
-			gtkWindowDestroy(w.win)
-		}
 	case driver.WindowSetTitleBar:
 		w.chrome.titleBar = c.TitleBar
 		w.chrome.height = c.Height
@@ -1164,10 +1190,9 @@ func (w *window) windowCommand(c *driver.WindowCommand) {
 	case driver.WindowClose:
 		if w.primary || w.embedded {
 			w.close()
-		} else {
-			w.destroying = true
-			w.visible = false
-			gtkWindowClose(w.win)
+		} else if !w.closing {
+			// As the title bar's close button does; GTK's own close does nothing for a window never shown.
+			w.engine.Dispatch(driver.Event{Kind: driver.EventWindowClose})
 		}
 	case driver.WindowShow:
 		w.visible = true

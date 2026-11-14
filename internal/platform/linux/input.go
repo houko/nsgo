@@ -719,6 +719,9 @@ func (w *window) wheelPinch(p driver.Point, delta float64) {
 
 func pinchTimeoutCallback(data uintptr) int32 {
 	w := windowOf(data)
+	if w == nil {
+		return 0
+	}
 	w.pinchTimeout = 0
 	if g := w.pinching; g != nil {
 		w.pinching = nil
