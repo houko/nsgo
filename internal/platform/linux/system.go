@@ -311,10 +311,9 @@ func (w *window) trashFile(f driver.SharedFile, id uint32) {
 	var gerr uintptr
 	ok := gFileTrash(file, 0, uintptr(unsafe.Pointer(&gerr))) != 0
 	gObjectUnref(file)
+	// g_file_trash reports no path in the trash, so trashedAt stays empty.
 	ev := driver.Event{Kind: driver.EventFiles, Count: id, Finished: ok}
-	if ok {
-		ev.Data = f.Path
-	} else if gerr != 0 {
+	if !ok && gerr != 0 {
 		const notSupported = 15 // G_IO_ERROR_NOT_SUPPORTED
 		e := (*gError)(cPointer(gerr))
 		if e.domain == gIOErrorQuark() && e.code == notSupported {
@@ -323,7 +322,7 @@ func (w *window) trashFile(f driver.SharedFile, id uint32) {
 		} else if err := dialogError(gerr); err != nil { // dialogError frees the error
 			ev.Text = err.Error()
 		}
-	} else {
+	} else if !ok {
 		ev.Text = "GTK could not move " + f.Path + " to the Trash"
 	}
 	if !w.closing {

@@ -215,8 +215,7 @@ type App struct {
 	// answers whether the manager accepted each request; nil accepts all.
 	RevealedFiles []string
 	RevealFile    func(path string) bool
-	// TrashedFiles records paths moved to the system trash. TrashFile returns
-	// the resulting path and an error; nil returns the original path.
+	// TrashedFiles records paths moved to the system trash. TrashFile returns the path in the trash, or "" as Linux does, and an error; nil trashes each with no path.
 	TrashedFiles []string
 	TrashFile    func(path string) (string, error)
 	// Shares are the shares the app asked for, oldest first; each sheet

@@ -515,7 +515,7 @@ func (a *App) apply(b *driver.MountBatch) {
 			a.TrashedFiles = append(a.TrashedFiles, it.Open.Path)
 			ev := driver.Event{Kind: driver.EventFiles, Count: it.Count}
 			if a.TrashFile == nil {
-				ev.Finished, ev.Data = true, it.Open.Path
+				ev.Finished = true
 			} else if path, err := a.TrashFile(it.Open.Path); err != nil {
 				ev.Text = err.Error()
 			} else {
