@@ -5,6 +5,7 @@ package linux
 import (
 	"bytes"
 	"fmt"
+	"image/color"
 	"image/png"
 	"os"
 	"sync"
@@ -77,15 +78,18 @@ type gDBusInterfaceVTable struct {
 }
 
 type linuxTray struct {
-	cfg      driver.TrayConfig
-	bus      uintptr // the tray's own session bus connection
-	name     string
-	owner    uint32
-	itemID   uint32
-	menuID   uint32
-	menu     []driver.MenuEntry
-	revision uint32
-	popupID  uint32
+	cfg    driver.TrayConfig
+	bus    uintptr // the tray's own session bus connection
+	name   string
+	owner  uint32
+	itemID uint32
+	menuID uint32
+	// pixmap is the icon as the item's ARGB32 pixels, pixW by pixH, nil without a PNG.
+	pixmap     []byte
+	pixW, pixH int
+	menu       []driver.MenuEntry
+	revision   uint32
+	popupID    uint32
 }
 
 var (
@@ -102,6 +106,7 @@ var (
 	trayBind                             = sync.OnceFunc(func() {
 		bindInputSources()
 		bindNotifications()
+		bindLauncherEntry()
 		purego.RegisterLibFunc(&gDBusNodeInfoNewForXML, gioLib, "g_dbus_node_info_new_for_xml")
 		purego.RegisterLibFunc(&gDBusNodeInfoLookupInterface, gioLib, "g_dbus_node_info_lookup_interface")
 		purego.RegisterLibFunc(&gDBusConnectionRegisterObject, gioLib, "g_dbus_connection_register_object")
@@ -141,7 +146,18 @@ func (w *window) applyTray(cfg driver.TrayConfig) {
 		return
 	}
 	if tr != nil {
-		tr.cfg = cfg
+		was := tr.cfg
+		tr.setConfig(cfg)
+		// Hosts read the properties again only as these signals say.
+		if !bytes.Equal(was.Icon, cfg.Icon) {
+			tr.emit(trayItemPath, trayItemInterface, "NewIcon", 0)
+		}
+		if was.Title != cfg.Title {
+			tr.emit(trayItemPath, trayItemInterface, "NewTitle", 0)
+		}
+		if was.Tooltip != cfg.Tooltip || !bytes.Equal(was.Icon, cfg.Icon) {
+			tr.emit(trayItemPath, trayItemInterface, "NewToolTip", 0)
+		}
 		return
 	}
 	if trayNodeInfo == 0 {
@@ -164,7 +180,8 @@ func (w *window) applyTray(cfg driver.TrayConfig) {
 	if bus == 0 {
 		return
 	}
-	tr = &linuxTray{cfg: cfg, bus: bus, name: fmt.Sprintf("%s%d-%d", trayServicePrefix, os.Getpid(), cfg.ID)}
+	tr = &linuxTray{bus: bus, name: fmt.Sprintf("%s%d-%d", trayServicePrefix, os.Getpid(), cfg.ID)}
+	tr.setConfig(cfg)
 	var err uintptr
 	tr.itemID = gDBusConnectionRegisterObject(bus, cstr(trayItemPath), itemInfo, &trayVTable, w.handle, 0, &err)
 	if err != 0 {
@@ -210,6 +227,23 @@ func closeTrayConnection(bus uintptr) {
 		gErrorFree(err)
 	}
 	gObjectUnref(bus)
+}
+
+// setConfig takes cfg and its icon's pixels.
+func (tr *linuxTray) setConfig(cfg driver.TrayConfig) {
+	if tr.pixmap == nil || !bytes.Equal(tr.cfg.Icon, cfg.Icon) {
+		tr.pixmap, tr.pixW, tr.pixH = trayIcon(cfg.Icon)
+	}
+	tr.cfg = cfg
+}
+
+// emit sends one of the tray's signals; params may be 0 for none.
+func (tr *linuxTray) emit(path, iface, signal string, params uintptr) {
+	var err uintptr
+	gDBusConnectionEmitSignal(tr.bus, nil, cstr(path), cstr(iface), cstr(signal), params, &err)
+	if err != 0 {
+		gErrorFree(err)
+	}
 }
 
 func (w *window) removeTray(tr *linuxTray) {
@@ -314,6 +348,11 @@ func trayError(invocation uintptr, name, message string) {
 // trayProperty is a declared StatusNotifierItem property of tr, appID naming the app.
 func trayProperty(tr *linuxTray, appID string, property string) uintptr {
 	cfg := tr.cfg
+	// A host shows a named icon from the theme ahead of the pixmap, so an icon the app gives leaves the name out; the app's own installed icon shows without one.
+	iconName := appID
+	if tr.pixmap != nil {
+		iconName = ""
+	}
 	switch property {
 	case "Category":
 		return gVariantNewString(cstr("ApplicationStatus"))
@@ -326,11 +365,11 @@ func trayProperty(tr *linuxTray, appID string, property string) uintptr {
 	case "WindowId":
 		return gVariantNewInt32(0)
 	case "IconName":
-		return gVariantNewString(cstr(appID))
+		return gVariantNewString(cstr(iconName))
 	case "IconPixmap":
-		return trayPixmap(cfg.Icon)
+		return tr.pixmapVariant()
 	case "ToolTip":
-		children := []uintptr{gVariantNewString(cstr(appID)), trayPixmap(cfg.Icon), gVariantNewString(cstr(cfg.Tooltip)), gVariantNewString(cstr(""))}
+		children := []uintptr{gVariantNewString(cstr(iconName)), tr.pixmapVariant(), gVariantNewString(cstr(cfg.Tooltip)), gVariantNewString(cstr(""))}
 		return gVariantNewTuple(&children[0], uintptr(len(children)))
 	case "ItemIsMenu":
 		return gVariantNewBoolean(0)
@@ -467,38 +506,39 @@ func menuBool(v bool) int32 {
 	return 0
 }
 
-// trayPixmap converts the PNG in TrayConfig to the StatusNotifierItem's
-// network-order ARGB32 pixmap. An empty array lets a host use IconName.
-func trayPixmap(data []byte) uintptr {
+// trayIcon converts the PNG in TrayConfig to the StatusNotifierItem's pixmap: network-order ARGB32 with straight alpha, at most trayIconSize pixels on its longer side. It returns nil without a PNG.
+func trayIcon(data []byte) (pix []byte, w, h int) {
 	img, err := png.Decode(bytes.NewReader(data))
 	if err != nil || img.Bounds().Empty() {
-		t := gVariantTypeNew(cstr("(iiay)"))
-		v := gVariantNewArray(t, nil, 0)
-		gVariantTypeFree(t)
-		return v
+		return nil, 0, 0
 	}
 	b := img.Bounds()
-	w, h := b.Dx(), b.Dy()
-	if w > 64 || h > 64 {
-		w, h = min(w, 64), min(h, 64)
+	w, h = b.Dx(), b.Dy()
+	if long := max(w, h); long > trayIconSize {
+		w, h = max(1, w*trayIconSize/long), max(1, h*trayIconSize/long)
 	}
-	pix := make([]byte, w*h*4)
+	pix = make([]byte, w*h*4)
 	for y := range h {
 		sy := b.Min.Y + y*b.Dy()/h
 		for x := range w {
 			sx := b.Min.X + x*b.Dx()/w
-			r, g, bl, a := img.At(sx, sy).RGBA()
+			c := color.NRGBAModel.Convert(img.At(sx, sy)).(color.NRGBA)
 			i := (y*w + x) * 4
-			pix[i], pix[i+1], pix[i+2], pix[i+3] = byte(a/0x100), byte(r/0x100), byte(g/0x100), byte(bl/0x100)
+			pix[i], pix[i+1], pix[i+2], pix[i+3] = c.A, c.R, c.G, c.B
 		}
 	}
+	return pix, w, h
+}
+
+// pixmapVariant is the tray's a(iiay) pixmap; an empty array lets a host use IconName.
+func (tr *linuxTray) pixmapVariant() uintptr {
+	if tr.pixmap == nil {
+		return menuArray("(iiay)", nil)
+	}
 	byteType := gVariantTypeNew(cstr("y"))
-	bytesValue := gVariantNewFixedArray(byteType, unsafe.Pointer(&pix[0]), uintptr(len(pix)), 1)
+	bytesValue := gVariantNewFixedArray(byteType, unsafe.Pointer(&tr.pixmap[0]), uintptr(len(tr.pixmap)), 1)
 	gVariantTypeFree(byteType)
-	children := []uintptr{gVariantNewInt32(int32(w)), gVariantNewInt32(int32(h)), bytesValue}
+	children := []uintptr{gVariantNewInt32(int32(tr.pixW)), gVariantNewInt32(int32(tr.pixH)), bytesValue}
 	item := gVariantNewTuple(&children[0], uintptr(len(children)))
-	tupleType := gVariantTypeNew(cstr("(iiay)"))
-	result := gVariantNewArray(tupleType, &item, 1)
-	gVariantTypeFree(tupleType)
-	return result
+	return menuArray("(iiay)", []uintptr{item})
 }
