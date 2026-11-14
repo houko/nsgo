@@ -37,7 +37,7 @@ The engine runs one graph with a tree per surface (`core.Tree`). Where the platf
 - Opening sends `ItemOpenSurface` to the app's surface. The platform makes the window and attaches it: `engine.Engine.Attach(id, platform)` returns the surface's `Engine`, which reports its size, environment and events as the first surface's does.
 - The engine commits every attached tree after each wake-up, the first first, and asks a window's platform for display frames, since the app's surface has no display. A tree waits uncommitted until it is attached.
 - A closed window's tree ends: the engine sends its platform one batch, `WindowDestroy`, and forgets it, or sends it to a platform that attaches after the close.
-- Where the platform opens no windows (phones, the web, `nsgo.NewView`, test hosts, Windows and Linux for now), the first tree is the one surface: `OpenWindow` and `OpenPanel` return nil, while supported desktop backends still process `NewTray`, and `core.AppRoot` shows the main view in it. A platform that registers global shortcuts there, as Linux's own window does, says so with `core.RootOptions.HotKeys`, and the shortcuts go to that surface.
+- Where the platform opens no windows (phones, the web, `nsgo.NewView` and test hosts), the first tree is the one surface: `OpenWindow` and `OpenPanel` return nil, while supported desktop backends still process `NewTray`, and `core.AppRoot` shows the main view in it. A platform that registers global shortcuts there, as Linux's own window does, says so with `core.RootOptions.HotKeys`, and the shortcuts go to that surface.
 
 ## Lifecycle
 
@@ -68,7 +68,7 @@ The engine runs one graph with a tree per surface (`core.Tree`). Where the platf
 - On Wayland, and on X11 where no grab succeeds, they use the XDG `GlobalShortcuts` portal, where the compositor asks the user to bind them. The portal knows an unsandboxed app by the ID it registers (`Registry.Register`), which must name its `.desktop` entry and comes before any other portal call on the connection; GTK calls the portal as it starts, so the shortcuts have a session bus connection of their own, whose calls run in order off the main thread.
 - Both paths dispatch the same `EventHotKey`; when neither backend is available, the shortcut is ignored. A host's `NewView` takes none.
 
-The Linux backend registers StatusNotifierItem icons on the session bus when a compatible watcher is present and reports primary and secondary activation. Menu objects and additional surfaces remain in the surfaces slice of the roadmap.
+The Linux backend attaches opened window surfaces to GTK's main loop and registers StatusNotifierItem icons on the session bus when a compatible watcher is present, reporting primary and secondary activation. Tray-anchored panels, panel focus behavior, drawn tray views and tray menus remain in the surfaces slice of the roadmap.
 ## Configuration
 
 `nsgo.yaml` keeps what the package needs before any code runs: the name, the ID, the version and the launch screen's appearance. Windows are sized and limited in Go, `nsgo.WindowSize` and `nsgo.WindowConstraints` for the main window and `WindowOptions` for others; `nsgo.HideDock` and the shutdown mode are Go's too. A `window` in `nsgo.yaml` fails the tool, naming `nsgo.WindowSize`.
