@@ -147,12 +147,9 @@ func (s *surface) revealFile(f driver.SharedFile, id uint32) {
 	u := objc.ID(apple.Class("NSURL")).Send(sel("fileURLWithPath:"), apple.NSString(f.Path))
 	urls := objc.ID(apple.Class("NSArray")).Send(sel("arrayWithObject:"), u)
 	ws := objc.ID(apple.Class("NSWorkspace")).Send(sel("sharedWorkspace"))
-	ok := objc.Send[bool](ws, sel("activateFileViewerSelectingURLs:"), urls)
-	ev := driver.Event{Kind: driver.EventFiles, Count: id, Finished: ok}
-	if !ok {
-		ev.Text = "macOS could not reveal " + f.Path
-	}
-	s.engine.Dispatch(ev)
+	// activateFileViewerSelectingURLs: returns void, so it reports no failure.
+	ws.Send(sel("activateFileViewerSelectingURLs:"), urls)
+	s.engine.Dispatch(driver.Event{Kind: driver.EventFiles, Count: id, Finished: true})
 }
 
 func (s *surface) trashFile(f driver.SharedFile, id uint32) {
