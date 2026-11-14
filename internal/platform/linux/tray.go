@@ -8,6 +8,8 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"slices"
+	"strings"
 	"sync"
 	"unsafe"
 
@@ -87,10 +89,100 @@ type linuxTray struct {
 	// pixmap is the icon as the item's ARGB32 pixels, pixW by pixH, nil without a PNG.
 	pixmap     []byte
 	pixW, pixH int
-	menu       []driver.MenuEntry
-	revision   uint32
+	menu       trayMenu
 	popupID    uint32
+	// asked are the hosts' AboutToShow calls for the menu, which wait for the app's menu (ItemTrayMenu) or until waitID's timeout.
+	asked  []uintptr
+	waitID uint32
 }
+
+// trayMenu is a tray's menu as dbusmenu numbers it: every entry has an ID of its own, which the menus the tray shows never reuse, so that an event for an entry of an older layout finds none. 0 is the root, whose children root lists.
+type trayMenu struct {
+	items    map[int32]*trayItem
+	root     []int32
+	last     int32
+	revision uint32
+}
+
+type trayItem struct {
+	entry    driver.MenuEntry // Items left out: children has them
+	children []int32
+}
+
+// set numbers entries as the menu's new layout.
+func (m *trayMenu) set(entries []driver.MenuEntry) {
+	m.items = map[int32]*trayItem{}
+	m.root = m.add(entries)
+	m.revision++
+}
+
+func (m *trayMenu) add(entries []driver.MenuEntry) []int32 {
+	ids := make([]int32, len(entries))
+	for i, e := range entries {
+		m.last++
+		id := m.last
+		ids[i] = id
+		it := &trayItem{entry: e}
+		it.entry.Items = nil
+		m.items[id] = it
+		it.children = m.add(e.Items)
+	}
+	return ids
+}
+
+// node returns the entry id names, nil for the root, and its children's IDs; ok is false for an ID the layout lacks.
+func (m *trayMenu) node(id int32) (entry *driver.MenuEntry, children []int32, ok bool) {
+	if id == 0 {
+		return nil, m.root, true
+	}
+	it := m.items[id]
+	if it == nil {
+		return nil, nil, false
+	}
+	return &it.entry, it.children, true
+}
+
+// itemProperties are the dbusmenu properties the menu's entries have.
+var itemProperties = []string{"type", "label", "enabled", "visible", "children-display", "toggle-type", "toggle-state"}
+
+// itemProperty is an entry's property, 0 where it has the default; entry is nil for the root.
+func itemProperty(entry *driver.MenuEntry, parent bool, name string) uintptr {
+	if name == "children-display" {
+		if parent {
+			return gVariantNewString(cstr("submenu"))
+		}
+		return 0
+	}
+	if entry == nil {
+		return 0
+	}
+	switch name {
+	case "type":
+		if entry.Separator {
+			return gVariantNewString(cstr("separator"))
+		}
+	case "label":
+		if !entry.Separator {
+			return gVariantNewString(cstr(menuLabel(entry.Label)))
+		}
+	case "enabled":
+		return gVariantNewBoolean(boolInt(!entry.Disabled))
+	case "visible":
+		return gVariantNewBoolean(1)
+	case "toggle-type":
+		if entry.Checkable {
+			return gVariantNewString(cstr("checkmark"))
+		}
+	case "toggle-state":
+		if entry.Checkable {
+			return gVariantNewInt32(boolInt(entry.Checked))
+		}
+	}
+	return 0
+}
+
+// menuLabel escapes a label's underscores, which dbusmenu reads as access keys.
+func menuLabel(label string) string { return strings.ReplaceAll(label, "_", "__") }
 
 var (
 	gDBusNodeInfoNewForXML               func(xml *byte, err *uintptr) uintptr
@@ -126,6 +218,7 @@ var (
 	cbTrayGetProperty uintptr
 	cbTraySetProperty uintptr
 	cbTrayAcquired    uintptr
+	cbTrayMenuWait    uintptr
 )
 
 func init() {
@@ -133,6 +226,7 @@ func init() {
 	cbTrayGetProperty = newCallback(trayGetProperty)
 	cbTraySetProperty = newCallback(traySetProperty)
 	cbTrayAcquired = newCallback(trayNameAcquired)
+	cbTrayMenuWait = newCallback(trayMenuWaitCallback)
 	trayVTable = gDBusInterfaceVTable{MethodCall: cbTrayMethod, GetProperty: cbTrayGetProperty, SetProperty: cbTraySetProperty}
 }
 
@@ -247,6 +341,7 @@ func (tr *linuxTray) emit(path, iface, signal string, params uintptr) {
 }
 
 func (w *window) removeTray(tr *linuxTray) {
+	tr.answerAsked(false)
 	if tr.menuID != 0 {
 		gDBusConnectionUnregisterObject(tr.bus, tr.menuID)
 	}
@@ -264,6 +359,41 @@ func (w *window) removeTrays() {
 	for _, tr := range w.trays {
 		w.removeTray(tr)
 	}
+}
+
+// trayMenuShown takes the menu the app gives for a tray's AboutToShow or click (ItemTrayMenu): hosts that wait for it hear it changed, and the others are told so.
+func (w *window) trayMenuShown(tr *linuxTray, entries []driver.MenuEntry, popup uint32) {
+	tr.menu.set(entries)
+	tr.popupID = popup
+	params := []uintptr{gVariantNewUint32(tr.menu.revision), gVariantNewInt32(0)}
+	tr.emit(trayMenuPath, trayMenuInterface, "LayoutUpdated", gVariantNewTuple(&params[0], uintptr(len(params))))
+	tr.answerAsked(true)
+}
+
+// answerAsked answers the AboutToShow calls waiting for the menu.
+func (tr *linuxTray) answerAsked(update bool) {
+	if tr.waitID != 0 {
+		gSourceRemove(tr.waitID)
+		tr.waitID = 0
+	}
+	for _, invocation := range tr.asked {
+		v := gVariantNewBoolean(boolInt(update))
+		gDBusMethodInvocationReturnValue(invocation, gVariantNewTuple(&v, 1))
+	}
+	tr.asked = nil
+}
+
+// trayMenuWaitCallback answers the AboutToShow calls the app has not given a menu for in time, as for a tray without one: the host shows the menu it has.
+func trayMenuWaitCallback(data uintptr) int32 {
+	if w := windowOf(data); w != nil {
+		for _, tr := range w.trays {
+			if tr.waitID != 0 {
+				tr.waitID = 0
+				tr.answerAsked(true)
+			}
+		}
+	}
+	return 0
 }
 
 func trayNameAcquired(bus, name, data uintptr) {
@@ -301,7 +431,7 @@ func trayMethodCall(conn, sender, path, iface, method, params, invocation, data 
 		return
 	}
 	if goString(iface) == trayMenuInterface {
-		gDBusMethodInvocationReturnValue(invocation, trayMenuMethod(w, tr, goString(method), params))
+		w.trayMenuMethod(tr, goString(method), params, invocation)
 		return
 	}
 	switch goString(method) {
@@ -394,90 +524,149 @@ func menuProperty(name string) uintptr {
 	return gVariantNewString(cstr(""))
 }
 
-func trayMenuMethod(w *window, tr *linuxTray, method string, params uintptr) uintptr {
+func (w *window) trayMenuMethod(tr *linuxTray, method string, params, invocation uintptr) {
+	m := &tr.menu
 	switch method {
 	case "GetLayout":
-		// The method's output is (u(ia{sv}av)).
-		children := []uintptr{gVariantNewUint32(tr.revision), menuNode(0, nil, tr.menu)}
-		return gVariantNewTuple(&children[0], uintptr(len(children)))
+		parent, depth := variantInt32(params, 0), variantInt32(params, 1)
+		if _, _, ok := m.node(parent); !ok {
+			trayError(invocation, "org.freedesktop.DBus.Error.InvalidArgs", "no such menu item")
+			return
+		}
+		children := []uintptr{gVariantNewUint32(m.revision), m.layout(parent, depth)}
+		gDBusMethodInvocationReturnValue(invocation, gVariantNewTuple(&children[0], uintptr(len(children))))
 	case "GetGroupProperties":
-		return menuGroupProperties(tr.menu)
-	case "GetProperty":
-		name := variantString(params, 1)
-		value := menuProperty(name)
-		v := gVariantNewVariant(value)
-		return gVariantNewTuple(&v, 1)
-	case "Event":
-		if variantString(params, 1) == "clicked" {
-			child := gVariantGetChildValue(params, 0)
-			itemID := uint32(gVariantGetInt32(child))
-			gVariantUnref(child)
-			if itemID != 0 {
-				w.engine.Dispatch(driver.Event{Kind: driver.EventMenu, Count: itemID})
+		ids := variantInt32s(params, 0)
+		if len(ids) == 0 {
+			for id := range m.items {
+				ids = append(ids, id)
 			}
-			if tr.popupID != 0 {
-				w.engine.Dispatch(driver.Event{Kind: driver.EventMenuClosed, Count: tr.popupID})
-				tr.popupID = 0
+			slices.Sort(ids)
+		}
+		values := make([]uintptr, 0, len(ids))
+		for _, id := range ids {
+			if entry, children, ok := m.node(id); ok {
+				item := []uintptr{gVariantNewInt32(id), menuEntryProperties(entry, len(children) > 0)}
+				values = append(values, gVariantNewTuple(&item[0], uintptr(len(item))))
 			}
 		}
-		return gVariantNewTuple(nil, 0)
+		v := menuArray("(ia{sv})", values)
+		gDBusMethodInvocationReturnValue(invocation, gVariantNewTuple(&v, 1))
+	case "GetProperty":
+		entry, children, ok := m.node(variantInt32(params, 0))
+		var value uintptr
+		if ok {
+			value = itemProperty(entry, len(children) > 0, variantString(params, 1))
+		}
+		if value == 0 {
+			trayError(invocation, "org.freedesktop.DBus.Error.InvalidArgs", "no such menu item property")
+			return
+		}
+		v := gVariantNewVariant(value)
+		gDBusMethodInvocationReturnValue(invocation, gVariantNewTuple(&v, 1))
+	case "Event":
+		id := variantInt32(params, 0)
+		switch variantString(params, 1) {
+		case "clicked":
+			if entry, _, ok := m.node(id); ok && entry != nil && entry.ID != 0 {
+				w.engine.Dispatch(driver.Event{Kind: driver.EventMenu, Count: entry.ID})
+			}
+			w.trayMenuClosed(tr)
+		case "closed":
+			// Qt hosts close the menu before they report the click; core still finds the chosen item.
+			if id == 0 {
+				w.trayMenuClosed(tr)
+			}
+		}
+		returnTray(invocation)
 	case "AboutToShow":
-		v := gVariantNewBoolean(1)
-		return gVariantNewTuple(&v, 1)
+		id := variantInt32(params, 0)
+		if _, _, ok := m.node(id); !ok {
+			trayError(invocation, "org.freedesktop.DBus.Error.InvalidArgs", "no such menu item")
+			return
+		}
+		if id != 0 {
+			v := gVariantNewBoolean(0)
+			gDBusMethodInvocationReturnValue(invocation, gVariantNewTuple(&v, 1))
+			return
+		}
+		// The app builds its menu as it is shown: the answer waits for it.
+		tr.asked = append(tr.asked, invocation)
+		w.askTrayMenu(tr)
 	case "AboutToShowGroup":
-		return menuEmptyIntArrays()
+		var errs []uintptr
+		for _, id := range variantInt32s(params, 0) {
+			if id == 0 {
+				w.askTrayMenu(tr)
+			} else if _, _, ok := m.node(id); !ok {
+				errs = append(errs, gVariantNewInt32(id))
+			}
+		}
+		values := []uintptr{menuArray("i", nil), menuArray("i", errs)}
+		gDBusMethodInvocationReturnValue(invocation, gVariantNewTuple(&values[0], uintptr(len(values))))
+	default:
+		returnTray(invocation)
 	}
-	return gVariantNewTuple(nil, 0)
 }
 
-func menuNode(id int32, entry *driver.MenuEntry, children []driver.MenuEntry) uintptr {
-	properties := menuEntryProperties(entry)
-	childValues := make([]uintptr, len(children))
-	for i := range children {
-		childValues[i] = gVariantNewVariant(menuNode(int32(children[i].ID), &children[i], children[i].Items))
+// askTrayMenu has the app build the tray's menu, as a secondary click does, unless it is building it already.
+func (w *window) askTrayMenu(tr *linuxTray) {
+	if tr.waitID != 0 {
+		return
 	}
-	childArray := menuArray("v", childValues)
-	node := []uintptr{gVariantNewInt32(id), properties, childArray}
+	tr.waitID = gTimeoutAdd(trayMenuWait, cbTrayMenuWait, w.handle)
+	w.engine.Dispatch(driver.Event{Kind: driver.EventTray, Count: tr.cfg.ID, Index: 1})
+}
+
+// trayMenuClosed reports the tray's menu closed, once.
+func (w *window) trayMenuClosed(tr *linuxTray) {
+	if tr.popupID != 0 {
+		w.engine.Dispatch(driver.Event{Kind: driver.EventMenuClosed, Count: tr.popupID})
+		tr.popupID = 0
+	}
+}
+
+// layout is the (ia{sv}av) of the item id with its children depth levels down, all of them for a negative depth.
+func (m *trayMenu) layout(id int32, depth int32) uintptr {
+	entry, children, _ := m.node(id)
+	var values []uintptr
+	if depth != 0 {
+		values = make([]uintptr, len(children))
+		for i, child := range children {
+			values[i] = gVariantNewVariant(m.layout(child, depth-1))
+		}
+	}
+	node := []uintptr{gVariantNewInt32(id), menuEntryProperties(entry, len(children) > 0), menuArray("v", values)}
 	return gVariantNewTuple(&node[0], uintptr(len(node)))
 }
 
-func menuEntryProperties(entry *driver.MenuEntry) uintptr {
+// menuEntryProperties is the a{sv} of an entry's properties, nil for the root.
+func menuEntryProperties(entry *driver.MenuEntry, parent bool) uintptr {
 	props := []uintptr{}
-	if entry != nil {
-		props = append(props, menuDictEntry("label", gVariantNewString(cstr(entry.Label))))
-		props = append(props, menuDictEntry("enabled", gVariantNewBoolean(menuBool(!entry.Disabled))))
-		props = append(props, menuDictEntry("visible", gVariantNewBoolean(1)))
-		if entry.Separator {
-			props = append(props, menuDictEntry("type", gVariantNewString(cstr("separator"))))
-		}
-		if len(entry.Items) != 0 {
-			props = append(props, menuDictEntry("children-display", gVariantNewString(cstr("submenu"))))
-		}
-		if entry.Checkable {
-			props = append(props, menuDictEntry("toggle-type", gVariantNewString(cstr("checkmark"))))
-			state := int32(0)
-			if entry.Checked {
-				state = 1
-			}
-			props = append(props, menuDictEntry("toggle-state", gVariantNewInt32(state)))
+	for _, name := range itemProperties {
+		if v := itemProperty(entry, parent, name); v != 0 {
+			props = append(props, menuDictEntry(name, v))
 		}
 	}
 	return menuDict(props)
 }
 
-func menuGroupProperties(entries []driver.MenuEntry) uintptr {
-	values := make([]uintptr, len(entries))
-	for i := range entries {
-		children := []uintptr{gVariantNewInt32(int32(entries[i].ID)), menuEntryProperties(&entries[i])}
-		values[i] = gVariantNewTuple(&children[0], uintptr(len(children)))
-	}
-	return menuArray("(ia{sv})", values)
+// variantInt32 is the int32 child i of a tuple.
+func variantInt32(tuple uintptr, i int) int32 {
+	child := gVariantGetChildValue(tuple, uintptr(i))
+	defer gVariantUnref(child)
+	return gVariantGetInt32(child)
 }
 
-func menuEmptyIntArrays() uintptr {
-	empty := menuArray("i", nil)
-	values := []uintptr{empty, menuArray("i", nil)}
-	return gVariantNewTuple(&values[0], uintptr(len(values)))
+// variantInt32s is the ai child i of a tuple.
+func variantInt32s(tuple uintptr, i int) []int32 {
+	array := gVariantGetChildValue(tuple, uintptr(i))
+	defer gVariantUnref(array)
+	out := make([]int32, gVariantNChildren(array))
+	for j := range out {
+		out[j] = variantInt32(array, j)
+	}
+	return out
 }
 
 func menuDictEntry(key string, value uintptr) uintptr {
@@ -497,13 +686,6 @@ func menuArray(signature string, values []uintptr) uintptr {
 	v := gVariantNewArray(t, ptr, uintptr(len(values)))
 	gVariantTypeFree(t)
 	return v
-}
-
-func menuBool(v bool) int32 {
-	if v {
-		return 1
-	}
-	return 0
 }
 
 // trayIcon converts the PNG in TrayConfig to the StatusNotifierItem's pixmap: network-order ARGB32 with straight alpha, at most trayIconSize pixels on its longer side. It returns nil without a PNG.

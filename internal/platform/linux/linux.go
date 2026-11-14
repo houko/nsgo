@@ -825,9 +825,7 @@ func (w *window) apply(b *driver.MountBatch) {
 				w.engine.Dispatch(driver.Event{Kind: driver.EventMenuClosed, Count: it.Count})
 				continue
 			}
-			tr.menu = slices.Clone(it.Menu)
-			tr.revision++
-			tr.popupID = it.Count
+			w.trayMenuShown(tr, it.Menu, it.Count)
 			continue
 		case driver.ItemLaunchAtLogin:
 			// Linux has no launch at login yet: the app hears it is off.
