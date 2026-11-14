@@ -119,7 +119,7 @@ func Restart(cx *core.Scope) { cx.Restart() }
 // RevealFile opens the file manager with path selected.
 func RevealFile(cx *core.Scope, path string, done func(error)) { cx.RevealFile(path, done) }
 
-// TrashFile moves path to the user's recoverable Trash or Recycle Bin.
+// TrashFile moves path to the user's recoverable Trash or Recycle Bin. It never deletes permanently: where the item cannot be recycled, done gets core.ErrNoTrash and the item stays.
 func TrashFile(cx *core.Scope, path string, done func(trashedAt string, err error)) {
 	cx.TrashFile(path, done)
 }

@@ -659,11 +659,10 @@ func (cx *Scope) OpenFile(f SharedFile, done func(opened bool, err error)) {
 	})
 }
 
-// ErrNoTrash is returned when the volume has no recoverable trash location.
+// ErrNoTrash is what TrashFile answers when the item's volume has no Trash or Recycle Bin, which leaves the item where it was.
 var ErrNoTrash = errors.New("core: the volume has no trash")
 
-// RevealFile opens the file manager with path selected. It accepts files and
-// folders and reports an error when the path is missing or unsupported.
+// RevealFile is the core's part of desktop.RevealFile, which apps use: it opens the file manager with the file or folder at path selected, and answers an error when the path is missing or the platform has no file manager.
 func (cx *Scope) RevealFile(path string, done func(error)) {
 	answer := func(err error) {
 		if done != nil {
@@ -692,8 +691,7 @@ func (cx *Scope) RevealFile(path string, done func(error)) {
 	})
 }
 
-// TrashFile moves path to the user's Trash or Recycle Bin. It never deletes
-// permanently; trashedAt is the resulting path when the platform reports it.
+// TrashFile is the core's part of desktop.TrashFile, which apps use: it moves the file or folder at path to the user's Trash or Recycle Bin, and never deletes it permanently, answering ErrNoTrash where it cannot be recycled. trashedAt is the item's path in the trash where the platform reports it, and "" elsewhere, such as on Linux.
 func (cx *Scope) TrashFile(path string, done func(trashedAt string, err error)) {
 	answer := func(at string, err error) {
 		if done != nil {
