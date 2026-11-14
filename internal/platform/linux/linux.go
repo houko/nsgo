@@ -829,6 +829,10 @@ func (w *window) apply(b *driver.MountBatch) {
 			tr.revision++
 			tr.popupID = it.Count
 			continue
+		case driver.ItemLaunchAtLogin:
+			// Linux has no launch at login yet: the app hears it is off.
+			w.engine.Dispatch(driver.Event{Kind: driver.EventLaunchAtLogin, Count: it.Count})
+			continue
 		case driver.ItemOpenSurface:
 			if it.Surface != nil {
 				w.openSurface(*it.Surface)
