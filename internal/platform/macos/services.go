@@ -155,13 +155,20 @@ func (s *surface) revealFile(f driver.SharedFile, id uint32) {
 func (s *surface) trashFile(f driver.SharedFile, id uint32) {
 	u := objc.ID(apple.Class("NSURL")).Send(sel("fileURLWithPath:"), apple.NSString(f.Path))
 	fm := objc.ID(apple.Class("NSFileManager")).Send(sel("defaultManager"))
-	var result objc.ID
-	ok := objc.Send[bool](fm, sel("trashItemAtURL:resultingItemURL:error:"), u, unsafe.Pointer(&result), objc.ID(0))
+	var result, err objc.ID
+	ok := objc.Send[bool](fm, sel("trashItemAtURL:resultingItemURL:error:"), u, unsafe.Pointer(&result), unsafe.Pointer(&err))
 	ev := driver.Event{Kind: driver.EventFiles, Count: id, Finished: ok}
-	if ok && result != 0 {
-		ev.Data = apple.GoString(result.Send(sel("path")))
-	} else if !ok {
+	const featureUnsupported = 3328 // NSFeatureUnsupportedError: the volume has no Trash
+	if ok {
+		if result != 0 {
+			ev.Data = apple.GoString(result.Send(sel("path")))
+		}
+	} else if err == 0 {
 		ev.Text = "macOS could not move " + f.Path + " to the Trash"
+	} else if apple.GoString(err.Send(sel("domain"))) == "NSCocoaErrorDomain" && objc.Send[int](err, sel("code")) == featureUnsupported {
+		ev.Text = driver.NoTrash
+	} else {
+		ev.Text = apple.GoString(err.Send(sel("localizedDescription")))
 	}
 	s.engine.Dispatch(ev)
 }
