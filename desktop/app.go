@@ -25,7 +25,7 @@ type (
 	ShutdownMode = core.ShutdownMode
 	// QuitRequest is a quit the user asked for, which OnQuitRequest's handlers may cancel, or defer while they ask the user.
 	QuitRequest = core.QuitRequest
-	// Tray is a tray icon: in the macOS menu bar.
+	// Tray is a tray icon: in the macOS menu bar, or a Linux StatusNotifierItem.
 	Tray = core.Tray
 	// TrayOptions are a tray icon's image or view, and what its clicks
 	// show.
