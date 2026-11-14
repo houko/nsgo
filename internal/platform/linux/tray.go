@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"image/png"
 	"os"
-	"strconv"
-	"strings"
 	"sync"
 	"unsafe"
 
@@ -17,21 +15,25 @@ import (
 	"github.com/nsgo-dev/nsgo/internal/driver"
 )
 
-// Linux tray icons use the freedesktop StatusNotifierItem protocol. The
-// watcher owns the visual presentation; the app owns one D-Bus item per tray
-// ID and receives Activate, SecondaryActivate and ContextMenu calls.
+// Linux tray icons use the freedesktop StatusNotifierItem protocol. The watcher owns the visual presentation; the app owns one item per tray ID, each on a session bus connection of its own so that it has the protocol's /StatusNotifierItem path and its bus name to itself, and receives Activate, SecondaryActivate and ContextMenu calls. Its menu is a com.canonical.dbusmenu object at /Menu on the same connection.
 
 const (
 	trayServicePrefix = "org.freedesktop.StatusNotifierItem-"
 	trayItemInterface = "org.freedesktop.StatusNotifierItem"
 	trayMenuInterface = "com.canonical.dbusmenu"
-	trayProperties    = "org.freedesktop.DBus.Properties"
+	trayItemPath      = "/StatusNotifierItem"
+	trayMenuPath      = "/Menu"
 	trayWatcher       = "org.kde.StatusNotifierWatcher"
 	trayWatcherAlt    = "org.freedesktop.StatusNotifierWatcher"
 	trayWatcherPath   = "/StatusNotifierWatcher"
 	trayWatcherIface  = "org.kde.StatusNotifierWatcher"
+	// trayMenuWait is how long, in milliseconds, a host's AboutToShow for the menu waits for the app's menu before it is answered with the one the tray has.
+	trayMenuWait = 250
+	// trayIconSize is the longest side of the pixmap the tray publishes.
+	trayIconSize = 64
 )
 
+// GDBus answers org.freedesktop.DBus.Properties itself, from the properties declared here and the vtable's GetProperty, with an error for a property the interface lacks.
 const trayIntrospection = `
 <node>
   <interface name="org.freedesktop.StatusNotifierItem">
@@ -48,6 +50,7 @@ const trayIntrospection = `
     <property name="IconName" type="s" access="read"/>
     <property name="IconPixmap" type="a(iiay)" access="read"/>
     <property name="ToolTip" type="(sa(iiay)ss)" access="read"/>
+    <property name="ItemIsMenu" type="b" access="read"/>
     <property name="Menu" type="o" access="read"/>
   </interface>
   <interface name="com.canonical.dbusmenu">
@@ -62,12 +65,7 @@ const trayIntrospection = `
     <property name="Version" type="u" access="read"/>
     <property name="TextDirection" type="s" access="read"/>
     <property name="Status" type="s" access="read"/>
-    <property name="IconThemePath" type="s" access="read"/>
-  </interface>
-  <interface name="org.freedesktop.DBus.Properties">
-    <method name="Get"><arg name="interface" type="s" direction="in"/><arg name="property" type="s" direction="in"/><arg name="value" type="v" direction="out"/></method>
-    <method name="GetAll"><arg name="interface" type="s" direction="in"/><arg name="properties" type="a{sv}" direction="out"/></method>
-    <signal name="PropertiesChanged"><arg name="interface" type="s"/><arg name="changed_properties" type="a{sv}"/><arg name="invalidated_properties" type="as"/></signal>
+    <property name="IconThemePath" type="as" access="read"/>
   </interface>
 </node>`
 
@@ -80,37 +78,40 @@ type gDBusInterfaceVTable struct {
 
 type linuxTray struct {
 	cfg      driver.TrayConfig
-	bus      uintptr
+	bus      uintptr // the tray's own session bus connection
 	name     string
 	owner    uint32
 	itemID   uint32
-	propsID  uint32
 	menuID   uint32
-	menuPath string
 	menu     []driver.MenuEntry
 	revision uint32
 	popupID  uint32
 }
 
 var (
-	gDBusNodeInfoNewForXML           func(xml *byte, err *uintptr) uintptr
-	gDBusNodeInfoLookupInterface     func(info uintptr, name *byte) uintptr
-	gDBusConnectionRegisterObject    func(conn uintptr, path *byte, info uintptr, vtable *gDBusInterfaceVTable, data, destroy uintptr, err *uintptr) uint32
-	gDBusConnectionUnregisterObject  func(conn uintptr, registration uint32) int32
-	gBusOwnNameOnConnection          func(conn uintptr, name *byte, flags uint32, acquired, lost, data, destroy uintptr) uint32
-	gBusUnownName                    func(owner uint32)
-	gDBusMethodInvocationReturnValue func(invocation, value uintptr)
-	gVariantNewFixedArray            func(elementType uintptr, data unsafe.Pointer, n, elementSize uintptr) uintptr
-	trayBind                         = sync.OnceFunc(func() {
+	gDBusNodeInfoNewForXML               func(xml *byte, err *uintptr) uintptr
+	gDBusNodeInfoLookupInterface         func(info uintptr, name *byte) uintptr
+	gDBusConnectionRegisterObject        func(conn uintptr, path *byte, info uintptr, vtable *gDBusInterfaceVTable, data, destroy uintptr, err *uintptr) uint32
+	gDBusConnectionUnregisterObject      func(conn uintptr, registration uint32) int32
+	gDBusConnectionCloseSync             func(conn, cancellable uintptr, err *uintptr) int32
+	gBusOwnNameOnConnection              func(conn uintptr, name *byte, flags uint32, acquired, lost, data, destroy uintptr) uint32
+	gBusUnownName                        func(owner uint32)
+	gDBusMethodInvocationReturnValue     func(invocation, value uintptr)
+	gDBusMethodInvocationReturnDBusError func(invocation uintptr, name, message *byte)
+	gVariantNewFixedArray                func(elementType uintptr, data unsafe.Pointer, n, elementSize uintptr) uintptr
+	trayBind                             = sync.OnceFunc(func() {
 		bindInputSources()
 		bindNotifications()
 		purego.RegisterLibFunc(&gDBusNodeInfoNewForXML, gioLib, "g_dbus_node_info_new_for_xml")
 		purego.RegisterLibFunc(&gDBusNodeInfoLookupInterface, gioLib, "g_dbus_node_info_lookup_interface")
 		purego.RegisterLibFunc(&gDBusConnectionRegisterObject, gioLib, "g_dbus_connection_register_object")
 		purego.RegisterLibFunc(&gDBusConnectionUnregisterObject, gioLib, "g_dbus_connection_unregister_object")
+		purego.RegisterLibFunc(&gDBusConnectionCloseSync, gioLib, "g_dbus_connection_close_sync")
+		purego.RegisterLibFunc(&gDBusAddressGetForBusSync, gioLib, "g_dbus_address_get_for_bus_sync")
 		purego.RegisterLibFunc(&gBusOwnNameOnConnection, gioLib, "g_bus_own_name_on_connection")
 		purego.RegisterLibFunc(&gBusUnownName, gioLib, "g_bus_unown_name")
 		purego.RegisterLibFunc(&gDBusMethodInvocationReturnValue, gioLib, "g_dbus_method_invocation_return_value")
+		purego.RegisterLibFunc(&gDBusMethodInvocationReturnDBusError, gioLib, "g_dbus_method_invocation_return_dbus_error")
 		purego.RegisterLibFunc(&gVariantNewFixedArray, glibLib, "g_variant_new_fixed_array")
 		purego.RegisterLibFunc(&gVariantNewObjectPath, glibLib, "g_variant_new_object_path")
 	})
@@ -121,16 +122,6 @@ var (
 	cbTraySetProperty uintptr
 	cbTrayAcquired    uintptr
 )
-
-func trayObjectPath(id uint32) string {
-	_ = id
-	return "/StatusNotifierItem"
-}
-
-func trayMenuPath(id uint32) string {
-	_ = id
-	return "/Menu"
-}
 
 func init() {
 	cbTrayMethod = newCallback(trayMethodCall)
@@ -153,10 +144,6 @@ func (w *window) applyTray(cfg driver.TrayConfig) {
 		tr.cfg = cfg
 		return
 	}
-	bus := sessionBus()
-	if bus == 0 {
-		return
-	}
 	if trayNodeInfo == 0 {
 		var err uintptr
 		trayNodeInfo = gDBusNodeInfoNewForXML(cstr(trayIntrospection), &err)
@@ -169,49 +156,73 @@ func (w *window) applyTray(cfg driver.TrayConfig) {
 		return
 	}
 	itemInfo := gDBusNodeInfoLookupInterface(trayNodeInfo, cstr(trayItemInterface))
-	propsInfo := gDBusNodeInfoLookupInterface(trayNodeInfo, cstr(trayProperties))
 	menuInfo := gDBusNodeInfoLookupInterface(trayNodeInfo, cstr(trayMenuInterface))
-	if itemInfo == 0 || propsInfo == 0 || menuInfo == 0 {
+	if itemInfo == 0 || menuInfo == 0 {
 		return
 	}
-	tr = &linuxTray{cfg: cfg, bus: bus, name: fmt.Sprintf("%s%d-%d", trayServicePrefix, os.Getpid(), cfg.ID), menuPath: trayMenuPath(cfg.ID)}
-	tr.owner = gBusOwnNameOnConnection(bus, cstr(tr.name), 0, cbTrayAcquired, 0, w.handle, 0)
+	bus := trayConnection()
+	if bus == 0 {
+		return
+	}
+	tr = &linuxTray{cfg: cfg, bus: bus, name: fmt.Sprintf("%s%d-%d", trayServicePrefix, os.Getpid(), cfg.ID)}
 	var err uintptr
-	path := trayObjectPath(cfg.ID)
-	tr.itemID = gDBusConnectionRegisterObject(bus, cstr(path), itemInfo, &trayVTable, w.handle, 0, &err)
+	tr.itemID = gDBusConnectionRegisterObject(bus, cstr(trayItemPath), itemInfo, &trayVTable, w.handle, 0, &err)
 	if err != 0 {
 		gErrorFree(err)
+		err = 0
 	}
 	if tr.itemID == 0 {
-		if tr.owner != 0 {
-			gBusUnownName(tr.owner)
-		}
+		closeTrayConnection(bus)
 		return
 	}
-	tr.propsID = gDBusConnectionRegisterObject(bus, cstr(path), propsInfo, &trayVTable, w.handle, 0, &err)
-	if err != 0 {
-		gErrorFree(err)
-	}
-	tr.menuID = gDBusConnectionRegisterObject(bus, cstr(tr.menuPath), menuInfo, &trayVTable, w.handle, 0, &err)
+	tr.menuID = gDBusConnectionRegisterObject(bus, cstr(trayMenuPath), menuInfo, &trayVTable, w.handle, 0, &err)
 	if err != 0 {
 		gErrorFree(err)
 	}
 	w.trays[cfg.ID] = tr
+	tr.owner = gBusOwnNameOnConnection(bus, cstr(tr.name), 0, cbTrayAcquired, 0, w.handle, 0)
+}
+
+// trayConnection opens a session bus connection for one tray, 0 without a session bus.
+func trayConnection() uintptr {
+	const busSession = 2
+	const authClient, messageBus = 1 << 0, 1 << 3
+	var err uintptr
+	address := gDBusAddressGetForBusSync(busSession, 0, &err)
+	if err != 0 {
+		gErrorFree(err)
+		return 0
+	}
+	bus := gDBusConnectionNewForAddressSync(cstr(goString(address)), authClient|messageBus, 0, 0, &err)
+	gFree(address)
+	if err != 0 {
+		gErrorFree(err)
+		return 0
+	}
+	return bus
+}
+
+// closeTrayConnection closes a tray's connection, which takes its bus name and objects away and so has the watcher drop the item.
+func closeTrayConnection(bus uintptr) {
+	var err uintptr
+	gDBusConnectionCloseSync(bus, 0, &err)
+	if err != 0 {
+		gErrorFree(err)
+	}
+	gObjectUnref(bus)
 }
 
 func (w *window) removeTray(tr *linuxTray) {
-	if tr.propsID != 0 {
-		gDBusConnectionUnregisterObject(tr.bus, tr.propsID)
+	if tr.menuID != 0 {
+		gDBusConnectionUnregisterObject(tr.bus, tr.menuID)
 	}
 	if tr.itemID != 0 {
 		gDBusConnectionUnregisterObject(tr.bus, tr.itemID)
 	}
-	if tr.menuID != 0 {
-		gDBusConnectionUnregisterObject(tr.bus, tr.menuID)
-	}
 	if tr.owner != 0 {
 		gBusUnownName(tr.owner)
 	}
+	closeTrayConnection(tr.bus)
 	delete(w.trays, tr.cfg.ID)
 }
 
@@ -221,75 +232,67 @@ func (w *window) removeTrays() {
 	}
 }
 
-func trayWindow(data uintptr) *window { return windowOf(data) }
-
 func trayNameAcquired(bus, name, data uintptr) {
-	w := trayWindow(data)
-	if w == nil || w.closing {
+	w := windowOf(data)
+	if w == nil || w.closing || w.trayOn(bus) == nil {
 		return
 	}
+	// The watcher finds the item at /StatusNotifierItem of the service it names. A missing watcher is normal on GNOME without its AppIndicator extension.
 	service := goString(name)
-	idx := strings.LastIndexByte(service, '-')
-	if idx < 0 {
-		return
-	}
-	id, err := strconv.ParseUint(service[idx+1:], 10, 32)
-	if err != nil || w.trays[uint32(id)] == nil {
-		return
-	}
-	// The protocol registers the service name; hosts use its conventional
-	// /StatusNotifierItem object path. A missing watcher is normal on GNOME
-	// without its AppIndicator extension.
-	arg := gVariantNewString(cstr(service))
-	if reply := dbusCall(bus, trayWatcher, trayWatcherPath, trayWatcherIface, "RegisterStatusNotifierItem", arg); reply != 0 {
+	if reply := dbusCall(bus, trayWatcher, trayWatcherPath, trayWatcherIface, "RegisterStatusNotifierItem", gVariantNewString(cstr(service))); reply != 0 {
 		gVariantUnref(reply)
 	} else {
-		dbusCall(bus, trayWatcherAlt, trayWatcherPath, trayWatcherAlt, "RegisterStatusNotifierItem", gVariantNewString(cstr(service)))
+		gVariantUnrefNonZero(dbusCall(bus, trayWatcherAlt, trayWatcherPath, trayWatcherAlt, "RegisterStatusNotifierItem", gVariantNewString(cstr(service))))
 	}
 }
 
-func trayMethodCall(conn, sender, path, iface, method, params, invocation, data uintptr) {
-	w := trayWindow(data)
-	if w == nil || w.engine == nil || w.closing {
-		returnTray(invocation)
-		return
-	}
-	id := trayID(w, path)
-	if _, ok := w.trays[id]; !ok {
-		returnTray(invocation)
-		return
-	}
-	interfaceName := methodString(iface)
-	if interfaceName == trayProperties {
-		if strings.HasSuffix(goString(path), "/Menu") {
-			gDBusMethodInvocationReturnValue(invocation, trayMenuPropertiesMethod(w, id, methodString(method), params))
-		} else {
-			gDBusMethodInvocationReturnValue(invocation, trayPropertiesMethod(w, id, methodString(method), params))
+// trayOn returns the tray whose connection bus is, nil for none.
+func (w *window) trayOn(bus uintptr) *linuxTray {
+	for _, tr := range w.trays {
+		if tr.bus == bus {
+			return tr
 		}
+	}
+	return nil
+}
+
+func trayMethodCall(conn, sender, path, iface, method, params, invocation, data uintptr) {
+	w := windowOf(data)
+	var tr *linuxTray
+	if w != nil && w.engine != nil && !w.closing {
+		tr = w.trayOn(conn)
+	}
+	if tr == nil {
+		trayError(invocation, "org.freedesktop.DBus.Error.UnknownObject", "no such tray")
 		return
 	}
-	if interfaceName == trayMenuInterface {
-		gDBusMethodInvocationReturnValue(invocation, trayMenuMethod(w, id, methodString(method), params))
+	if goString(iface) == trayMenuInterface {
+		gDBusMethodInvocationReturnValue(invocation, trayMenuMethod(w, tr, goString(method), params))
 		return
 	}
-	switch methodString(method) {
+	switch goString(method) {
 	case "Activate":
-		w.engine.Dispatch(driver.Event{Kind: driver.EventTray, Count: id, Index: 0})
+		w.engine.Dispatch(driver.Event{Kind: driver.EventTray, Count: tr.cfg.ID, Index: 0})
 	case "SecondaryActivate", "ContextMenu":
-		w.engine.Dispatch(driver.Event{Kind: driver.EventTray, Count: id, Index: 1})
+		w.engine.Dispatch(driver.Event{Kind: driver.EventTray, Count: tr.cfg.ID, Index: 1})
 	}
 	returnTray(invocation)
 }
 
 func trayGetProperty(conn, sender, path, iface, property uintptr, err, data uintptr) uintptr {
-	w := trayWindow(data)
-	if w == nil {
-		return 0
+	var tr *linuxTray
+	id := ""
+	if w := windowOf(data); w != nil {
+		tr, id = w.trayOn(conn), w.opts.ID
 	}
-	if strings.HasSuffix(goString(path), "/Menu") {
+	if tr == nil {
+		// GDBus asks only for declared properties and needs a value or an error for each.
+		tr = &linuxTray{}
+	}
+	if goString(iface) == trayMenuInterface {
 		return menuProperty(goString(property))
 	}
-	return trayProperty(w, trayID(w, path), goString(property))
+	return trayProperty(tr, id, goString(property))
 }
 
 func traySetProperty(conn, sender, path, iface, property, value, err, data uintptr) uintptr {
@@ -302,35 +305,20 @@ func returnTray(invocation uintptr) {
 	}
 }
 
-func methodString(p uintptr) string {
-	if p == 0 {
-		return ""
+func trayError(invocation uintptr, name, message string) {
+	if invocation != 0 {
+		gDBusMethodInvocationReturnDBusError(invocation, cstr(name), cstr(message))
 	}
-	return goString(p)
 }
 
-func trayID(w *window, path uintptr) uint32 {
-	p := goString(path)
-	if p != "/StatusNotifierItem" && p != "/Menu" {
-		return 0
-	}
-	for id := range w.trays {
-		return id
-	}
-	return 0
-}
-
-func trayProperty(w *window, id uint32, property string) uintptr {
-	tr := w.trays[id]
-	if tr == nil {
-		return 0
-	}
+// trayProperty is a declared StatusNotifierItem property of tr, appID naming the app.
+func trayProperty(tr *linuxTray, appID string, property string) uintptr {
 	cfg := tr.cfg
 	switch property {
 	case "Category":
 		return gVariantNewString(cstr("ApplicationStatus"))
 	case "Id":
-		return gVariantNewString(cstr(w.opts.ID))
+		return gVariantNewString(cstr(appID))
 	case "Title":
 		return gVariantNewString(cstr(cfg.Title))
 	case "Status":
@@ -338,23 +326,36 @@ func trayProperty(w *window, id uint32, property string) uintptr {
 	case "WindowId":
 		return gVariantNewInt32(0)
 	case "IconName":
-		return gVariantNewString(cstr(w.opts.ID))
+		return gVariantNewString(cstr(appID))
 	case "IconPixmap":
 		return trayPixmap(cfg.Icon)
 	case "ToolTip":
-		children := []uintptr{gVariantNewString(cstr(w.opts.ID)), trayPixmap(cfg.Icon), gVariantNewString(cstr(cfg.Tooltip)), gVariantNewString(cstr(""))}
+		children := []uintptr{gVariantNewString(cstr(appID)), trayPixmap(cfg.Icon), gVariantNewString(cstr(cfg.Tooltip)), gVariantNewString(cstr(""))}
 		return gVariantNewTuple(&children[0], uintptr(len(children)))
+	case "ItemIsMenu":
+		return gVariantNewBoolean(0)
 	case "Menu":
-		return gVariantNewObjectPath(cstr(tr.menuPath))
+		return gVariantNewObjectPath(cstr(trayMenuPath))
 	}
-	return 0
+	return gVariantNewString(cstr(""))
 }
 
-func trayMenuMethod(w *window, id uint32, method string, params uintptr) uintptr {
-	tr := w.trays[id]
-	if tr == nil {
-		return gVariantNewTuple(nil, 0)
+// menuProperty is a declared property of the dbusmenu object.
+func menuProperty(name string) uintptr {
+	switch name {
+	case "Version":
+		return gVariantNewUint32(3)
+	case "TextDirection":
+		return gVariantNewString(cstr("ltr"))
+	case "Status":
+		return gVariantNewString(cstr("normal"))
+	case "IconThemePath":
+		return menuArray("s", nil)
 	}
+	return gVariantNewString(cstr(""))
+}
+
+func trayMenuMethod(w *window, tr *linuxTray, method string, params uintptr) uintptr {
 	switch method {
 	case "GetLayout":
 		// The method's output is (u(ia{sv}av)).
@@ -388,37 +389,6 @@ func trayMenuMethod(w *window, id uint32, method string, params uintptr) uintptr
 		return menuEmptyIntArrays()
 	}
 	return gVariantNewTuple(nil, 0)
-}
-
-func trayMenuPropertiesMethod(w *window, id uint32, method string, params uintptr) uintptr {
-	switch method {
-	case "Get":
-		v := gVariantNewVariant(menuProperty(variantString(params, 1)))
-		return gVariantNewTuple(&v, 1)
-	case "GetAll":
-		entries := make([]uintptr, 0, 4)
-		for _, name := range []string{"Version", "TextDirection", "Status", "IconThemePath"} {
-			entries = append(entries, menuDictEntry(name, menuProperty(name)))
-		}
-		value := menuDict(entries)
-		return gVariantNewTuple(&value, 1)
-	}
-	return gVariantNewTuple(nil, 0)
-}
-
-func menuProperty(name string) uintptr {
-	switch name {
-	case "Version":
-		return gVariantNewUint32(3)
-	case "TextDirection":
-		return gVariantNewString(cstr("ltr"))
-	case "Status":
-		return gVariantNewString(cstr("normal"))
-	case "IconThemePath":
-		return gVariantNewString(cstr(""))
-	default:
-		return gVariantNewString(cstr(""))
-	}
 }
 
 func menuNode(id int32, entry *driver.MenuEntry, children []driver.MenuEntry) uintptr {
@@ -531,30 +501,4 @@ func trayPixmap(data []byte) uintptr {
 	result := gVariantNewArray(tupleType, &item, 1)
 	gVariantTypeFree(tupleType)
 	return result
-}
-
-// Properties.Get and GetAll are handled by the same vtable as the item
-// methods because GDBus registers each interface against one object path.
-func trayPropertiesMethod(w *window, id uint32, method string, params uintptr) uintptr {
-	switch method {
-	case "Get":
-		name := variantString(params, 1)
-		value := trayProperty(w, id, name)
-		if value == 0 {
-			return gVariantNewTuple(nil, 0)
-		}
-		v := gVariantNewVariant(value)
-		return gVariantNewTuple(&v, 1)
-	case "GetAll":
-		entries := make([]uintptr, 0, 9)
-		for _, name := range []string{"Category", "Id", "Title", "Status", "WindowId", "IconName", "IconPixmap", "ToolTip", "Menu"} {
-			key := gVariantNewString(cstr(name))
-			entries = append(entries, gVariantNewDictEntry(key, gVariantNewVariant(trayProperty(w, id, name))))
-		}
-		t := gVariantTypeNew(cstr("{sv}"))
-		props := gVariantNewArray(t, &entries[0], uintptr(len(entries)))
-		gVariantTypeFree(t)
-		return gVariantNewTuple(&props, 1)
-	}
-	return gVariantNewTuple(nil, 0)
 }
