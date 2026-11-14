@@ -101,18 +101,18 @@ The desktops show no camera ([roadmap](../roadmap.md#finish-the-existing-platfor
 
 `OpenFile` opens a file the app has in the app the system associates with its type. `RevealFile` opens the system file manager with a file or folder selected, and `TrashFile` moves it to the user's recoverable Trash or Recycle Bin; it never deletes permanently and returns `ErrNoTrash` when the volume has no trash. `Share` shows the system's share sheet for files, text or both. Each `SharedFile` is a path, with the name the other app sees and its type, which the file's name and extension say by default. Files go by path or content URI, so their size costs the bridge nothing.
 
-- `core` resolves and stats paths before asking the platform. `OpenFile`, `RevealFile` and `TrashFile` accept folders only where the platform has a file manager; phones and the web answer an error. A missing path fails before a command reaches the platform.
+- `core` checks each file is a regular file before asking the platform, and fails a share of neither files nor text. `OpenFile` also takes a folder on macOS, Windows and Linux, whose openers hand it to the file manager; phones have no file manager an app can open a folder of its own in, so `core` fails it there. `RevealFile` and `TrashFile` take a file or a folder, which `core` checks exists; the targets without a file manager answer `NoFileRevealer`.
 - `OpenFile` tells a type no app opens (`opened == false`, no error) from a failure. `Share` answers once the sheet shows, which says nothing of what the app chosen did with the files.
 - Where a platform hands files on by path and shows their own names, a file whose `Name` differs is linked under it in a directory of the temporary one (`SharedFile.Stage`), which a later share removes after `ShareStageAge`. Desktops open a file itself, under its own name.
 - `ShareOptions.Anchor` is the element a sheet shown as a popover points at, on macOS and iPads; it points at the root's center without one.
 
 | Target | `OpenFile` | `RevealFile` | `TrashFile` | `Share` |
 | --- | --- | --- | --- | --- |
-| macOS | `NSWorkspace openURL:` | `NSWorkspace activateFileViewerSelectingURLs:` | `NSFileManager trashItemAtURL:` | `NSSharingServicePicker` |
-| iOS | `UIDocumentInteractionController`'s Open In menu | Unavailable | Unavailable | `UIActivityViewController` |
-| Android | `Intent.ACTION_VIEW` | Unavailable | Unavailable | An `ACTION_SEND` or `ACTION_SEND_MULTIPLE` chooser |
-| Windows | `ShellExecuteExW` without UI | Explorer `/select` | `IFileOperation` with `FOFX_RECYCLEONDELETE` and no UI, whose progress sink stops before an item the Recycle Bin cannot take | None: `NoShareSheet` |
-| Linux | `GtkFileLauncher`, through the desktop portal | `gtk_file_launcher_open_containing_folder` | GIO `g_file_trash` | None: `NoShareSheet` |
+| macOS | `NSWorkspace openURL:` once `URLForApplicationToOpenURL:` finds an app | `NSWorkspace activateFileViewerSelectingURLs:` | `NSFileManager trashItemAtURL:`, `NoTrash` on `NSFeatureUnsupportedError` | `NSSharingServicePicker` |
+| iOS | `UIDocumentInteractionController`'s Open In menu, which shows no apps when none opens the type | Unavailable | Unavailable | `UIActivityViewController` |
+| Android | `Intent.ACTION_VIEW` | Unavailable | Unavailable | An `ACTION_SEND` or `ACTION_SEND_MULTIPLE` chooser, whose clip carries the grants and the preview |
+| Windows | `ShellExecuteExW` without UI, false on `ERROR_NO_ASSOCIATION` | Explorer `/select` | `IFileOperation` with `FOFX_RECYCLEONDELETE` and no UI, whose progress sink stops before an item the Recycle Bin cannot take | None: `NoShareSheet` ([roadmap](../roadmap.md#finish-the-existing-platforms)) |
+| Linux | `GtkFileLauncher`, through the desktop portal, which may ask for an app; false on `G_IO_ERROR_NOT_SUPPORTED` or a dismissed chooser | `gtk_file_launcher_open_containing_folder` | GIO `g_file_trash`, `NoTrash` on `G_IO_ERROR_NOT_SUPPORTED` | None: `NoShareSheet` |
 | Web | None: `NoFileOpener` | Unavailable | Unavailable | None: `NoShareSheet` |
 
 Android hands files on as content URIs from the runtime's `FileProvider`, which the manifest declares unexported, granting URIs, with an authority named after the app's package. A URI names one of its roots, the app's data directory (which holds `DataDir` and `CacheDir`) or its external one, the path under it and the name the other app sees, with the type as a parameter; a file elsewhere fails, and the provider serves nothing outside its roots, whatever the path says. The intent grants the app chosen read access until its activity finishes, so the app keeps the file there until then and deletes it itself.
