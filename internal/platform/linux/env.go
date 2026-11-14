@@ -174,6 +174,9 @@ const toplevelMinimized, toplevelSuspended = 1 << 0, 1 << 16
 // surface is unmapped or its window minimized or suspended, active while
 // one of the app's windows has the focus.
 func (w *window) lifecycle() driver.Lifecycle {
+	if w.primary && w.opts.Hidden {
+		return appLifecycle()
+	}
 	if w.surface == 0 || gtkWidgetGetMapped(w.surface) == 0 {
 		return driver.LifecycleBackground
 	}
@@ -192,6 +195,36 @@ func (w *window) lifecycle() driver.Lifecycle {
 		return driver.LifecycleActive
 	}
 	return driver.LifecycleInactive
+}
+
+// appLifecycle is the lifecycle of the app's own surface, which shows in no window (Options.Hidden): its windows', active while one has the focus and in the background while none shows.
+func appLifecycle() driver.Lifecycle {
+	l := driver.LifecycleBackground
+	windowHandles.Range(func(_, v any) bool {
+		w := v.(*window)
+		if w.closing || w.primary && w.opts.Hidden {
+			return true
+		}
+		switch w.lifecycle() {
+		case driver.LifecycleActive:
+			l = driver.LifecycleActive
+			return false
+		case driver.LifecycleInactive:
+			l = driver.LifecycleInactive
+		}
+		return true
+	})
+	return l
+}
+
+// updateAppSurface reads the environment of the app's own surface again as one of its windows shows, hides or goes.
+func updateAppSurface() {
+	windowHandles.Range(func(_, v any) bool {
+		if w := v.(*window); w.primary && w.opts.Hidden && !w.closing {
+			w.updateEnvironment()
+		}
+		return true
+	})
 }
 
 // rootWindow is the GtkWindow the surface shows in, the host's for an
@@ -224,6 +257,9 @@ func mappedCallback(widget, data uintptr) {
 		}
 	}
 	w.updateEnvironment()
+	if !w.primary {
+		updateAppSurface()
+	}
 }
 
 // activityCallback reads every window's environment again as one's focus
