@@ -659,7 +659,7 @@ func (cx *Scope) OpenFile(f SharedFile, done func(opened bool, err error)) {
 	})
 }
 
-// ErrNoTrash is what TrashFile answers when the item's volume has no Trash or Recycle Bin, which leaves the item where it was.
+// ErrNoTrash is what TrashFile answers when the item's volume has no Trash or Recycle Bin, or its Recycle Bin would not keep the item, such as a file larger than the bin on Windows, which leaves the item where it was.
 var ErrNoTrash = errors.New("core: the volume has no trash")
 
 // RevealFile is the core's part of desktop.RevealFile, which apps use: it opens the file manager with the file or folder at path selected, and answers an error when the path is missing or the platform has no file manager.
