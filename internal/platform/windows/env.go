@@ -271,8 +271,13 @@ func (w *window) darkTitleBar(dark bool) {
 
 // regDWORD reads a DWORD under HKEY_CURRENT_USER, or returns fallback.
 func regDWORD(path, name string, fallback uint32) uint32 {
+	return regDWORDIn(syscall.HKEY_CURRENT_USER, path, name, fallback)
+}
+
+// regDWORDIn reads a DWORD under root, or returns fallback.
+func regDWORDIn(root syscall.Handle, path, name string, fallback uint32) uint32 {
 	var key syscall.Handle
-	if syscall.RegOpenKeyEx(syscall.HKEY_CURRENT_USER, wide(path), 0, syscall.KEY_READ, &key) != nil {
+	if syscall.RegOpenKeyEx(root, wide(path), 0, syscall.KEY_READ, &key) != nil {
 		return fallback
 	}
 	defer syscall.RegCloseKey(key)

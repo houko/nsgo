@@ -331,7 +331,7 @@ func recycleSinkAddRef(s *recycleSink) uintptr { return uintptr(s.refs.Add(1)) }
 
 func recycleSinkRelease(s *recycleSink) uintptr { return uintptr(s.refs.Add(-1)) }
 
-// recycleSinkPreDelete cancels the operation before an item the shell would delete instead of recycling: one on a volume without a Recycle Bin, such as a network share, one over the Recycle Bin's size, or any when the user has the Recycle Bin remove files at once. The flags are a DWORD, whose register's upper half is undefined.
+// recycleSinkPreDelete cancels the operation before an item the shell would delete instead of recycling: one on a volume without a Recycle Bin, such as a network share, any when the user has the Recycle Bin remove files at once, and each item of a folder over the Recycle Bin's size, which the shell then deletes one by one without TSF_DELETE_RECYCLE_IF_POSSIBLE. A single file over the Recycle Bin's size has that flag and is deleted within the same call, which is why trashFile checks a file's size first. The flags are a DWORD, whose register's upper half is undefined.
 func recycleSinkPreDelete(s *recycleSink, flags uintptr, item *comObject) uintptr {
 	if uint32(flags)&tsfDeleteRecycleIfPossible == 0 {
 		s.refused = true
@@ -352,10 +352,74 @@ func recycleSinkPostDelete(s *recycleSink, flags uintptr, item *comObject, hr ui
 	return sOK
 }
 
-// trashFile has the shell move f to the Recycle Bin without UI, as IFileOperation does with FOFX_RECYCLEONDELETE, and answers NoTrash, leaving f where it is, when the Recycle Bin cannot take it: FOF_ALLOWUNDO alone recycles only if possible and silently deletes the rest for good. It answers the item's path in the Recycle Bin when the shell gives one.
+// recycleBinKeeps reports whether a Recycle Bin of maxMB megabytes, capped at policyPercent of a volume of volume bytes, keeps a file of size bytes. Windows 11 compares a file's length with the whole bin, not its free room: a 1 MB bin kept a file of 1 MiB, compressed or not, and deleted one a byte larger. This answers false at the bin's size exactly, a byte stricter, and for a bin of 0, which is what a size it cannot read is.
+func recycleBinKeeps(size uint64, maxMB, policyPercent uint32, volume uint64) bool {
+	return size < min(uint64(maxMB)<<20, volume/100*uint64(policyPercent))
+}
+
+var (
+	getFinalPathNameByHandleW = kernel32.NewProc("GetFinalPathNameByHandleW")
+	getDiskFreeSpaceExW       = kernel32.NewProc("GetDiskFreeSpaceExW")
+)
+
+// recycleBinTakes reports whether the Recycle Bin keeps the item at path rather than deleting it for good, which Windows does to a file over the bin's size without telling IFileOperation's sink first: PreDeleteItem has the same flags as for a file it recycles, and FOF_WANTNUKEWARNING asks the user. The bin's size is the MaxCapacity Explorer keeps, in megabytes, under HKEY_CURRENT_USER for the GUID of the volume the item is on, through junctions, mounted folders and subst drives, capped by the RecycleBinSize policy's percentage of the volume where one is set. It answers false when it cannot tell, as on a network share, which has no volume GUID, or a volume whose bin Explorer has not sized. A folder it answers true for: the shell sizes a folder before recycling it and deletes one too large item by item, which the progress sink refuses. err is why the item could not be read.
+func recycleBinTakes(path string) (bool, error) {
+	// The item itself, not what a symbolic link at path points to: the shell recycles the link.
+	h, err := syscall.CreateFile(wide(path), 0, syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE|syscall.FILE_SHARE_DELETE, nil,
+		syscall.OPEN_EXISTING, syscall.FILE_FLAG_BACKUP_SEMANTICS|syscall.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+	if err != nil {
+		return false, err
+	}
+	defer syscall.CloseHandle(h)
+	var info syscall.ByHandleFileInformation
+	if err := syscall.GetFileInformationByHandle(h, &info); err != nil {
+		return false, err
+	}
+	if info.FileAttributes&syscall.FILE_ATTRIBUTE_DIRECTORY != 0 {
+		return true, nil
+	}
+	const volumeNameGUID = 0x1 // VOLUME_NAME_GUID
+	name := make([]uint16, len(path)+64)
+	for {
+		r, _, _ := getFinalPathNameByHandleW.Call(uintptr(h), uintptr(unsafe.Pointer(&name[0])), uintptr(len(name)), volumeNameGUID)
+		if r == 0 {
+			return false, nil
+		}
+		if int(r) < len(name) {
+			name = name[:r]
+			break
+		}
+		// r is the length it needs, with the terminating NUL.
+		name = make([]uint16, r)
+	}
+	// The name is \\?\Volume{GUID}\ and the item's path on the volume.
+	final := syscall.UTF16ToString(name)
+	const prefix = `\\?\Volume`
+	end := strings.IndexByte(final, '}')
+	if !strings.HasPrefix(final, prefix+"{") || end < 0 {
+		return false, nil
+	}
+	root := wide(final[:end+1] + `\`)
+	maxMB := regDWORD(`Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket\Volume\`+final[len(prefix):end+1], "MaxCapacity", 0)
+	const policies = `Software\Microsoft\Windows\CurrentVersion\Policies\Explorer`
+	percent := min(regDWORDIn(syscall.HKEY_CURRENT_USER, policies, "RecycleBinSize", 100), regDWORDIn(syscall.HKEY_LOCAL_MACHINE, policies, "RecycleBinSize", 100))
+	var free, total, totalFree uint64
+	getDiskFreeSpaceExW.Call(uintptr(unsafe.Pointer(root)), uintptr(unsafe.Pointer(&free)), uintptr(unsafe.Pointer(&total)), uintptr(unsafe.Pointer(&totalFree)))
+	return recycleBinKeeps(uint64(info.FileSizeHigh)<<32|uint64(info.FileSizeLow), maxMB, percent, total), nil
+}
+
+// trashFile has the shell move f to the Recycle Bin without UI, as IFileOperation does with FOFX_RECYCLEONDELETE, and answers NoTrash, leaving f where it is, when the Recycle Bin cannot take it: FOF_ALLOWUNDO alone recycles only if possible and silently deletes the rest for good. It refuses a file the Recycle Bin may not keep before the operation, as recycleBinTakes tells, and the progress sink refuses the rest. It answers the item's path in the Recycle Bin when the shell gives one.
 func (w *window) trashFile(f driver.SharedFile, id uint32) {
 	ev := driver.Event{Kind: driver.EventFiles, Count: id}
 	what := "Windows could not move " + f.Path + " to the Recycle Bin"
+	if takes, err := recycleBinTakes(f.Path); err != nil || !takes {
+		ev.Text = driver.NoTrash
+		if err != nil {
+			ev.Text = what + ": " + err.Error()
+		}
+		w.engine.Dispatch(ev)
+		return
+	}
 	sink := &recycleSink{vtbl: &recycleSinkVtbl}
 	// The operation holds the sink until it is released, which the deferred release below does first.
 	defer runtime.KeepAlive(sink)

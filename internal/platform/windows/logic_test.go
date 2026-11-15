@@ -1157,3 +1157,33 @@ func TestTrayEventsDecodeVersion4(t *testing.T) {
 		}
 	}
 }
+
+// TestRecycleBinKeeps checks trashFile's size check: Windows 11 deletes a file over its volume's Recycle Bin size for good, even with FOFX_RECYCLEONDELETE and nothing in the bin, so trashFile refuses a file the bin may not keep. A 1 MB bin kept a file of 1 MiB and deleted one a byte larger; the check refuses the first too, and a bin it cannot size.
+func TestRecycleBinKeeps(t *testing.T) {
+	const mb = 1 << 20
+	const volume = 200_000 * mb
+	for _, c := range []struct {
+		size           uint64
+		maxMB, percent uint32
+		volume         uint64
+		keeps          bool
+	}{
+		{0, 1, 100, volume, true},
+		{mb - 1, 1, 100, volume, true},
+		{mb, 1, 100, volume, false},
+		{mb + 1, 1, 100, volume, false},
+		{3 * mb, 7167, 100, volume, true},
+		{7167 * mb, 7167, 100, volume, false},
+		// MaxCapacity unknown reads as 0, as does a volume of unknown size.
+		{0, 0, 100, volume, false},
+		{mb, 7167, 100, 0, false},
+		// The policy's percentage of the volume caps the bin.
+		{mb / 2, 7167, 1, 100 * mb, true},
+		{2 * mb, 7167, 1, 100 * mb, false},
+		{1 << 40, 0xFFFFFFFF, 100, 1 << 50, true},
+	} {
+		if got := recycleBinKeeps(c.size, c.maxMB, c.percent, c.volume); got != c.keeps {
+			t.Errorf("recycleBinKeeps(%d, %d MB, %d%% of %d) = %v, want %v", c.size, c.maxMB, c.percent, c.volume, got, c.keeps)
+		}
+	}
+}
