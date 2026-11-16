@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ebitengine/purego/objc"
+
 	"github.com/nsgo-dev/nsgo/internal/driver"
 )
 
@@ -121,6 +123,78 @@ func TestVideoInterruptionResumesUnlessTheAppTookIt(t *testing.T) {
 		{name: "app follows", do: configure(true, true), apply: true},
 		{name: "interruption ends after the app paused", do: resume(false), apply: true},
 	})
+}
+
+// A pause because the app went to the background is reported as an interruption, but no audio-session interruption that ends later plays the video: not one that begins while it is paused, and not one that paused it before the background's notification came.
+func TestVideoBackgroundPauseDoesNotResume(t *testing.T) {
+	interruptionBegins := func(p *videoPlayback) (driver.Event, bool) {
+		p.expect(driver.VideoPauseInterruption)
+		return driver.Event{}, false
+	}
+	background := reached(false, false, videoPauseBackground)
+	interrupted := reached(false, false, driver.VideoPauseInterruption)
+	// after is what follows the background pause, failing t.
+	after := func(t *testing.T) []step {
+		return []step{
+			{name: "unrelated config", do: configure(false, false)},
+			{name: "interruption begins while paused", do: interruptionBegins},
+			{name: "interruption ends", do: func(p *videoPlayback) (driver.Event, bool) {
+				if p.resume() {
+					t.Error("an interruption's end played a video the background paused")
+				}
+				return driver.Event{}, false
+			}},
+			{name: "controls play", do: reached(true, false, driver.VideoPauseControls), want: []driver.Event{played}, apply: true},
+			{name: "interrupted", do: interrupted, want: []driver.Event{pausedFor(driver.VideoPauseInterruption)}},
+			{name: "interruption resumes", do: func(p *videoPlayback) (driver.Event, bool) {
+				if !p.resume() {
+					t.Error("an interruption after the controls played did not resume")
+				}
+				return p.changed(true, false, driver.VideoPauseInterruption)
+			}, want: []driver.Event{played}, apply: true},
+		}
+	}
+	opened := step{name: "opened playing", do: configure(false, true), apply: true}
+	for _, c := range []struct {
+		name   string
+		before []step
+	}{
+		{"background", []step{
+			{name: "backgrounded", do: background, want: []driver.Event{pausedFor(driver.VideoPauseInterruption)}},
+		}},
+		{"background while an interruption is expected", []step{
+			{name: "interruption begins", do: interruptionBegins, apply: true},
+			{name: "backgrounded", do: background, want: []driver.Event{pausedFor(driver.VideoPauseInterruption)}},
+		}},
+		{"background after an interruption paused", []step{
+			{name: "interrupted", do: interrupted, want: []driver.Event{pausedFor(driver.VideoPauseInterruption)}},
+			{name: "backgrounded", do: background},
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			runSteps(t, append(append([]step{opened}, c.before...), after(t)...))
+		})
+	}
+}
+
+// rateReason reads AVFoundation's own reason constants from a notification like the player's.
+func TestVideoRateReason(t *testing.T) {
+	pool := objc.ID(Class("NSAutoreleasePool")).Send(sel("new"))
+	defer pool.Send(sel("drain"))
+	for name, want := range map[string]int{
+		"AVPlayerRateDidChangeReasonAppBackgrounded":         videoPauseBackground,
+		"AVPlayerRateDidChangeReasonAudioSessionInterrupted": driver.VideoPauseInterruption,
+		"AVPlayerRateDidChangeReasonSetRateCalled":           driver.VideoPauseControls,
+	} {
+		info := objc.ID(Class("NSDictionary")).Send(sel("dictionaryWithObject:forKey:"), avName(name), avName("AVPlayerRateDidChangeReasonKey"))
+		note := objc.ID(Class("NSNotification")).Send(sel("notificationWithName:object:userInfo:"), avName("AVPlayerRateDidChangeNotification"), objc.ID(0), info)
+		if got := rateReason(note); got != want {
+			t.Errorf("rateReason(%s) = %d, want %d", name, got, want)
+		}
+	}
+	if got := rateReason(objc.ID(Class("NSNotification")).Send(sel("notificationWithName:object:"), avName("AVPlayerRateDidChangeNotification"), objc.ID(0))); got != driver.VideoPauseControls {
+		t.Errorf("rateReason without a reason = %d, want the controls", got)
+	}
 }
 
 func TestVideoEndHoldsUntilExplicitReplay(t *testing.T) {

@@ -8,6 +8,9 @@ import (
 	"github.com/nsgo-dev/nsgo/internal/driver"
 )
 
+// videoPauseBackground is the backend's own reason for a pause because the app went to the background, which changed reports as VideoPauseInterruption. No audio-session interruption ends it, so it never lets the video resume, and it takes back the resume of an interruption that paused the video before.
+const videoPauseBackground = -1
+
 // videoPlayback follows who decides whether a video's player plays. The app's Paused applies when it changes and when a source opens; between changes the platform's controls and the system may pause or play the player, and the player then keeps their state, not Paused, until Paused changes. Each such change is reported once, as EventVideoPause with its reason or EventVideoPlay.
 type videoPlayback struct {
 	// playing is what the player did last, as far as the backend knows.
@@ -62,8 +65,12 @@ func (p *videoPlayback) expect(reason int) {
 	}
 }
 
-// changed takes a play state the player reached on its own, from its controls or the system, with paused the app's Paused, and returns the event that reports it. reason is the pause's, unless the system gave one before. A pause for an interruption may resume when the interruption ends.
+// changed takes a play state the player reached on its own, from its controls or the system, with paused the app's Paused, and returns the event that reports it. reason is the pause's, unless the system gave one before. A pause for an audio-session interruption may resume when the interruption ends.
 func (p *videoPlayback) changed(playing, paused bool, reason int) (driver.Event, bool) {
+	if !playing && reason == videoPauseBackground {
+		// The background's rate notification may come after an interruption already paused the player: it reports nothing, but the video stays paused.
+		p.ok, p.resumable = false, false
+	}
 	if playing == p.playing {
 		return driver.Event{}, false
 	}
@@ -78,6 +85,9 @@ func (p *videoPlayback) changed(playing, paused bool, reason int) (driver.Event,
 		reason, p.ok = p.reason, false
 	}
 	p.resumable = p.held && reason == driver.VideoPauseInterruption
+	if reason == videoPauseBackground {
+		reason = driver.VideoPauseInterruption
+	}
 	return driver.Event{Kind: driver.EventVideoPause, Index: reason}, true
 }
 

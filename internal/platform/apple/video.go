@@ -548,7 +548,7 @@ func notificationInt(note objc.ID, key string) int {
 	return objc.Send[int](number, sel("integerValue"))
 }
 
-// rateReason is why an AVPlayerRateDidChangeNotification says the rate changed, as a pause's reason: an interruption for the audio session's or the app going to the background, else the controls, which set the rate.
+// rateReason is why an AVPlayerRateDidChangeNotification says the rate changed, as a pause's reason: an interruption for the audio session's, videoPauseBackground for the app going to the background, which videoPlayback reports as an interruption too, else the controls, which set the rate.
 func rateReason(note objc.ID) int {
 	info := note.Send(sel("userInfo"))
 	if info == 0 {
@@ -558,9 +558,15 @@ func rateReason(note objc.ID) int {
 	if why == 0 {
 		return driver.VideoPauseControls
 	}
-	for _, name := range []string{"AVPlayerRateDidChangeReasonAudioSessionInterrupted", "AVPlayerRateDidChangeReasonAppBackgrounded"} {
-		if objc.Send[bool](why, sel("isEqual:"), avName(name)) {
-			return driver.VideoPauseInterruption
+	for _, reason := range []struct {
+		name string
+		kind int
+	}{
+		{"AVPlayerRateDidChangeReasonAudioSessionInterrupted", driver.VideoPauseInterruption},
+		{"AVPlayerRateDidChangeReasonAppBackgrounded", videoPauseBackground},
+	} {
+		if objc.Send[bool](why, sel("isEqual:"), avName(reason.name)) {
+			return reason.kind
 		}
 	}
 	return driver.VideoPauseControls
