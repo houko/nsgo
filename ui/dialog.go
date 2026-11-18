@@ -89,8 +89,11 @@ func (d Dialog) Render(cx *core.Scope) core.Node {
 	if d.Bare {
 		// The clip is a view of its own: on Android a view that clips loses its outer shadow.
 		popup = core.Style{Transition: dialogPop}
-		body = []core.Node{core.View{Style: core.Style{Overflow: core.Hidden, CornerRadius: RadiusDialog - 1, BorderCurve: core.BorderCurveContinuous,
-			FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)}, Children: body}}
+		body = []core.Node{core.View{Style: core.Style{Overflow: core.Hidden, BorderCurve: core.BorderCurveContinuous,
+			FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)}, StyleFunc: func() core.Style {
+			style := d.surfaceStyle(core.Style{CornerRadius: RadiusDialog})
+			return core.Style{CornerRadius: max(0, style.CornerRadius-1)}
+		}, Children: body}}
 	}
 	spacer := func(grow float32) core.View {
 		return core.View{Style: core.Style{FlexGrow: grow, MinHeight: core.Pt(0)}, PointerEvents: core.PointerEventsNone}

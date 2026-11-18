@@ -65,6 +65,27 @@ func TestDialog(t *testing.T) {
 	})
 }
 
+func TestBareDialogUsesSurfaceRadius(t *testing.T) {
+	app, _ := start(t, desktopEnv, func(*core.Scope) core.Node {
+		return Dialog{Open: func() bool { return true }, Bare: true, Style: core.Style{CornerRadius: 20}, TestID: "dialog",
+			Children: []core.Node{core.Text{Content: "Body"}}}
+	}, nsgotest.ManualFrames())
+	dialog := app.Find("dialog")
+	if dialog.Style.CornerRadius != 20 {
+		t.Fatalf("dialog radius = %v, want 20", dialog.Style.CornerRadius)
+	}
+	var clip *nsgotest.View
+	for _, view := range views(dialog) {
+		if view.Style.CornerRadius == 19 {
+			clip = view
+			break
+		}
+	}
+	if clip == nil {
+		t.Fatal("bare dialog body did not use the surface radius minus its rim")
+	}
+}
+
 // TestDialogTextFuncsUpdateInPlace changes a dialog's and an alert dialog's title and description while they are open: the texts shown and what screen readers read follow on the same views, and the field inside keeps its focus and text.
 func TestDialogTextFuncsUpdateInPlace(t *testing.T) {
 	each(t, func(t *testing.T, e core.Environment) {
