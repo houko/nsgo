@@ -60,7 +60,7 @@ func main() { nsgo.Run(Root) }
 
 ## Layout and styles
 
-- Layout is flexbox with React Native's defaults (a column, children keep their size) plus CSS grid. Sizes take `core.Pt` or `core.Pct`; `MinWidth: core.Pt(0)` lets text shrink and wrap in a row.
+- Layout is flexbox with React Native's defaults (a column, children keep their size) plus CSS grid. Sizes take `core.Pt` or `core.Pct`; text shrinks and wraps in a row only with `FlexShrink: 1`, an unset minimum being 0 already (`core.AutoMinimum` is CSS's automatic minimum).
 - A screen that fills the window takes `FlexGrow: 1, FlexShrink: 1`, as does every box between it and a list or scroll view that should scroll; with `FlexGrow` alone a long list stretches past the window instead of scrolling.
 - Let a scroll view fill its container and put the padding on its content, so the scroll bar stays against the edge. Scroll only through `core.Scroll`, `core.List` or `ui`'s scroll views, never by stepping offsets from pointer or wheel events; they keep native inertia and edges.
 - Keep content clear of the notch and the keyboard with `PaddingEnv: core.EnvEdges{Top: core.EnvSafeArea, Bottom: core.EnvKeyboard}` rather than fixed insets.

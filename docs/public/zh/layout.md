@@ -32,7 +32,7 @@ core.View{Style: core.Style{Direction: core.Row, Gap: 16}, Children: []core.Node
 }}
 ```
 
-没有指定宽高时，内容决定盒子的大小。`core.MinContent`、`core.MaxContent` 和 `core.FitContent` 采用 CSS 的同名尺寸：文本的 min-content 宽度是最宽单词的宽度。要让行内文本收缩并换行，请设置 `FlexShrink: 1`；需要占据剩余空间时再设置 `FlexGrow: 1`。未设置的最小尺寸已经是 0；需要 CSS 自动最小尺寸时使用 `core.AutoMinimum`。
+没有指定宽高时，内容决定盒子的大小。`core.MinContent`、`core.MaxContent` 和 `core.FitContent` 采用 CSS 的同名尺寸：文本的 min-content 宽度是最宽单词的宽度。行内文本只有设置 `FlexShrink: 1` 才会收缩并换行；需要占据剩余空间时再加上 `FlexGrow: 1`。未设置的最小尺寸已经是 0，与 React Native 相同，所以 `MinWidth: core.Pt(0)` 不起作用；当行比最宽的单词还窄时，收缩的文本会把单词断开。`MinWidth: core.AutoMinimum` 让它停在最宽单词的宽度，与 CSS 的自动最小尺寸相同。
 
 填满窗口的页面要设置 `FlexGrow: 1` 和 `FlexShrink: 1`，它和需要滚动的列表或滚动视图之间的每一层盒子也是如此。只设置 `FlexGrow` 时，盒子会长到内容的大小，长列表会把它撑出窗口，而不是在里面滚动。
 

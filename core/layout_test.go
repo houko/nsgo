@@ -490,3 +490,29 @@ func TestFramesMovedByWholePixelsAreNotSentAgain(t *testing.T) {
 		}
 	}
 }
+
+// TestATextShrinksInARowWithFlexShrink is the Sizes section of layout.md (#308): a text in a row shrinks below its one-line width and wraps only with FlexShrink, an unset minimum being 0 already, so MinWidth: Pt(0) alone leaves it overflowing the row. With an unset minimum it shrinks into less than its widest word and breaks its words; AutoMinimum stops it at its widest word, as CSS's automatic minimum does.
+func TestATextShrinksInARowWithFlexShrink(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		style Style
+		want  Size
+	}{
+		{"FlexShrink", Style{FlexGrow: 1, FlexShrink: 1}, Size{Width: 20, Height: 96}},
+		{"MinWidth 0 alone", Style{FlexGrow: 1, MinWidth: Pt(0)}, Size{Width: 114, Height: 12}},
+		{"AutoMinimum", Style{FlexGrow: 1, FlexShrink: 1, MinWidth: AutoMinimum}, Size{Width: 24, Height: 48}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHost(t, Size{Width: 100, Height: 100}, func(cx *Scope) Node {
+				return View{Style: Style{Direction: Row, Gap: 10, AlignItems: AlignStart, FontSize: 10}, Children: []Node{
+					View{Style: Style{Width: Pt(70), Height: Pt(10)}},
+					Text{Content: "aaaa bbbb cccc dddd", Style: c.style, TestID: "text"},
+				}}
+			})
+			h.commit()
+			if got := h.find("text").frame.Size; got != c.want {
+				t.Errorf("text = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
