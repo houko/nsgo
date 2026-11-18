@@ -80,9 +80,7 @@ func Secrets(values map[string]string) Option {
 	return func(a *App) { a.seedSecrets = values }
 }
 
-// Environment starts the app in env from its first frame, as a platform
-// reports it before the app mounts: screens have the system header where
-// env has HeaderHeight.
+// Environment starts the app in env from its first frame, as a platform reports it before the app mounts: screens have the system header where env has HeaderHeight. Under `nsgo test -target` it pins only the appearance, reduced motion, increased contrast, the login launch reason, the application in front and whether the platform follows it, and, when set, the locale, text size, device name and device model; the OS, the idiom, the safe area and the header heights stay the platform's, so a test of another OS's layout runs headless or on that OS's target.
 func Environment(env driver.Environment) Option {
 	return func(a *App) { a.env = &env }
 }
