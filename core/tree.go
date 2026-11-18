@@ -83,15 +83,16 @@ type Tree struct {
 	layoutAnim          *LayoutAnimation
 	fontScale           float32
 	// ratio is the device pixels per point layout rounds to.
-	ratio       float32
-	alerts      map[uint32]alertWait
-	waits       map[uint32]wait
-	auths       map[uint32]*authSession // the auth sessions waiting for the platform
-	imageInfos  map[uint32]imageInfoWait
-	keys        []*keyBinding
-	keyID       uint32
-	keysChanged bool
-	backs       []*backHandler
+	ratio          float32
+	alerts         map[uint32]alertWait
+	waits          map[uint32]wait
+	auths          map[uint32]*authSession // the auth sessions waiting for the platform
+	imageInfos     map[uint32]imageInfoWait
+	keys           []*keyBinding
+	devReloadBound bool
+	keyID          uint32
+	keysChanged    bool
+	backs          []*backHandler
 	// regions are the live regions, which the views do not number: an owner may have no view but a region, as a Holder's content may (keyPlaces).
 	regions map[*node]struct{}
 	// peeking is the screen a back gesture may uncover (Tree.peek).
@@ -716,6 +717,7 @@ func NewTree(root *Scope, text driver.TextEngine) *Tree {
 	root.rt.tree = nil
 	t := newTree(root, text, 0)
 	root.rt.tree = t
+	t.bindDevReload()
 	return t
 }
 
@@ -726,6 +728,7 @@ func newTree(root *Scope, text driver.TextEngine, id uint32) *Tree {
 	if root.rt.tree != nil {
 		root.surf = t
 	}
+	t.bindDevReload()
 	t.view = t.newNode(driver.KindView, nil, root)
 	t.view.style = Style{Direction: Column}
 	// Prepared texts belong to this tree even when its platform will receive no final commit, as when an embedded engine stops.
@@ -737,6 +740,18 @@ func newTree(root *Scope, text driver.TextEngine, id uint32) *Tree {
 		root.addCleanup(func() { devtools.Unregister(s) })
 	}
 	return t
+}
+
+func (t *Tree) bindDevReload() {
+	if t == nil || t.devReloadBound || t.rt.devReload == nil {
+		return
+	}
+	t.devReloadBound = true
+	t.root.OnKeyWith("mod+r", KeyOptions{OverModals: true, YieldsToMenu: true}, func() {
+		if t.rt.devReload != nil {
+			t.rt.devReload()
+		}
+	})
 }
 
 // Mount builds what app returns as the root view's content.

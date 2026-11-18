@@ -121,6 +121,27 @@ func TestWindowsShareSignals(t *testing.T) {
 	}
 }
 
+func TestDevReloadBindsEverySurface(t *testing.T) {
+	w := newWindows(t, func(cx *Scope) {
+		cx.SetMainView(func(*Scope) Node { return View{} })
+		cx.OpenWindow(WindowOptions{Title: "Settings", Width: 200, Height: 100}, func(*Scope) Node { return View{} })
+	})
+	reloads := 0
+	w.root.SetDevReload(func() { reloads++ })
+	if len(w.app.keys) != 1 || w.app.keys[0].Key != "mod+r" {
+		t.Fatalf("main tree reload bindings = %+v", w.app.keys)
+	}
+	for _, surface := range w.app.Surfaces() {
+		if len(surface.keys) != 1 || surface.keys[0].Key != "mod+r" {
+			t.Fatalf("surface %d reload bindings = %+v", surface.ID(), surface.keys)
+		}
+	}
+	w.app.Dispatch(driver.Event{Kind: driver.EventKey, Count: w.app.keys[0].ID})
+	if reloads != 1 {
+		t.Fatalf("reload callback ran %d times, want once", reloads)
+	}
+}
+
 // A handler's decision reads back through Canceled, as the close button's request goes on to close the window or not.
 func TestWindowClosingReportsCanceled(t *testing.T) {
 	var seen []bool

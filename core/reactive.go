@@ -160,6 +160,7 @@ type runtime struct {
 	post             func(func())
 	clock            Clock
 	report           func(error)
+	devReload        func()
 
 	// The callbacks waiting for the next display frame, and whether the
 	// host has been asked for it.
