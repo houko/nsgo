@@ -1018,14 +1018,31 @@ func validateMenu(self objc.ID, _ objc.SEL, item objc.ID) bool {
 	if s == nil || !s.notInText[id] || s.editingKeys[id] != 0 {
 		return true
 	}
-	return !s.keyInField()
+	return s.keyField() == 0
 }
 
-// keyInField reports whether a key press is looking for a menu item's key equivalent while a field or a web view of the surface has the keyboard focus.
-func (s *surface) keyInField() bool {
+// keyField returns the window a key press looking for a menu item's key equivalent went to when a field or a web view in it has the keyboard focus, and 0 otherwise. The menu bar is the app's whichever surface set it, so the window is the key's own, any of the app's or AppKit's: the event's, else the key window, the main window, and the menu's own window while no window has the keyboard.
+func (s *surface) keyField() objc.ID {
 	const keyDown = 10 // NSEventTypeKeyDown
-	e := nsApp().Send(sel("currentEvent"))
-	return e != 0 && objc.Send[uint](e, sel("type")) == keyDown && s.editing()
+	app := nsApp()
+	e := app.Send(sel("currentEvent"))
+	if e == 0 || objc.Send[uint](e, sel("type")) != keyDown {
+		return 0
+	}
+	w := e.Send(selWindow)
+	if w == 0 {
+		w = app.Send(sel("keyWindow"))
+	}
+	if w == 0 {
+		w = app.Send(sel("mainWindow"))
+	}
+	if w == 0 && !s.embedded {
+		w = s.window
+	}
+	if w == 0 || !windowEditing(w) {
+		return 0
+	}
+	return w
 }
 
 // validateFullScreen enables a full screen item while a window has the
@@ -1059,9 +1076,11 @@ func menuChosen(self objc.ID, _ objc.SEL, item objc.ID) {
 	if id <= 0 || s == nil || s.engine == nil || s.closed {
 		return
 	}
-	if action := s.editingKeys[uint32(id)]; action != 0 && s.keyInField() {
-		s.window.Send(sel("firstResponder")).Send(sel("tryToPerform:with:"), action, item)
-		return
+	if action := s.editingKeys[uint32(id)]; action != 0 {
+		if w := s.keyField(); w != 0 {
+			w.Send(sel("firstResponder")).Send(sel("tryToPerform:with:"), action, item)
+			return
+		}
 	}
 	s.engine.Dispatch(driver.Event{Kind: driver.EventMenu, Count: uint32(id)})
 }

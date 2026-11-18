@@ -1494,8 +1494,11 @@ func (s *surface) composing() bool {
 }
 
 // editing reports whether keys go to a text field or a web page.
-func (s *surface) editing() bool {
-	first := s.window.Send(sel("firstResponder"))
+func (s *surface) editing() bool { return windowEditing(s.window) }
+
+// windowEditing reports whether the keys of window w, the app's or AppKit's, go to a text field or a web page.
+func windowEditing(w objc.ID) bool {
+	first := w.Send(sel("firstResponder"))
 	if objc.Send[bool](first, sel("isKindOfClass:"), apple.Class("NSText")) {
 		return true
 	}
