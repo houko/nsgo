@@ -471,6 +471,7 @@ func (r *runtime) scrollEvent(e core.ScrollEvent) *js.Object {
 	_ = o.Set("contentSize", r.size(e.ContentSize))
 	_ = o.Set("size", r.size(e.Size))
 	_ = o.Set("zoomScale", js32(e.ZoomScale))
+	_ = o.Set("stale", e.Stale)
 	return o
 }
 

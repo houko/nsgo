@@ -172,7 +172,9 @@ func (t *Tree) reportWatches() {
 			continue
 		}
 		n := r.n
+		// The offset replays the scrolls not applied yet: it is not stale.
 		e := n.scrollEvent(n.scroll.offset)
+		e.Stale = false
 		if w.said && e == w.last {
 			continue
 		}

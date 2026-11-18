@@ -256,14 +256,95 @@ func TestViewKeepsAScrollGoing(t *testing.T) {
 	}
 }
 
-func TestViewAcceptsLateProgrammaticScrollReports(t *testing.T) {
-	v := &view{cellH: 10, pendingScroll: []float64{100, 200}}
-	v.scrolled(core.ScrollEvent{Offset: core.Point{Y: 100}})
-	if len(v.pendingScroll) != 1 || v.pendingScroll[0] != 200 {
-		t.Fatalf("late report consumed the wrong pending offset: %v", v.pendingScroll)
+// A report from before the scroll layer took the row it follows is not
+// the user's scroll: the viewport stays at the end of the output.
+func TestViewFollowsPastStaleReports(t *testing.T) {
+	term := newTerminal(t, Options{Command: []string{"/bin/sh", "-c", "exit 0"}})
+	<-term.Done()
+	term.Feed([]byte(strings.Repeat("line\r\n", 200)))
+	ref := &Ref{}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return View{Terminal: term, Ref: ref, TestID: "terminal", Style: core.Style{Width: core.Pct(100), Height: core.Pct(100)}}
+	}, nsgotest.Size(320, 240))
+	app.WaitUntil(5*time.Second, func() bool { return ref.v.cols > 0 && ref.v.content.GetUntracked() > 400 })
+	app.Settle()
+
+	atEnd := func() bool {
+		term.mu.Lock()
+		defer term.mu.Unlock()
+		sb := term.term.Scrollbar()
+		return sb.Offset+sb.Len >= sb.Total
 	}
-	v.scrolled(core.ScrollEvent{Offset: core.Point{Y: 200}})
-	if len(v.pendingScroll) != 0 {
-		t.Fatalf("latest report left pending offsets: %v", v.pendingScroll)
+	old := app.Find("id:terminal-scroll").Offset
+	term.Feed([]byte(strings.Repeat("more\r\n", 50)))
+	app.WaitUntil(5*time.Second, func() bool { return app.Find("id:terminal-scroll").Offset.Y > old.Y })
+	app.Post(func() { ref.v.scrolled(core.ScrollEvent{Offset: old, Stale: true}) })
+	app.Settle()
+	if !atEnd() {
+		t.Error("a stale report moved the viewport off the end")
+	}
+	if y := app.Find("id:terminal-scroll").Offset.Y; y <= old.Y {
+		t.Errorf("the layer went back to %v", y)
+	}
+}
+
+// Output that comes faster than frames keeps the viewport at its end.
+func TestViewFollowsFastOutput(t *testing.T) {
+	term := newTerminal(t, Options{Command: []string{"/bin/sh", "-c", "exit 0"}})
+	<-term.Done()
+	ref := &Ref{}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return View{Terminal: term, Ref: ref, TestID: "terminal", Style: core.Style{Width: core.Pct(100), Height: core.Pct(100)}}
+	}, nsgotest.Size(320, 240))
+	app.WaitUntil(5*time.Second, func() bool { return ref.v.cols > 0 })
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range 400 {
+			term.Feed([]byte(strings.Repeat("line\r\n", 1+i%7)))
+			time.Sleep(200 * time.Microsecond)
+		}
+	}()
+	app.WaitUntil(10*time.Second, func() bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	})
+	app.Settle()
+	term.mu.Lock()
+	sb, bottom := term.term.Scrollbar(), term.term.AtBottom()
+	term.mu.Unlock()
+	if !bottom {
+		t.Errorf("the viewport left the end: %+v", sb)
+	}
+}
+
+// Scrolling back to the end follows the output again.
+func TestViewFollowsAgainAtTheEnd(t *testing.T) {
+	term := newTerminal(t, Options{Command: []string{"/bin/sh", "-c", "exit 0"}})
+	<-term.Done()
+	term.Feed([]byte(strings.Repeat("line\r\n", 200)))
+	ref := &Ref{}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return View{Terminal: term, Ref: ref, TestID: "terminal", Style: core.Style{Width: core.Pct(100), Height: core.Pct(100)}}
+	}, nsgotest.Size(320, 240))
+	app.WaitUntil(5*time.Second, func() bool { return ref.v.cols > 0 && ref.v.content.GetUntracked() > 400 })
+	app.Settle()
+	atBottom := func() bool {
+		term.mu.Lock()
+		defer term.mu.Unlock()
+		return term.term.AtBottom()
+	}
+	app.ScrollTo("id:terminal-scroll", core.Point{Y: 10 * core.Points(ref.v.cellH)})
+	app.WaitUntil(5*time.Second, func() bool { return !atBottom() })
+	app.ScrollTo("id:terminal-scroll", core.Point{Y: 1e6})
+	app.WaitUntil(5*time.Second, atBottom)
+	term.Feed([]byte(strings.Repeat("more\r\n", 50)))
+	app.Settle()
+	if !atBottom() {
+		t.Error("the viewport stopped following at the end")
 	}
 }

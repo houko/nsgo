@@ -218,7 +218,7 @@ export interface PressEvent { position: Point; pagePosition: Point; modifiers: M
 export type MouseButton = "left" | "right" | "middle" | "back" | "forward";
 export interface MouseEvent { position: Point; pagePosition: Point; modifiers: Modifiers; pressedButton: MouseButton | null }
 export interface ContextMenuEvent { position: Point; pagePosition: Point; modifiers: Modifiers }
-export interface ScrollEvent { offset: Point; contentSize: Size; size: Size; zoomScale: number }
+export interface ScrollEvent { offset: Point; contentSize: Size; size: Size; zoomScale: number; stale: boolean }
 export interface CaretEvent { bounds: Bounds; pageBounds: Bounds }
 export interface PasteEvent { text: string; html: string; files: File[]; uris: string[] }
 export interface PanEvent { cancelled: boolean; translation: Point; velocity: Point; value?: Partial<Point> }

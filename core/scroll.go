@@ -27,6 +27,10 @@ type ScrollEvent struct {
 	Size Size
 	// ZoomScale is how far the content is zoomed; 1 unzoomed.
 	ZoomScale float32
+	// Stale says the platform reported Offset before applying a scroll
+	// the app asked for (Ref.ScrollTo, ScrollToEnd): the content is on
+	// its way elsewhere, and Offset is not where the user moved it.
+	Stale bool
 }
 
 // scrollSpec is what Scroll and List give a scroll view, beside its
@@ -152,7 +156,7 @@ func (t *Tree) reportScroll(n *node, p Point) {
 // scrollEvent is where scroll view n is, with its offset at p.
 func (n *node) scrollEvent(p Point) ScrollEvent {
 	sc := n.scroll
-	return ScrollEvent{Offset: p, ZoomScale: sc.zoom, Size: n.frame.Size,
+	return ScrollEvent{Offset: p, ZoomScale: sc.zoom, Size: n.frame.Size, Stale: !sc.settled(),
 		ContentSize: Size{Width: sc.content.Width * Points(sc.zoom), Height: sc.content.Height * Points(sc.zoom)}}
 }
 

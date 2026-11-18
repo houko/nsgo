@@ -49,6 +49,8 @@ type View struct {
 	// Transparent leaves the terminal's default background undrawn, so
 	// what is behind the view shows through.
 	Transparent bool
+	// HideIndicator hides the scroll bar; the scrollback still scrolls.
+	HideIndicator bool
 	// Class is Tailwind CSS classes, as core.View's, under Style.
 	Class string
 	Style core.Style
@@ -69,9 +71,6 @@ type View struct {
 	// DefaultKeyBar when nil. NoKeyBar shows none.
 	KeyBarKeys []string
 	NoKeyBar   bool
-	// HideIndicator leaves out the scroll bar while keeping scrolling and
-	// terminal follow behavior.
-	HideIndicator bool
 	// KeyBarClass and KeyBarStyle style the bar, a horizontal Scroll;
 	// KeyClass and KeyStyle each key, with KeyOnClass and KeyOnStyle over
 	// them while Control or Alt is latched for the next key. A part's
@@ -146,7 +145,8 @@ func (p View) Render(cx *core.Scope) core.Node {
 				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Position: core.Relative, Overflow: core.Hidden}, Children: []core.Node{
 					core.Canvas{Style: fill, Draw: v.draw},
 					core.Scroll{
-						Ref: v.scrollRef, Style: fill, TestID: v.testID("scroll"), HideIndicator: p.HideIndicator, OnScroll: v.scrolled, Behavior: keepKeyboard,
+						Ref: v.scrollRef, Style: fill, TestID: v.testID("scroll"), OnScroll: v.scrolled, Behavior: keepKeyboard,
+						HideIndicator: p.HideIndicator,
 						Children: []core.Node{core.View{
 							StyleFunc: func() core.Style {
 								cursor := core.CursorText
@@ -227,10 +227,9 @@ type view struct {
 	cols, rows               int
 	reported                 [2]int // the size OnSizeChange last had
 	ratio                    float32
-	// scrollY is the scroll layer's offset. pendingScroll holds offsets sent
-	// by the view whose platform reports may arrive out of order.
-	scrollY       float64
-	pendingScroll []float64
+	// scrollY is the scroll layer's offset; setY the one the view last
+	// scrolled it to, whose report it ignores as it ignores stale ones.
+	scrollY, setY float64
 
 	// Guarded by the terminal's mu.
 	keys      *vt.KeyEncoder
@@ -319,7 +318,6 @@ func (v *view) draw(d *core.Drawing, size core.Size) {
 		// Output and scrolling move what is under the mouse.
 		v.findLink()
 	}
-	sb := t.term.Scrollbar()
 	if cols, rows := v.cols, v.rows; v.p.OnSizeChange != nil && [2]int{cols, rows} != v.reported {
 		v.reported = [2]int{cols, rows}
 		cx.Post(func() { v.p.OnSizeChange(cols, rows) })
@@ -344,7 +342,7 @@ func (v *view) draw(d *core.Drawing, size core.Size) {
 	if sel := fr.anySel; sel != v.selected.GetUntracked() {
 		cx.Post(func() { v.selected.Set(sel) })
 	}
-	v.follow(sb, size)
+	v.follow(size)
 }
 
 // paintMatches marks the matches of the search the viewport shows.
@@ -368,59 +366,64 @@ func (f *frame) paintMatches() {
 }
 
 // follow sizes the scroll layer for the scrollback and brings it to the
-// terminal's viewport, after the commit that draws.
-func (v *view) follow(sb vt.Scrollbar, size core.Size) {
-	content := size.Height + core.Points(float32(sb.Total-min(sb.Len, sb.Total))*v.cellH)
+// row of the terminal's viewport, after the commit that draws. It reads the
+// terminal then, as output may have come and the user scrolled since the
+// frame: a row the content it sizes does not reach yet would be clamped,
+// and the clamped report taken for the user's scroll. A layer on that row
+// stays where it is: it rests between rows as the user scrolls it, and
+// moving it would stop the gesture and its momentum.
+func (v *view) follow(size core.Size) {
 	v.cx.Post(func() {
-		v.content.Set(content)
-		v.followRow()
+		t := v.t
+		t.mu.Lock()
+		if t.term == nil {
+			t.mu.Unlock()
+			return
+		}
+		sb := t.term.Scrollbar()
+		t.mu.Unlock()
+		v.content.Set(size.Height + core.Points(float32(sb.Total-min(sb.Len, sb.Total))*v.cellH))
+		if int(math.Round(v.scrollY/float64(v.cellH))) == int(sb.Offset) {
+			return
+		}
+		y := float64(sb.Offset) * float64(v.cellH)
+		v.setY, v.scrollY = y, y
+		v.scrollRef.ScrollTo(core.Point{Y: core.Points(y)}, false)
 	})
 }
 
-// followRow moves the scroll layer to the row of the terminal's viewport.
-// It reads the terminal, as the user may have scrolled since the frame. A
-// layer on that row stays where it is: it rests between rows as the user
-// scrolls it, and moving it would stop the gesture and its momentum.
-func (v *view) followRow() {
-	t := v.t
-	t.mu.Lock()
-	if t.term == nil {
-		t.mu.Unlock()
-		return
-	}
-	row := t.term.Scrollbar().Offset
-	t.mu.Unlock()
-	if int(math.Round(v.scrollY/float64(v.cellH))) == int(row) {
-		return
-	}
-	y := float64(row) * float64(v.cellH)
-	v.scrollY = y
-	v.pendingScroll = append(v.pendingScroll, y)
-	v.scrollRef.ScrollTo(core.Point{Y: core.Points(y)}, false)
-}
-
-// scrolled moves the terminal's viewport with the scroll layer.
+// scrolled moves the terminal's viewport with the scroll layer. A report
+// from before the layer took the row follow sent is the old row, not
+// the user's scroll: taking it would leave the end of fast output.
 func (v *view) scrolled(e core.ScrollEvent) {
+	if e.Stale {
+		return
+	}
 	y := float64(e.Offset.Y)
 	v.scrollY = y
-	for i, pending := range v.pendingScroll {
-		if math.Abs(y-pending) < 0.5 {
-			v.pendingScroll = append(v.pendingScroll[:i], v.pendingScroll[i+1:]...)
-			return
-		}
-	}
-	if v.t == nil {
+	if math.Abs(y-v.setY) < 0.5 || v.t == nil {
 		return
 	}
-	v.pendingScroll = nil
+	v.setY = math.NaN()
 	row := int(math.Round(y / float64(v.cellH)))
+	// A layer at its end follows the output, wherever the content ended
+	// as the platform clamped it.
+	end := y >= float64(e.ContentSize.Height-e.Size.Height)-0.5
 	t := v.t
 	t.mu.Lock()
-	if t.term != nil && uint64(row) != t.term.Scrollbar().Offset {
-		t.term.ScrollToRow(row)
-		if v.selecting {
-			v.dragTo(v.lastMouse)
+	moved := false
+	switch {
+	case t.term == nil:
+	case end:
+		if moved = !t.term.AtBottom(); moved {
+			t.term.ScrollToBottom()
 		}
+	case uint64(row) != t.term.Scrollbar().Offset:
+		t.term.ScrollToRow(row)
+		moved = true
+	}
+	if moved && v.selecting {
+		v.dragTo(v.lastMouse)
 	}
 	t.mu.Unlock()
 	t.redraw()

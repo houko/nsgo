@@ -146,7 +146,7 @@ func TestScrollConfigEventsAndCommands(t *testing.T) {
 
 	id := h.find("scroll").id
 	h.tree.Dispatch(driver.Event{Kind: driver.EventScrollDragStart, ID: id, Point: Point{Y: 130}})
-	h.tree.Dispatch(driver.Event{Kind: driver.EventScroll, ID: id, Point: Point{X: 10, Y: 300}, Value: 2})
+	h.tree.Dispatch(driver.Event{Kind: driver.EventScroll, ID: id, Point: Point{X: 10, Y: 300}, Value: 2, Count: 1})
 	h.tree.Dispatch(driver.Event{Kind: driver.EventMomentumEnd, ID: id, Point: Point{X: 10, Y: 300}})
 	want := ScrollEvent{Offset: Point{X: 10, Y: 300}, ContentSize: Size{Width: 600, Height: 2000},
 		Size: Size{Width: 300, Height: 200}, ZoomScale: 2}
@@ -218,5 +218,37 @@ func TestScrollEventsFollowTheThrottle(t *testing.T) {
 	scroll(40)
 	if !slices.Equal(got, []Points{10, 30, 40}) {
 		t.Fatalf("a scroll after a quiet interval: reported %v, want [10 30 40]", got)
+	}
+}
+
+// A report from before the platform applied the scrolls the app asked for
+// is stale; one after them is not.
+func TestScrollEventsMarkStaleReports(t *testing.T) {
+	type report struct {
+		y     Points
+		stale bool
+	}
+	var got []report
+	ref := &Ref{}
+	h := newHost(t, Size{Width: 300, Height: 200}, func(cx *Scope) Node {
+		return Scroll{Ref: ref, OnScroll: func(e ScrollEvent) { got = append(got, report{e.Offset.Y, e.Stale}) },
+			Children: []Node{View{Style: Style{Height: Pt(2000)}}}}
+	})
+	h.commit()
+	scroll := func(y Points, applied uint32) {
+		h.tree.Dispatch(driver.Event{Kind: driver.EventScroll, ID: ref.n.id, Point: Point{Y: y}, Count: applied})
+	}
+	scroll(5, 0)
+	ref.ScrollTo(Point{Y: 100}, false)
+	h.commit()
+	ref.ScrollTo(Point{Y: 200}, false)
+	h.commit()
+	scroll(5, 0)
+	scroll(100, 1)
+	scroll(200, 2)
+	scroll(150, 2)
+	want := []report{{5, false}, {5, true}, {100, true}, {200, false}, {150, false}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("reports %v, want %v", got, want)
 	}
 }

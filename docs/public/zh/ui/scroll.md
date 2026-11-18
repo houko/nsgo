@@ -45,7 +45,7 @@ core.Scroll{
 }
 ```
 
-`OnScroll` 每轮最多报告一次偏移，或按 `ScrollEventThrottle` 的间隔报告。`OnScrollDragStart`、`OnScrollDragEnd`、`OnMomentumStart`、`OnMomentumEnd` 和 `OnScrollEnd` 标出用户手势的起止。
+`OnScroll` 每轮最多报告一次偏移，或按 `ScrollEventThrottle` 的间隔报告；`Stale` 标出平台应用代码发起的滚动之前的报告。`OnScrollDragStart`、`OnScrollDragEnd`、`OnMomentumStart`、`OnMomentumEnd` 和 `OnScrollEnd` 标出用户手势的起止。
 
 `OffsetValues` 在主线程跟随偏移，用于没有每帧提交也能折叠的头部。`Ref` 用 `ScrollTo`、`ScrollToEnd` 和 `ZoomTo` 从代码滚动；其中任意视图的 ref 用 `Reveal` 让它进入视野，滚动它外围的每个滚动视图：
 
