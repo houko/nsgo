@@ -43,6 +43,8 @@ func TestMain(m *testing.M) {
 
 无头运行默认使用手机 idiom，与项目的目标平台无关，因此 `cx.Env().Desktop()` 为 false，悬停提示不会出现。传入 `nsgotest.Idiom(core.IdiomDesktop)` 可以测试桌面上的呈现，环境的其余部分保持不变，包括 `Environment` 选项设置的值。键盘焦点取决于环境的操作系统，而不是 idiom。
 
+原生 `-target` 运行使用目标后端的操作系统、idiom 和窗口环境；`nsgotest.Environment` 不能让 macOS 窗口报告为 Windows 或平板形态。要测试跨环境组件，请使用带 `nsgotest.Environment` 的无头运行。
+
 没有绑定消费按键时，`app.Key("mod+a")` 会全选当前文本框的内容。在无头测试、桌面目标和 Web 上，`KeyAlways` 绑定会在文本框编辑之前消费 Return、Backspace 和全选；`KeyAuto` 和 `KeyNotEditing` 则把这些键留给已聚焦的文本框。Android 和 iOS 的测试宿主还不会先把这些键交给键位绑定。
 
 无论无头运行还是在目标平台上，应用都运行在 `app.Clock` 上，它是一个从 2026-01-01 00:00 UTC 开始的 `core.ManualClock`。首屏依赖日期的界面（例如今天到期的内容）用 `nsgotest.WallTime(t0)` 启动：首次渲染时 `cx.WallTime()` 就是 `t0`，保留它的时区，计时器仍按时钟自身的时间运行。`nsgotest.Clock(c)` 让应用运行在测试自己的时钟上，供应用之外的代码共用；`c.Advance` 推进它时，应用的计时器随之触发。

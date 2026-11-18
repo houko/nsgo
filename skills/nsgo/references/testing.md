@@ -47,6 +47,8 @@ Use `app.Post(func() { signal.Set(value) })` from a test or stubbed worker to qu
 
 `PressWith(selector, core.Modifiers{Shift: true})` and `PressAtWith(selector, at, mods)` hold `Shift`, `Control`, `Alt` or `Platform` for that press only, including its down and up events. Plain presses carry no modifiers. These steps use native input on a target; watchOS rejects modified presses.
 
+Native `-target` runs keep the backend's OS, idiom and window environment. `nsgotest.Environment` cannot make a macOS window report Windows or a tablet form factor. Use a headless `Start` with `Environment` for cross-environment component tests.
+
 `Ref.Focus()` commands follow platform focus stops: text fields everywhere, plus enabled pressable and `Focusable` views on desktops, the web and Apple TV. Use a desktop or web `Environment` when a headless test exercises button focus. The `Focus` step reaches these desktop/web stops through Tab. Any of `OnPress`, `OnPressDown`, `OnPressUp` or `OnLongPress` makes a view a stop; Return or Space sends it the down, up and press events it handles.
 
 `Key("mod+a")` selects a focused field unless a binding takes it. Headless, on desktop targets and on the web, `KeyAlways` takes Return, Backspace and select-all before the field acts; `KeyAuto` and `KeyNotEditing` leave them to the field. The Android and iOS test hosts do not give the keymap these keys first yet.
