@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ebitengine/purego"
+
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/internal/driver"
 	"github.com/nsgo-dev/nsgo/internal/engine"
@@ -132,4 +134,66 @@ func TestKeysCaretAndPasteInAField(t *testing.T) {
 			t.Errorf("the field reads %q, want the paste kept out", got)
 		}
 	})
+}
+
+// TestADoubleClickOnADragRegionIsTheTitleBars presses a window drag region one to three times in a row with the seat's pointer. The second press is the title bar's double click, which the window carries out itself; the others wait to move the window until the pointer is dragged past the threshold, so a move does not take the pointer before a double click can be told, and a release or a new press ends that wait. A transparent window has no title bar to double-click, so all its presses wait to move it, and a press of another button is not the window's.
+func TestADoubleClickOnADragRegionIsTheTitleBars(t *testing.T) {
+	if testing.Short() {
+		t.Skip("opens a window")
+	}
+	if err := openLibs(); err != nil {
+		t.Skip(err)
+	}
+	var (
+		defaultSeat func(display uintptr) uintptr
+		seatPointer func(seat uintptr) uintptr
+	)
+	purego.RegisterLibFunc(&defaultSeat, gtkLib, "gdk_display_get_default_seat")
+	purego.RegisterLibFunc(&seatPointer, gtkLib, "gdk_seat_get_pointer")
+	app := func(cx *core.Scope) core.Node {
+		cx.Effect(func() { cx.SetTitle("drag|ready") })
+		return core.View{Style: core.Style{Width: driver.Pt(200), Height: driver.Pt(100)},
+			Desktop: core.DesktopViewProps{WindowDrag: driver.WindowDragOn}}
+	}
+	for _, transparent := range []bool{false, true} {
+		t.Run(fmt.Sprintf("transparent=%t", transparent), func(t *testing.T) {
+			w := startTestWindow(t, app, Options{Title: "drag|start", Width: 200, Height: 100, Transparent: transparent})
+			waitForTitle(t, w, "drag|ready")
+			at := driver.Point{X: 50, Y: 50}
+			var pointer uintptr
+			w.onLoop(t, func() {
+				if seat := defaultSeat(gdkDisplayGetDefault()); seat != 0 {
+					pointer = seatPointer(seat)
+				}
+			})
+			if pointer == 0 {
+				t.Skip("the display has no pointer")
+			}
+			w.onLoop(t, func() {
+				for clicks := 1; clicks <= 3; clicks++ {
+					w.pointerDown(at, 1, pointer, 0, clicks)
+					double := clicks == 2 && !transparent
+					if !w.pressConsumed || (w.windowMove != nil) == double {
+						t.Errorf("press %d of a row: taken %v, waiting to move the window %v; want taken, waiting %v", clicks, w.pressConsumed, w.windowMove != nil, !double)
+					}
+					if !double {
+						dragUpdateCallback(0, windowMoveSlop/2, 0, w.handle)
+						if w.windowMove == nil {
+							t.Errorf("press %d of a row moved the window within the drag threshold", clicks)
+						}
+					}
+					w.pointerUp(at)
+					if w.windowMove != nil {
+						t.Errorf("press %d of a row still waits to move the window after its release", clicks)
+					}
+				}
+				w.pointerDown(at, 1, pointer, 0, 1)
+				w.pointerDown(at, 2, pointer, 0, 1)
+				if w.pressConsumed || w.windowMove != nil {
+					t.Error("a middle press on the drag region was taken to move the window, or the first press's wait outlived it")
+				}
+				w.pointerUp(at)
+			})
+		})
+	}
 }

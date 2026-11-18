@@ -217,6 +217,7 @@ var (
 	gdkMonitorGetScaleFactor   func(uintptr) int32
 	gdkMonitorGetConnector     func(uintptr) uintptr
 	gdkToplevelBeginMove       func(uintptr, uintptr, int32, float64, float64, uint32)
+	gdkToplevelLower           func(uintptr) int32
 	gtkGestureGetDevice        func(uintptr) uintptr
 	// Optional GDK functions, nil where GTK lacks them: the fractional monitor scale (GTK 4.14), and the work area GTK 4 has only for X11 monitors, where GTK was built with X11.
 	gdkMonitorGetScale       func(uintptr) float64
@@ -586,6 +587,7 @@ func bind() {
 		}
 	}
 	purego.RegisterLibFunc(&gdkToplevelBeginMove, gtkLib, "gdk_toplevel_begin_move")
+	purego.RegisterLibFunc(&gdkToplevelLower, gtkLib, "gdk_toplevel_lower")
 
 	// GIO.
 	purego.RegisterLibFunc(&gMenuNew, gioLib, "g_menu_new")

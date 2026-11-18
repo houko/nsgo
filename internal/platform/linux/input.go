@@ -108,7 +108,7 @@ func clickPressedCallback(gesture uintptr, n int32, x, y float64, data uintptr) 
 func (w *window) pointerDown(at driver.Point, button uint32, device uintptr, state uint32, clicks int) {
 	// Test input enters here without GTK's legacy controller. A press after a key must still report pointer input and hide focus rings.
 	w.engine.InputModality(driver.ModalityPointer)
-	w.lastPointer, w.pressConsumed = at, false
+	w.lastPointer, w.pressConsumed, w.windowMove = at, false, nil
 	w.down = driver.Event{Modifiers: modifiers(state), Count: uint32(max(clicks, 1)), Page: at}
 	touch := button == 1 && isTouch(device)
 	if touch {
@@ -142,7 +142,7 @@ func (w *window) pointerDown(at driver.Point, button uint32, device uintptr, sta
 		w.panning = nil
 		return
 	}
-	if w.beginWindowDrag(device, at) {
+	if w.beginWindowDrag(button, device, at) {
 		w.pressConsumed = true
 	}
 	w.panDown(at)
@@ -183,6 +183,7 @@ func clickReleasedCallback(gesture uintptr, n int32, x, y float64, data uintptr)
 
 // pointerUp follows the release of a press at surface point at.
 func (w *window) pointerUp(at driver.Point) {
+	w.windowMove = nil
 	w.selectUp()
 	w.touch(w.mouse.Up(at))
 	w.cancelLongPress()
@@ -234,6 +235,12 @@ func dragBeginCallback(gesture uintptr, offsetX, offsetY float64, data uintptr) 
 
 func dragUpdateCallback(gesture uintptr, offsetX, offsetY float64, data uintptr) {
 	w := windowOf(data)
+	if w != nil && w.windowMove != nil {
+		if math.Hypot(offsetX, offsetY) > windowMoveSlop {
+			w.moveWindow()
+		}
+		return
+	}
 	if w != nil && math.Hypot(offsetX, offsetY) > longPressSlop {
 		w.cancelLongPress()
 	}
@@ -282,6 +289,10 @@ func dragUpdateCallback(gesture uintptr, offsetX, offsetY float64, data uintptr)
 
 func dragEndCallback(gesture uintptr, offsetX, offsetY float64, data uintptr) {
 	w := windowOf(data)
+	// GTK's click gesture may not report a release that moved, which ends a press that never moved the window too.
+	if w != nil {
+		w.windowMove = nil
+	}
 	if w != nil && w.touchUp() {
 		return
 	}
@@ -744,11 +755,19 @@ func pinchTimeoutCallback(data uintptr) int32 {
 	return 0 // G_SOURCE_REMOVE
 }
 
-// beginWindowDrag starts moving the window when the press is in a window
-// drag region and not on a nearer control.
-func (w *window) beginWindowDrag(device uintptr, at driver.Point) bool {
+// windowMove is a press of the first button on a window drag region, at surface point at, that moves the window once the pointer travels past windowMoveSlop, as GTK's own GtkWindowHandle does. A move started as the button goes down takes the pointer from the window on Wayland, so the next press would start a new row of clicks and a double click could never be told.
+type windowMove struct {
+	device uintptr
+	at     driver.Point
+}
+
+// windowMoveSlop is how far a press on a window drag region travels before it moves the window, in points, as GTK's drag threshold.
+const windowMoveSlop = 8
+
+// beginWindowDrag takes a press of button that is in a window drag region and not on a nearer control: the second press of a double click does what the desktop's title bars do, and another press of the first button moves the window once it is dragged.
+func (w *window) beginWindowDrag(button uint32, device uintptr, at driver.Point) bool {
 	root := w.view(w.root)
-	if root == nil {
+	if root == nil || button != 1 {
 		return false
 	}
 	drag := hit(root, at, func(v *view) bool { return v.props.WindowDrag != driver.WindowDragInherit })
@@ -760,19 +779,66 @@ func (w *window) beginWindowDrag(device uintptr, at driver.Point) bool {
 	}); control != nil && descendant(control, drag) {
 		return false
 	}
-	if w.down.Count >= 2 {
-		w.toggleMaximize()
+	// A transparent window has no title bar whose double click maximizes it, as a desktop pet's must not, nor does a panel or a view a host embeds: they drag as for one click.
+	if w.down.Count == 2 && w.ownWindow() && !w.transparent {
+		w.titleBarDoubleClick()
 		return true
 	}
-	if device == 0 {
+	if device == 0 || gtkNativeGetSurface(gtkWidgetGetNative(w.surface)) == 0 {
 		return false
 	}
-	surface := gtkNativeGetSurface(gtkWidgetGetNative(w.surface))
-	if surface == 0 {
-		return false
-	}
-	gdkToplevelBeginMove(surface, device, 1, float64(at.X), float64(at.Y), 0)
+	w.windowMove = &windowMove{device: device, at: at}
 	return true
+}
+
+// moveWindow hands the pointer to the window manager, which moves the window from where the press went down.
+func (w *window) moveWindow() {
+	m := w.windowMove
+	w.windowMove = nil
+	if surface := gtkNativeGetSurface(gtkWidgetGetNative(w.surface)); surface != 0 {
+		gdkToplevelBeginMove(surface, m.device, 1, float64(m.at.X), float64(m.at.Y), 0)
+	}
+}
+
+// titleBarAction is what a double click on a title bar does.
+type titleBarAction int
+
+const (
+	titleBarNone titleBarAction = iota
+	titleBarToggleMaximize
+	titleBarMinimize
+	titleBarLower
+)
+
+// titleBarDoubleClickAction reads GtkSettings' gtk-titlebar-double-click, the desktop's choice that GTK's own header bars follow (GNOME's action-double-click-titlebar), as GTK 4's GtkWindowHandle does: the maximize variants all toggle maximize, as does an unset or unknown value. GTK's "menu" shows the window manager's menu for the press's GdkEvent, which NSGo's press handling does not keep, so it does nothing.
+func titleBarDoubleClickAction(setting string) titleBarAction {
+	switch setting {
+	case "none", "menu":
+		return titleBarNone
+	case "minimize":
+		return titleBarMinimize
+	case "lower":
+		return titleBarLower
+	}
+	return titleBarToggleMaximize
+}
+
+// titleBarDoubleClick carries out the desktop's action for a double click on the window's title bar, within the window's constraints.
+func (w *window) titleBarDoubleClick() {
+	var setting string
+	if settings := gtkSettingsGetDefault(); settings != 0 {
+		setting = settingString(settings, "gtk-titlebar-double-click")
+	}
+	switch titleBarDoubleClickAction(setting) {
+	case titleBarToggleMaximize:
+		w.toggleMaximize()
+	case titleBarMinimize:
+		w.minimize()
+	case titleBarLower:
+		if surface := gtkNativeGetSurface(w.win); surface != 0 {
+			gdkToplevelLower(surface)
+		}
+	}
 }
 
 // descendant reports whether v is child or below.
