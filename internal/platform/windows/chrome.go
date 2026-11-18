@@ -1029,6 +1029,7 @@ func (w *window) menuShortcut(key string) bool {
 
 // chooseMenu carries out an item's role and tells the app about it.
 func (w *window) chooseMenu(ref menuRef) {
+	handled := false
 	switch ref.role {
 	case driver.MenuQuit:
 		// The app's root window, whose closing ends the loop, even from a window the app opened.
@@ -1037,32 +1038,42 @@ func (w *window) chooseMenu(ref menuRef) {
 			root = w.hostWindow
 		}
 		postMessageW.Call(root.hwnd, wmClose, 0, 0)
+		handled = true
 	case driver.MenuClose:
 		postMessageW.Call(w.hwnd, wmClose, 0, 0)
+		handled = true
 	case driver.MenuMinimize:
 		w.minimize()
+		handled = true
 	case driver.MenuZoom:
 		w.toggleMaximize()
+		handled = true
 	case driver.MenuToggleFullScreen:
 		w.toggleFullScreen()
+		handled = true
 	case driver.MenuUndo, driver.MenuRedo, driver.MenuCut, driver.MenuCopy, driver.MenuPaste, driver.MenuPasteAndMatchStyle, driver.MenuDelete, driver.MenuSelectAll:
 		// The focused field's own keys.
 		if ref.role == driver.MenuPasteAndMatchStyle {
 			if in := w.focusedField(); in != nil {
 				w.paste(in)
+				handled = true
 			}
 		} else if ref.role == driver.MenuDelete {
 			// Delete removes the selection alone, as the field's context menu does; with none it would remove the character after the caret.
 			if in := w.focusedField(); in != nil && in.model.hasSelection() {
 				w.editKey(vkDelete, false, false, false)
+				handled = true
 			}
 		} else {
-			vk := map[driver.MenuRole]uintptr{driver.MenuUndo: 'Z', driver.MenuRedo: 'Y', driver.MenuCut: 'X',
-				driver.MenuCopy: 'C', driver.MenuPaste: 'V', driver.MenuSelectAll: 'A'}[ref.role]
-			w.editKey(vk, true, false, false)
+			if w.focusedField() != nil {
+				vk := map[driver.MenuRole]uintptr{driver.MenuUndo: 'Z', driver.MenuRedo: 'Y', driver.MenuCut: 'X',
+					driver.MenuCopy: 'C', driver.MenuPaste: 'V', driver.MenuSelectAll: 'A'}[ref.role]
+				w.editKey(vk, true, false, false)
+				handled = true
+			}
 		}
 	}
-	if ref.id != 0 {
+	if !handled && ref.id != 0 {
 		w.engine.Dispatch(driver.Event{Kind: driver.EventMenu, Count: ref.id})
 	}
 }

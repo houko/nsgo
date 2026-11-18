@@ -929,17 +929,17 @@ func (w *window) menuShortcut(key string) bool {
 
 // menuChosen runs an application menu item's role, or reports its ID.
 func (w *window) menuChosen(ref menuRef) bool {
-	if ref.id != 0 {
-		w.engine.Dispatch(driver.Event{Kind: driver.EventMenu, Count: ref.id})
-		return true
-	}
+	handled := false
 	switch ref.role {
 	case driver.MenuQuit, driver.MenuClose:
 		w.close()
+		handled = true
 	case driver.MenuMinimize:
 		w.minimize()
+		handled = true
 	case driver.MenuZoom:
 		w.toggleMaximize()
+		handled = true
 	case driver.MenuToggleFullScreen:
 		if w.chrome.fullScreen {
 			gtkWindowUnfullscreen(w.win)
@@ -948,6 +948,7 @@ func (w *window) menuChosen(ref menuRef) bool {
 		}
 		w.chrome.fullScreen = !w.chrome.fullScreen
 		w.updateEnvironment()
+		handled = true
 	case driver.MenuUndo, driver.MenuRedo, driver.MenuCut, driver.MenuCopy, driver.MenuPaste, driver.MenuPasteAndMatchStyle, driver.MenuDelete, driver.MenuSelectAll:
 		if w.focus != nil {
 			action := map[driver.MenuRole]string{
@@ -957,13 +958,17 @@ func (w *window) menuChosen(ref menuRef) bool {
 				driver.MenuDelete: "selection.delete", driver.MenuSelectAll: "selection.select-all",
 			}[ref.role]
 			gtkWidgetActivateAction(w.focus.entry, cstr(action), 0)
-			return true
+			handled = true
+		} else {
+			handled = w.webEdit(ref.role)
 		}
-		w.webEdit(ref.role)
 	default:
-		return false
 	}
-	return true
+	if !handled && ref.id != 0 {
+		w.engine.Dispatch(driver.Event{Kind: driver.EventMenu, Count: ref.id})
+		return true
+	}
+	return handled
 }
 
 // GDK's event types and modifier bits the shield reads.

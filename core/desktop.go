@@ -139,7 +139,9 @@ type MenuItem struct {
 	// When says whether the shortcut chooses the item while a text input
 	// or a web view has the keyboard focus.
 	When MenuWhen
-	// OnSelect runs when the item is chosen, by a click or its shortcut.
+	// OnSelect runs when the item is chosen, by a click or its shortcut. For
+	// an editing Role, the platform runs the standard action first and calls
+	// OnSelect when no focused editor or selectable surface handles it.
 	OnSelect func()
 }
 

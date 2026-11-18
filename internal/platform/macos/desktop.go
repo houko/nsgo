@@ -84,6 +84,7 @@ var (
 var rawHit bool
 
 var selMenuChosen = sel("nsgoMenuChosen:")
+var selMenuRoleChosen = sel("nsgoMenuRoleChosen:")
 var selDockMenuChosen = sel("nsgoDockMenuChosen:")
 
 // The action of the full screen role's item, in place of AppKit's
@@ -688,6 +689,9 @@ func syncMenuItem(it, next objc.ID) {
 	if v := objc.Send[objc.SEL](next, sel("action")); objc.Send[objc.SEL](it, sel("action")) != v {
 		it.Send(sel("setAction:"), v)
 	}
+	if v := next.Send(sel("representedObject")); it.Send(sel("representedObject")) != v {
+		it.Send(sel("setRepresentedObject:"), v)
+	}
 	if v := next.Send(sel("target")); it.Send(sel("target")) != v {
 		it.Send(selSetTarget, v)
 	}
@@ -858,6 +862,8 @@ func (s *surface) item(e driver.MenuEntry) objc.ID {
 		action = selMenuDisabled
 	case fullScreen:
 		action = selMenuFullScreen
+	case e.Role != driver.MenuRoleNone && e.ID != 0:
+		action = selMenuRoleChosen
 	case e.Role != driver.MenuRoleNone:
 		action = sel(roleActions[e.Role])
 	case e.ID != 0:
@@ -878,6 +884,17 @@ func (s *surface) item(e driver.MenuEntry) objc.ID {
 	if action == selMenuChosen {
 		it.Send(selSetTarget, s.menuTarget)
 		it.Send(sel("setTag:"), int(e.ID))
+		if e.NotInText && key != "" {
+			if s.notInText == nil {
+				s.notInText = map[uint32]bool{}
+			}
+			s.notInText[e.ID] = true
+		}
+	}
+	if action == selMenuRoleChosen {
+		it.Send(selSetTarget, s.menuTarget)
+		it.Send(sel("setTag:"), int(e.ID))
+		it.Send(sel("setRepresentedObject:"), objc.ID(apple.Class("NSNumber")).Send(sel("numberWithInt:"), int(e.Role)))
 		if e.NotInText && key != "" {
 			if s.notInText == nil {
 				s.notInText = map[uint32]bool{}
@@ -1018,6 +1035,31 @@ func menuChosen(self objc.ID, _ objc.SEL, item objc.ID) {
 	s := menuTargets[self]
 	if id := objc.Send[int](item, sel("tag")); id > 0 && s != nil && s.engine != nil && !s.closed {
 		s.engine.Dispatch(driver.Event{Kind: driver.EventMenu, Count: uint32(id)})
+	}
+}
+
+// menuRoleChosen runs a standard responder-chain action first, then reports
+// the item's app action when no responder can handle it.
+func menuRoleChosen(self objc.ID, _ objc.SEL, item objc.ID) {
+	s := menuTargets[self]
+	if s == nil || s.engine == nil || s.closed {
+		return
+	}
+	role := driver.MenuRole(objc.Send[int](item.Send(sel("representedObject")), sel("intValue")))
+	actionName := roleActions[role]
+	handled := false
+	if actionName != "" {
+		action := sel(actionName)
+		app := objc.ID(apple.Class("NSApplication")).Send(sel("sharedApplication"))
+		target := app.Send(sel("targetForAction:to:from:"), action, objc.ID(0), item)
+		if target != 0 && !(target == s.native && s.selecting == nil) {
+			handled = objc.Send[bool](app, sel("sendAction:to:from:"), action, target, item)
+		}
+	}
+	if !handled {
+		if id := objc.Send[int](item, sel("tag")); id > 0 {
+			s.engine.Dispatch(driver.Event{Kind: driver.EventMenu, Count: uint32(id)})
+		}
 	}
 }
 

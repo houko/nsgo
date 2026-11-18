@@ -351,7 +351,7 @@ func TestApplicationMenuStandardRolesAndRadios(t *testing.T) {
 			{Role: MenuWindowMenu, Items: []MenuItem{{Role: MenuBringAllToFront}}},
 			{Role: MenuHelpMenu},
 			{Label: "Edit", Items: []MenuItem{
-				{Role: MenuPasteAndMatchStyle, When: MenuAuto}, {Role: MenuDelete, Shortcut: "delete", When: MenuAuto},
+				{Role: MenuPasteAndMatchStyle, When: MenuAuto, OnSelect: func() {}}, {Role: MenuDelete, Shortcut: "delete", When: MenuAuto},
 				{Role: MenuStartSpeaking}, {Role: MenuStopSpeaking},
 				{Label: "One", Radio: true, Checked: true, OnSelect: func() {}}, {Label: "Two", Radio: true, OnSelect: func() {}},
 			}},
@@ -371,7 +371,7 @@ func TestApplicationMenuStandardRolesAndRadios(t *testing.T) {
 	}
 	items := menu[3].Items
 	// No text field handles Paste and Match Style's key, so its shortcut stays the menu's; Delete's key is the field's.
-	if len(items) != 6 || items[0].Role != MenuPasteAndMatchStyle || items[0].NotInText || items[1].Role != MenuDelete || !items[1].NotInText {
+	if len(items) != 6 || items[0].Role != MenuPasteAndMatchStyle || items[0].ID == 0 || items[0].NotInText || items[1].Role != MenuDelete || !items[1].NotInText {
 		t.Fatalf("editing roles = %+v", items)
 	}
 	if !items[4].Radio || !items[4].Checkable || !items[4].Checked || items[4].ID == 0 || !items[5].Radio || !items[5].Checkable || items[5].Checked {
