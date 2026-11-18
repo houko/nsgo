@@ -78,6 +78,8 @@ type Options struct {
 	Perf bool
 	// Updates is how the app updates (updates.go).
 	Updates updates.Config
+	// LaunchedAtLogin says the login item started this process.
+	LaunchedAtLogin bool
 	// Host is what an embedding host gives the view (NewView).
 	Host engine.HostOptions
 	// test is what a test host opens the app with.
@@ -942,8 +944,10 @@ func (w *window) apply(b *driver.MountBatch) {
 			w.trayMenuShown(tr, it.Menu, it.Count)
 			continue
 		case driver.ItemLaunchAtLogin:
-			// Linux has no launch at login yet: the app hears it is off.
-			w.engine.Dispatch(driver.Event{Kind: driver.EventLaunchAtLogin, Count: it.Count})
+			w.engine.Dispatch(driver.Event{Kind: driver.EventLaunchAtLogin, Count: it.Count, Finished: launchesAtLogin(w.opts.ID, w.opts.Name)})
+			continue
+		case driver.ItemSetLaunchAtLogin:
+			setLaunchAtLogin(it.On, w.opts.ID, w.opts.Name)
 			continue
 		case driver.ItemOpenSurface:
 			if it.Surface != nil {

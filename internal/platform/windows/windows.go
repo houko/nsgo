@@ -94,6 +94,8 @@ type Options struct {
 	UnregisterToast bool
 	// DockTask is the label of the item the Jump List task that started the app chose, from the launch flags.
 	DockTask string
+	// LaunchedAtLogin says the login item started this process.
+	LaunchedAtLogin bool
 	// Host is what an embedding host gives the view (NewView), and Parent
 	// the HWND of the window it is a child window of.
 	Host   engine.HostOptions
@@ -1332,11 +1334,13 @@ func (w *window) apply(b *driver.MountBatch) {
 			w.trayMenu(it.Tray.ID, it.Menu, it.Count)
 			continue
 		case driver.ItemLaunchAtLogin:
-			// No login item yet (roadmap): the app hears that it does not start at login.
-			w.engine.Dispatch(driver.Event{Kind: driver.EventLaunchAtLogin, Count: it.Count})
+			w.engine.Dispatch(driver.Event{Kind: driver.EventLaunchAtLogin, Count: it.Count, Finished: launchesAtLogin(w.opts.ID)})
 			continue
-		case driver.ItemSetLaunchAtLogin, driver.ItemDock:
-			// No login item yet (roadmap), and no Dock.
+		case driver.ItemSetLaunchAtLogin:
+			setLaunchAtLogin(it.On, w.opts.ID)
+			continue
+		case driver.ItemDock:
+			// Windows has no Dock policy.
 			continue
 		case driver.ItemAppearance:
 			w.setAppearance(it.Appearance)

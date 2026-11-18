@@ -83,6 +83,7 @@ func (w *window) environment() driver.Environment {
 	}
 	front, followed := frontmostApp()
 	return driver.Environment{
+		LaunchedAtLogin:  w.opts.LaunchedAtLogin,
 		DeviceName:       deviceName,
 		DeviceModel:      deviceModel,
 		Dark:             dark,

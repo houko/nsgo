@@ -15,5 +15,5 @@ func run(root engine.App, app func(*core.Scope), o Options) {
 	linux.Run(rootOf(root, app), linux.Options{Title: name, Name: core.App().Name, Width: o.Width, Height: o.Height, Hidden: app != nil, ID: id,
 		Components: o.Components, Constraints: o.Constraints, Fonts: o.Fonts, Appearance: o.Appearance, Perf: o.Monitor,
 		Transparent: o.Transparent, NoShadow: o.NoShadow, SkipTaskbar: o.SkipTaskbar,
-		Updates: updates, InstanceKey: o.InstanceKey})
+		Updates: updates, LaunchedAtLogin: launch.launchedAtLogin, InstanceKey: o.InstanceKey})
 }

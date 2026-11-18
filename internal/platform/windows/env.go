@@ -76,6 +76,7 @@ func (w *window) environment() driver.Environment {
 	locale := userLocale()
 	deviceName, deviceModel := deviceIdentity()
 	return driver.Environment{
+		LaunchedAtLogin:  w.opts.LaunchedAtLogin,
 		DeviceName:       deviceName,
 		DeviceModel:      deviceModel,
 		Dark:             regDWORD(`Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, "AppsUseLightTheme", 1) == 0,
