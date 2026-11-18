@@ -49,10 +49,12 @@ type chrome struct {
 	roleFallback map[uint32]driver.MenuRole
 	// notInText are the IDs of the items whose shortcuts a field or a
 	// web view with the keyboard focus keeps (MenuEntry.NotInText).
-	notInText  map[uint32]bool
-	popup      objc.ID // the context menu shown last
-	tracking   bool    // whether a context menu tracks
-	nextPopups []func()
+	notInText map[uint32]bool
+	// editingKeys are the actions of the notInText items whose key equivalent is an editing role's, such as ⌘Z for undo:, which the focused field gets only through the menu (see validateMenu).
+	editingKeys map[uint32]objc.SEL
+	popup       objc.ID // the context menu shown last
+	tracking    bool    // whether a context menu tracks
+	nextPopups  []func()
 }
 
 // The title bar's height and the traffic lights' width when AppKit
@@ -509,6 +511,7 @@ func (s *surface) setMenu(entries []driver.MenuEntry) {
 	s.ensureMenuTarget()
 	clear(s.notInText)
 	clear(s.roleFallback)
+	clear(s.editingKeys)
 	bar := objc.ID(apple.Class("NSMenu")).Send(selNew)
 	for _, e := range entries {
 		if e.Separator {
@@ -899,6 +902,12 @@ func (s *surface) item(e driver.MenuEntry) objc.ID {
 				s.notInText = map[uint32]bool{}
 			}
 			s.notInText[e.ID] = true
+			if action := editingKey(key, mods); action != 0 {
+				if s.editingKeys == nil {
+					s.editingKeys = map[uint32]objc.SEL{}
+				}
+				s.editingKeys[e.ID] = action
+			}
 		}
 	}
 	if e.Checkable {
@@ -909,6 +918,17 @@ func (s *surface) item(e driver.MenuEntry) objc.ID {
 		it.Send(sel("setState:"), state)
 	}
 	return it
+}
+
+// editingKey returns the action of the editing role whose key equivalent is key with mods, such as undo: for ⌘Z, or 0. A field editor takes these keys only through the menu: it has no binding of its own for them.
+func editingKey(key string, mods uint) objc.SEL {
+	for _, r := range []driver.MenuRole{driver.MenuUndo, driver.MenuRedo, driver.MenuCut, driver.MenuCopy,
+		driver.MenuPaste, driver.MenuSelectAll, driver.MenuPasteAndMatchStyle} {
+		if k, m := keyEquivalent(driver.NormalizeKey(r.Shortcut(true))); k == key && m == mods {
+			return sel(roleActions[r])
+		}
+	}
+	return 0
 }
 
 // name is the app's name, for the app menu's items: in the menus'
@@ -988,21 +1008,24 @@ func (s *surface) ensureMenuTarget() {
 	}
 }
 
-// validateMenu disables an item whose shortcut a field with the keyboard
-// focus keeps while a key press looks for it, so AppKit hands the key to
-// the field; clicked, the item is enabled.
+// validateMenu disables an item whose shortcut a field with the keyboard focus keeps while a key press looks for it, so AppKit hands the key to the field; clicked, the item is enabled. An item whose key is an editing role's, such as ⌘Z, stays enabled, and menuChosen sends the field the role's action, since a field editor has no binding of its own for those keys and takes them only from the menu.
 func validateMenu(self objc.ID, _ objc.SEL, item objc.ID) bool {
 	s := menuTargets[self]
 	if s != nil && objc.Send[objc.SEL](item, sel("action")) == selMenuFullScreen {
 		return s.validateFullScreen(item)
 	}
-	if s == nil || !s.notInText[uint32(objc.Send[int](item, sel("tag")))] {
+	id := uint32(objc.Send[int](item, sel("tag")))
+	if s == nil || !s.notInText[id] || s.editingKeys[id] != 0 {
 		return true
 	}
+	return !s.keyInField()
+}
+
+// keyInField reports whether a key press is looking for a menu item's key equivalent while a field or a web view of the surface has the keyboard focus.
+func (s *surface) keyInField() bool {
 	const keyDown = 10 // NSEventTypeKeyDown
-	nsApp := objc.ID(apple.Class("NSApplication")).Send(sel("sharedApplication"))
-	e := nsApp.Send(sel("currentEvent"))
-	return e == 0 || objc.Send[uint](e, sel("type")) != keyDown || !s.editing()
+	e := nsApp().Send(sel("currentEvent"))
+	return e != 0 && objc.Send[uint](e, sel("type")) == keyDown && s.editing()
 }
 
 // validateFullScreen enables a full screen item while a window has the
@@ -1029,12 +1052,18 @@ func menuFullScreen(objc.ID, objc.SEL, objc.ID) {
 	objc.ID(apple.Class("NSApplication")).Send(sel("sharedApplication")).Send(sel("keyWindow")).Send(sel("toggleFullScreen:"), objc.ID(0))
 }
 
-// menuChosen reports a chosen menu item's ID to its surface.
+// menuChosen reports a chosen menu item's ID to its surface, or, for an item whose key is an editing role's chosen by that key while a field or a web view has the keyboard focus, sends the role's action to it in the item's place (validateMenu).
 func menuChosen(self objc.ID, _ objc.SEL, item objc.ID) {
 	s := menuTargets[self]
-	if id := objc.Send[int](item, sel("tag")); id > 0 && s != nil && s.engine != nil && !s.closed {
-		s.engine.Dispatch(driver.Event{Kind: driver.EventMenu, Count: uint32(id)})
+	id := objc.Send[int](item, sel("tag"))
+	if id <= 0 || s == nil || s.engine == nil || s.closed {
+		return
 	}
+	if action := s.editingKeys[uint32(id)]; action != 0 && s.keyInField() {
+		s.window.Send(sel("firstResponder")).Send(sel("tryToPerform:with:"), action, item)
+		return
+	}
+	s.engine.Dispatch(driver.Event{Kind: driver.EventMenu, Count: uint32(id)})
 }
 
 // menuRoleChosen carries out an editing role with an ID: AppKit's action goes down the responder chain when an editor takes it, otherwise the item's ID is reported.

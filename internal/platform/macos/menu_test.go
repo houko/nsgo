@@ -228,3 +228,33 @@ func TestMenuRoleItems(t *testing.T) {
 		delete(menuTargets, s.menuTarget)
 	})
 }
+
+// TestMenuEditingKeys checks the editing role actions that items with an editing role's key, which a focused field keeps (NotInText), send to the field, whatever way the shortcut names Command.
+func TestMenuEditingKeys(t *testing.T) {
+	onMain(func() {
+		loadAppKit()
+		s := &surface{}
+		s.ensureMenuTarget()
+		defer delete(menuTargets, s.menuTarget)
+		for i, c := range []struct {
+			shortcut  string
+			notInText bool
+			want      string
+		}{
+			{"mod+z", true, "undo:"}, {"cmd+z", true, "undo:"}, {"mod+shift+z", true, "redo:"}, {"shift+cmd+z", true, "redo:"},
+			{"mod+x", true, "cut:"}, {"mod+c", true, "copy:"}, {"mod+v", true, "paste:"}, {"mod+a", true, "selectAll:"},
+			{"alt+shift+cmd+v", true, "pasteAsPlainText:"},
+			{"mod+y", true, ""}, {"ctrl+z", true, ""}, {"mod+alt+z", true, ""}, {"mod+z", false, ""},
+		} {
+			id := uint32(i + 1)
+			it := s.item(driver.MenuEntry{ID: id, Label: c.shortcut, Shortcut: driver.NormalizeKey(c.shortcut), NotInText: c.notInText})
+			if got, want := s.editingKeys[id], sel(c.want); c.want == "" && got != 0 || c.want != "" && got != want {
+				t.Errorf("%q (NotInText %v) sends %v to a focused field, want %q", c.shortcut, c.notInText, got, c.want)
+			}
+			if got := objc.Send[objc.SEL](it, sel("action")); got != selMenuChosen {
+				t.Errorf("%q sends %v, want the item's own action", c.shortcut, got)
+			}
+			it.Send(selRelease)
+		}
+	})
+}
