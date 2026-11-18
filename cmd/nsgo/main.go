@@ -134,14 +134,14 @@ func main() {
 		}
 	case "check":
 		fs := flag.NewFlagSet("check", flag.ExitOnError)
-		target := fs.String("target", "", "also vet for these comma-separated `targets` (all for available Go/Xcode targets; a bare OS such as windows vets both its architectures)")
-		jobs := fs.Int("jobs", 0, "how many target vets and Go compile workers run at once (default: half the CPUs)")
+		target := fs.String("target", "", "vet for these comma-separated `targets` instead of the host (all for available Go/Xcode targets; a bare OS such as windows vets both its architectures)")
+		jobs := fs.Int("jobs", 0, "vet up to `n` targets at once, each go vet with n compile workers (default: one target at a time, with go's own default)")
 		if err = parseCommand(fs, args, 1); err != nil {
 			break
 		}
 		var p *project
 		if p, err = loadOrDir(treeOf(fs.Arg(0))); err == nil {
-			err = checkWithJobs(ctx, p, *target, *jobs)
+			err = check(ctx, p, *target, *jobs)
 		}
 	case "i18n":
 		fs := flag.NewFlagSet("i18n", flag.ExitOnError)

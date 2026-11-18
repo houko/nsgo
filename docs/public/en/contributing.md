@@ -34,14 +34,13 @@ go tool nsgo build -target all examples/gallery     # every platform's packages 
 
 ```sh
 go tool nsgo check                 # vet every package
-go tool nsgo check -target all     # also vet every available Go/Xcode target
-go tool nsgo check -target all -jobs 4 # one bounded multi-target run
+go tool nsgo check -target all     # vet every available Go/Xcode target instead
 go tool nsgo test                  # every package's tests
 go tool nsgo test -bench . ./core  # core's benchmarks
 (cd benchmark && go run ./runner)  # measure against other frameworks
 ```
 
-For local target checks, pass the targets to one command instead of starting several checks. An explicit `-target` skips the host and dev-client vets, and `-jobs` bounds both target checks and each Go vet's compile workers. A second check in the same module waits for the first.
+`-target` vets the targets it names instead of the host and, in NSGo's repository, the dev client, which the plain `check` vets. To vet the platforms a change touches, name them all in one check, such as `check -target web,android -jobs 2`, rather than starting several: `-jobs n` vets up to n targets at once, each `go vet` with n compile workers, where the default is one target at a time with Go's default, and a check started while another runs in the same module waits for it and says so. CI's `check.yml` vets every target.
 
 Run at the repository root, or in `internal/dev`, the headless command tests `internal/dev` a second time with the `nsgodev` build tag, which the dev client's files need, so its tests run locally and in CI. Both runs take the same filters and flags and share one tally and JUnit report, where the second run's package is named `internal/dev [nsgodev]`.
 

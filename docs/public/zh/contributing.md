@@ -34,11 +34,13 @@ go tool nsgo build -target all examples/gallery     # 在 examples/gallery/dist 
 
 ```sh
 go tool nsgo check                 # 检查所有包
-go tool nsgo check -target all     # 同时检查所有可用的 Go/Xcode 目标
+go tool nsgo check -target all     # 改为检查所有可用的 Go/Xcode 目标
 go tool nsgo test                  # 运行所有包的测试
 go tool nsgo test -bench . ./core  # core 的基准测试
 (cd benchmark && go run ./runner)  # 与其他框架对比测量
 ```
+
+`-target` 只检查它指定的目标，不再检查宿主系统，在 NSGo 自己的仓库里也不检查 dev client，这些由不带参数的 `check` 检查。要检查一项改动涉及的平台，把它们都写进同一个检查，例如 `check -target web,android -jobs 2`，不要同时启动多个：`-jobs n` 最多同时检查 n 个目标，每次 `go vet` 使用 n 个编译进程，默认一次检查一个目标并使用 Go 的默认值；同一模块里已有检查在运行时，后启动的检查会提示并等待它结束。CI 的 `check.yml` 会检查所有目标。
 
 在仓库根目录或 `internal/dev` 中运行无头测试命令时，它会带上 `nsgodev` 构建标签再测试一次 `internal/dev`（dev client 的文件需要这个标签），让本地和 CI 都运行 dev client 的测试。两次运行使用相同的筛选条件和参数，结果合并到同一份统计和 JUnit 报告中，第二次运行的包名为 `internal/dev [nsgodev]`。
 

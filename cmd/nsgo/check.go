@@ -25,20 +25,16 @@ import (
 // by Go, so checking needs only Go.
 const tsgo = "github.com/microsoft/typescript-go/cmd/tsgo@v0.0.0-20260820064610-89d5d5b2849a"
 
-func check(ctx context.Context, p *project, target string) error {
-	return checkWithJobs(ctx, p, target, 1)
-}
-
-func checkWithJobs(ctx context.Context, p *project, target string, jobs int) error {
-	if jobs <= 0 {
-		jobs = max(1, runtime.NumCPU()/2)
+// check checks p: its catalogs, go vet and its TSX. Without targets go vet runs for the host, and in NSGo's repository for the dev client too; with targets it runs for them alone, up to jobs at once (checkTargets). jobs above 0 also bounds each go vet's compile workers (-p); 0 vets one target at a time with go's own default. Checks of one module wait for each other (lockCheck).
+func check(ctx context.Context, p *project, target string, jobs int) error {
+	if jobs < 0 {
+		return fmt.Errorf("-jobs is %d; use 1 or more, or 0 for one target at a time", jobs)
 	}
-	release, err := acquireCheckLock(ctx, p.Dir)
+	unlock, err := lockCheck(ctx, p.Dir)
 	if err != nil {
 		return err
 	}
-	defer release()
-	ctx = context.WithValue(ctx, checkJobsKey{}, jobs)
+	defer unlock()
 	s := begin("checking catalogs")
 	if err := p.prepareCatalogs(ctx, "./...", true); err != nil {
 		s.fail()
@@ -49,32 +45,11 @@ func checkWithJobs(ctx context.Context, p *project, target string, jobs int) err
 		return checkTSX(ctx, p)
 	}
 	if target == "" {
-		s = begin("vetting")
-		if err := goToolWithTags(ctx, p, nil, nil, "vet", "./..."); err != nil {
-			s.fail()
+		if err := checkHost(ctx, p, jobs); err != nil {
 			return err
 		}
-		s.done("vetted", "")
-	}
-	// The dev client builds only into nsgo dev's builds, which take the nsgodev tag, and on macOS -automation's agent with nsgoautomation too, so NSGo's own repository vets them as they build them.
-	if target == "" {
-		if path, err := importPathOf(p.Dir); err == nil && path == nsgoModule {
-			s = begin("vetting the dev client")
-			if err := goToolWithTags(ctx, p, nil, []string{"nsgodev"}, "vet", ".", "./internal/dev"); err != nil {
-				s.fail()
-				return err
-			}
-			if err := goToolWithTags(ctx, p, []string{"GOOS=darwin", "GOARCH=arm64", "CGO_ENABLED=0"}, []string{"nsgodev", "nsgoautomation"}, "vet", ".", "./internal/dev", "./nsgotest", "./internal/platform/macos"); err != nil {
-				s.fail()
-				return err
-			}
-			s.done("vetted the dev client", "")
-		}
-	}
-	if target != "" {
-		if err := checkTargetsWithJobs(ctx, p, target, jobs); err != nil {
-			return err
-		}
+	} else if err := checkTargets(ctx, p, target, jobs); err != nil {
+		return err
 	}
 	if p.bare {
 		return nil
@@ -82,95 +57,124 @@ func checkWithJobs(ctx context.Context, p *project, target string, jobs int) err
 	return checkTSX(ctx, p)
 }
 
-// checkTargets vets every requested target. Only Apple mobile targets included through all may be skipped for an unavailable SDK; explicit names stay strict. A target's failure does not prevent checking the independent targets after it.
-func checkTargets(ctx context.Context, p *project, target string) error {
-	return checkTargetsWithJobs(ctx, p, target, 1)
+// checkHost vets p for the host and, in NSGo's own repository, the dev client.
+func checkHost(ctx context.Context, p *project, jobs int) error {
+	s := begin("vetting")
+	if err := goToolWithTags(ctx, p, nil, nil, vetArgs(jobs, "./...")...); err != nil {
+		s.fail()
+		return err
+	}
+	s.done("vetted", "")
+	// The dev client builds only into nsgo dev's builds, which take the nsgodev tag, and on macOS -automation's agent with nsgoautomation too, so NSGo's own repository vets them as they build them.
+	if path, err := importPathOf(p.Dir); err == nil && path == nsgoModule {
+		s = begin("vetting the dev client")
+		if err := goToolWithTags(ctx, p, nil, []string{"nsgodev"}, vetArgs(jobs, ".", "./internal/dev")...); err != nil {
+			s.fail()
+			return err
+		}
+		if err := goToolWithTags(ctx, p, []string{"GOOS=darwin", "GOARCH=arm64", "CGO_ENABLED=0"}, []string{"nsgodev", "nsgoautomation"}, vetArgs(jobs, ".", "./internal/dev", "./nsgotest", "./internal/platform/macos")...); err != nil {
+			s.fail()
+			return err
+		}
+		s.done("vetted the dev client", "")
+	}
+	return nil
 }
 
-type targetCheckResult struct {
-	index   int
-	name    string
-	err     error
-	skipped bool
-	why     string
+// vetArgs is go vet's arguments for patterns, with -p jobs when jobs is above 0.
+func vetArgs(jobs int, patterns ...string) []string {
+	args := []string{"vet"}
+	if jobs > 0 {
+		args = append(args, "-p", strconv.Itoa(jobs))
+	}
+	return append(args, patterns...)
 }
 
-func checkTargetsWithJobs(ctx context.Context, p *project, target string, jobs int) error {
+// checkTargets vets every requested target, up to jobs at once (one for 0). Only Apple mobile targets included through all may be skipped for an unavailable SDK; explicit names stay strict. A target's failure does not prevent checking the independent targets beside and after it; cancellation stops starting new ones.
+func checkTargets(ctx context.Context, p *project, target string, jobs int) error {
 	requested := strings.Split(target, ",")
 	names, err := expandTargets(requested)
 	if err != nil {
 		return err
 	}
-	var skipped []string
-	// why is the reason the first target was skipped for, so a Mac whose Xcode lacks an SDK, or fails for another reason, says which.
-	var why string
-	var failures []error
 	repository := false
 	if p != nil {
 		path, err := importPathOf(p.Dir)
 		repository = err == nil && path == nsgoModule
 	}
-	jobs = max(1, min(jobs, len(names)))
-	results := make(chan targetCheckResult, len(names))
+	// Each target's outcome stands at its index, so the skips and failures are reported in the targets' order whichever finishes first.
+	type outcome struct {
+		err error
+		// why is set when the target was skipped.
+		why string
+	}
+	outcomes := make([]outcome, len(names))
+	slots := make(chan struct{}, max(1, min(jobs, len(names))))
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, jobs)
+	var interrupted error
 	for i, name := range names {
 		if ctx.Err() != nil {
-			results <- targetCheckResult{index: i, name: name, err: ctx.Err()}
-			continue
+			interrupted = ctx.Err()
+			break
 		}
 		_, _, apple := appleOSOf(name)
 		optional := apple && slices.Contains(requested, "all") && !slices.Contains(requested, name)
 		if optional && runtime.GOOS != "darwin" {
-			results <- targetCheckResult{index: i, name: name, skipped: true, why: "they need macOS with Xcode"}
+			outcomes[i].why = "they need macOS with Xcode"
 			continue
 		}
-		wg.Add(1)
-		go func(index int, name string, optional bool) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
+		select {
+		case slots <- struct{}{}:
+		case <-ctx.Done():
+		}
+		if ctx.Err() != nil {
+			interrupted = ctx.Err()
+			break
+		}
+		wg.Go(func() {
+			defer func() { <-slots }()
 			env, err := vetEnv(ctx, name)
 			if err != nil && optional && ctx.Err() == nil {
-				results <- targetCheckResult{index: index, name: name, skipped: true, why: err.Error()}
+				outcomes[i].why = err.Error()
 				return
 			}
 			s := begin("vetting for %s", name)
 			if err == nil {
-				err = goToolWithTags(ctx, p, env, targetTags(name), "vet", "./...")
+				err = goToolWithTags(ctx, p, env, targetTags(name), vetArgs(jobs, "./...")...)
 			}
 			if err == nil && repository {
-				// The test hosts build only with nsgotest, which no app build sets, and each must implement testhost.Surface, so NSGo vets them for every target it checks.
-				err = goToolWithTags(ctx, p, env, slices.Concat(targetTags(name), []string{"nsgotest"}), "vet", "./internal/platform/...")
+				// The test hosts build only with nsgotest, which no app build sets, and each must implement testhost.Surface, so the repository vets them for every target it checks.
+				err = goToolWithTags(ctx, p, env, slices.Concat(targetTags(name), []string{"nsgotest"}), vetArgs(jobs, "./internal/platform/...")...)
 				if err != nil {
 					err = fmt.Errorf("test hosts: %w", err)
 				}
 			}
 			if err != nil {
 				s.fail()
-			} else {
-				s.done("vetted for "+name, "")
+				outcomes[i].err = fmt.Errorf("%s: %w", name, err)
+				return
 			}
-			results <- targetCheckResult{index: index, name: name, err: err}
-		}(i, name, optional)
+			s.done("vetted for "+name, "")
+		})
 	}
 	wg.Wait()
-	close(results)
-	ordered := make([]targetCheckResult, len(names))
-	for result := range results {
-		ordered[result.index] = result
-	}
-	for _, result := range ordered {
-		if result.skipped {
-			skipped = append(skipped, result.name)
+	var skipped []string
+	// why is the reason the first target was skipped for, so a Mac whose Xcode lacks an SDK, or fails for another reason, says which.
+	var why string
+	var failures []error
+	for i, o := range outcomes {
+		if o.why != "" {
+			skipped = append(skipped, names[i])
 			if why == "" {
-				why = result.why
+				why = o.why
 			}
-			continue
 		}
-		if result.err != nil {
-			failures = append(failures, fmt.Errorf("%s: %w", result.name, result.err))
+		if o.err != nil {
+			failures = append(failures, o.err)
 		}
+	}
+	if interrupted != nil {
+		failures = append(failures, interrupted)
 	}
 	if len(skipped) > 0 {
 		warn("skipped %s: %s", strings.Join(skipped, ", "), why)
@@ -198,33 +202,64 @@ func checkTSX(ctx context.Context, p *project) error {
 	return nil
 }
 
-type checkJobsKey struct{}
-
-func acquireCheckLock(ctx context.Context, dir string) (func(), error) {
-	lockDir := filepath.Join(dir, ".nsgo")
-	if err := os.MkdirAll(lockDir, 0o755); err != nil {
+// lockCheck waits until no other nsgo check runs in dir's module, saying once which process it waits for, and returns what ends its own turn. The lock is the operating system's on .nsgo/check.lock at the module's root, so a check that crashed or was killed holds it no longer; the file stays, as removing it would let a check that opened it before take a lock no later one sees.
+func lockCheck(ctx context.Context, dir string) (unlock func(), err error) {
+	root := moduleRootOf(dir)
+	if err := os.MkdirAll(filepath.Join(root, ".nsgo"), 0o755); err != nil {
 		return nil, err
 	}
-	path := filepath.Join(lockDir, "check.lock")
+	path := filepath.Join(root, ".nsgo", "check.lock")
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	var tick *time.Ticker
 	for {
-		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-		if err == nil {
-			_, _ = f.WriteString(strconv.Itoa(os.Getpid()) + "\n")
-			_ = f.Close()
-			return func() { _ = os.Remove(path) }, nil
+		locked, err := tryLockFile(f)
+		if err != nil {
+			f.Close()
+			return nil, fmt.Errorf("locking %s: %w", rel(path), err)
 		}
-		if !errors.Is(err, os.ErrExist) {
-			return nil, err
+		if locked {
+			break
 		}
-		note("another nsgo check is running; waiting")
-		t := time.NewTimer(250 * time.Millisecond)
+		if tick == nil {
+			holder := "another nsgo check"
+			if data, err := os.ReadFile(path); err == nil {
+				if pid := strings.TrimSpace(string(data)); pid != "" {
+					holder += " (pid " + pid + ")"
+				}
+			}
+			note("%s is checking %s; waiting for it", holder, rel(root))
+			tick = time.NewTicker(250 * time.Millisecond)
+			defer tick.Stop()
+		}
 		select {
 		case <-ctx.Done():
-			if !t.Stop() {
-				<-t.C
-			}
+			f.Close()
 			return nil, ctx.Err()
-		case <-t.C:
+		case <-tick.C:
+		}
+	}
+	// The pid is only for the message above; a write that fails leaves it out.
+	if f.Truncate(0) == nil {
+		f.WriteAt([]byte(strconv.Itoa(os.Getpid())+"\n"), 0)
+	}
+	return func() {
+		f.Truncate(0)
+		unlockFile(f)
+		f.Close()
+	}, nil
+}
+
+// moduleRootOf is the directory of the go.mod dir is in, or dir outside any module.
+func moduleRootOf(dir string) string {
+	for mod := dir; ; mod = filepath.Dir(mod) {
+		if _, err := os.Stat(filepath.Join(mod, "go.mod")); err == nil {
+			return mod
+		}
+		if filepath.Dir(mod) == mod {
+			return dir
 		}
 	}
 }
@@ -431,11 +466,6 @@ func runTypes(ctx context.Context, p *project, buildArgs ...string) error {
 
 // goTool runs go with args in dir, its output shown only on a failure.
 func goTool(ctx context.Context, dir string, env []string, args ...string) error {
-	if len(args) > 0 && args[0] == "vet" {
-		if jobs, ok := ctx.Value(checkJobsKey{}).(int); ok && jobs > 0 {
-			args = append([]string{"vet", "-p", strconv.Itoa(jobs)}, args[1:]...)
-		}
-	}
 	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), env...)

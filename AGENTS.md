@@ -52,7 +52,7 @@ NSGo is a cross-platform native UI engine with a Go backend, ported from the des
 
 Run `go tool nsgo check` and `go tool nsgo test` from the repository root, never `go vet`, `go test`, `go build` or `go run` directly; when the tool cannot do something an app or this repository needs, extend the tool. The development setup lives in [Contributing](docs/public/en/contributing.md).
 
-For a local target check, pass all changed targets to one `go tool nsgo check -target a,b` process. An explicit target skips the host and dev-client vets, and `-jobs N` bounds target checks and each Go vet's compile workers. A second check in the same module waits for the first. The check workflow owns the full target matrix.
+To vet the platforms a change touches, name them all in one `go tool nsgo check -target a,b -jobs n`, which vets those targets instead of the host, rather than starting several checks, which wait for each other; `check.yml` vets every target.
 
 Run `bun run build` in `website/` when changing the website; it type-checks the site and rebuilds the gallery it embeds.
 
