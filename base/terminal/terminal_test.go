@@ -255,3 +255,15 @@ func TestViewKeepsAScrollGoing(t *testing.T) {
 		t.Errorf("the layer at %v, want the viewport's %v", y, 20*cell)
 	}
 }
+
+func TestViewAcceptsLateProgrammaticScrollReports(t *testing.T) {
+	v := &view{cellH: 10, pendingScroll: []float64{100, 200}}
+	v.scrolled(core.ScrollEvent{Offset: core.Point{Y: 100}})
+	if len(v.pendingScroll) != 1 || v.pendingScroll[0] != 200 {
+		t.Fatalf("late report consumed the wrong pending offset: %v", v.pendingScroll)
+	}
+	v.scrolled(core.ScrollEvent{Offset: core.Point{Y: 200}})
+	if len(v.pendingScroll) != 0 {
+		t.Fatalf("latest report left pending offsets: %v", v.pendingScroll)
+	}
+}

@@ -69,6 +69,9 @@ type View struct {
 	// DefaultKeyBar when nil. NoKeyBar shows none.
 	KeyBarKeys []string
 	NoKeyBar   bool
+	// HideIndicator leaves out the scroll bar while keeping scrolling and
+	// terminal follow behavior.
+	HideIndicator bool
 	// KeyBarClass and KeyBarStyle style the bar, a horizontal Scroll;
 	// KeyClass and KeyStyle each key, with KeyOnClass and KeyOnStyle over
 	// them while Control or Alt is latched for the next key. A part's
@@ -143,7 +146,7 @@ func (p View) Render(cx *core.Scope) core.Node {
 				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Position: core.Relative, Overflow: core.Hidden}, Children: []core.Node{
 					core.Canvas{Style: fill, Draw: v.draw},
 					core.Scroll{
-						Ref: v.scrollRef, Style: fill, TestID: v.testID("scroll"), OnScroll: v.scrolled, Behavior: keepKeyboard,
+						Ref: v.scrollRef, Style: fill, TestID: v.testID("scroll"), HideIndicator: p.HideIndicator, OnScroll: v.scrolled, Behavior: keepKeyboard,
 						Children: []core.Node{core.View{
 							StyleFunc: func() core.Style {
 								cursor := core.CursorText
@@ -224,9 +227,10 @@ type view struct {
 	cols, rows               int
 	reported                 [2]int // the size OnSizeChange last had
 	ratio                    float32
-	// scrollY is the scroll layer's offset; setY the one the view last
-	// scrolled it to, whose report it ignores.
-	scrollY, setY float64
+	// scrollY is the scroll layer's offset. pendingScroll holds offsets sent
+	// by the view whose platform reports may arrive out of order.
+	scrollY       float64
+	pendingScroll []float64
 
 	// Guarded by the terminal's mu.
 	keys      *vt.KeyEncoder
@@ -390,7 +394,8 @@ func (v *view) followRow() {
 		return
 	}
 	y := float64(row) * float64(v.cellH)
-	v.setY, v.scrollY = y, y
+	v.scrollY = y
+	v.pendingScroll = append(v.pendingScroll, y)
 	v.scrollRef.ScrollTo(core.Point{Y: core.Points(y)}, false)
 }
 
@@ -398,10 +403,16 @@ func (v *view) followRow() {
 func (v *view) scrolled(e core.ScrollEvent) {
 	y := float64(e.Offset.Y)
 	v.scrollY = y
-	if math.Abs(y-v.setY) < 0.5 || v.t == nil {
+	for i, pending := range v.pendingScroll {
+		if math.Abs(y-pending) < 0.5 {
+			v.pendingScroll = append(v.pendingScroll[:i], v.pendingScroll[i+1:]...)
+			return
+		}
+	}
+	if v.t == nil {
 		return
 	}
-	v.setY = math.NaN()
+	v.pendingScroll = nil
 	row := int(math.Round(y / float64(v.cellH)))
 	t := v.t
 	t.mu.Lock()
