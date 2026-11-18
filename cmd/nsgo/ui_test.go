@@ -104,11 +104,11 @@ func TestReportPrintsOneLineErrors(t *testing.T) {
 // A step running beside others prints what it said under way above its
 // own line once it ends, not between theirs.
 func TestStepHoldsItsLinesUntilItEnds(t *testing.T) {
-	s := begin("building ios")
-	s.hold = true
-	ctx := withStep(context.Background(), s)
 	var during string
 	got := captureStderr(t, func() {
+		s := begin("building ios")
+		s.hold = true
+		ctx := withStep(context.Background(), s)
 		during = captureStderr(t, func() {
 			detailIn(ctx, "no widgets on tvOS: they are left out")
 			warnIn(ctx, "the App Clip is left out")
@@ -118,7 +118,7 @@ func TestStepHoldsItsLinesUntilItEnds(t *testing.T) {
 	if during != "" {
 		t.Fatalf("the step printed %q while it ran", during)
 	}
-	want := "    no widgets on tvOS: they are left out\n  warn the App Clip is left out\n  ✓ built ios ("
+	want := "  building ios…\n    no widgets on tvOS: they are left out\n  warn the App Clip is left out\n  ✓ built ios ("
 	if !strings.HasPrefix(got, want) {
 		t.Fatalf("the step ended with %q, want it to start %q", got, want)
 	}
@@ -126,11 +126,23 @@ func TestStepHoldsItsLinesUntilItEnds(t *testing.T) {
 
 // A step that does not hold prints its lines as they are said.
 func TestStepPrintsItsLinesAtOnce(t *testing.T) {
-	s := begin("building web")
-	ctx := withStep(context.Background(), s)
-	got := captureStderr(t, func() { detailIn(ctx, "sign with -") })
-	s.fail()
-	if want := "    sign with -\n"; got != want {
+	got := captureStderr(t, func() {
+		s := begin("building web")
+		ctx := withStep(context.Background(), s)
+		detailIn(ctx, "sign with -")
+		s.fail()
+	})
+	if want := "  building web…\n    sign with -\n"; got != want {
 		t.Fatalf("detailIn wrote %q, want %q", got, want)
+	}
+}
+
+func TestStepPrintsItsStartWhenOutputIsRedirected(t *testing.T) {
+	got := captureStderr(t, func() {
+		s := begin("vetting for android_arm64")
+		s.done("vetted for android_arm64", "")
+	})
+	if !strings.HasPrefix(got, "  vetting for android_arm64…\n  ✓ vetted for android_arm64 (") {
+		t.Fatalf("step output = %q", got)
 	}
 }

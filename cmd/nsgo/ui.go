@@ -326,8 +326,9 @@ type Step struct {
 	// hold keeps the lines said in the step (detailIn, warnIn) until it
 	// ends, when they print together above its own, so a step running
 	// beside others keeps its lines apart from theirs.
-	hold bool
-	held []string
+	hold  bool
+	held  []string
+	plain bool
 }
 
 // begin starts the step label names, such as "building web".
@@ -339,6 +340,9 @@ func begin(format string, args ...any) *Step {
 		out.draw()
 		out.Unlock()
 		spin()
+	} else {
+		s.plain = true
+		line(s.label + "…")
 	}
 	return s
 }
