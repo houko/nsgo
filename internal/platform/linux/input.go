@@ -760,6 +760,10 @@ func (w *window) beginWindowDrag(device uintptr, at driver.Point) bool {
 	}); control != nil && descendant(control, drag) {
 		return false
 	}
+	if w.down.Count >= 2 {
+		w.toggleMaximize()
+		return true
+	}
 	if device == 0 {
 		return false
 	}
