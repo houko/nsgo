@@ -3,6 +3,9 @@
 package macos
 
 import (
+	"bytes"
+	"os"
+	"os/exec"
 	"testing"
 
 	"github.com/ebitengine/purego/objc"
@@ -92,6 +95,46 @@ func TestTransparentWindow(t *testing.T) {
 		s.setSkipTaskbar(false)
 		if objc.Send[bool](window, sel("isExcludedFromWindowsMenu")) || objc.Send[uint](window, sel("collectionBehavior"))&ignoresCycle != 0 {
 			t.Error("a window back on the taskbar stays out of the Window menu or Cmd+`")
+		}
+	})
+}
+
+// TestTitleBarLayoutOutlivesItsWindow releases a window right after setTransparent(false) queued applyTitleBar's layout on the main queue, then runs the main run loop, with NSZombieEnabled so that any message to the freed window aborts. The queued block holds the window until it has run and leaves a surface that closed meanwhile alone, so no path that releases the window directly depends on destroy queueing its release after the block (#689).
+func TestTitleBarLayoutOutlivesItsWindow(t *testing.T) {
+	// NSZombieEnabled is read as the process starts, so the release runs in a process of its own.
+	if os.Getenv("NSGO_TEST_TITLE_BAR_PROCESS") != t.Name() {
+		cmd := exec.Command(os.Args[0], "-test.run=^"+t.Name()+"$", "-test.v", "-test.timeout=30s")
+		cmd.Env = append(os.Environ(), "NSGO_TEST_TITLE_BAR_PROCESS="+t.Name(), "NSZombieEnabled=YES")
+		if out, err := cmd.CombinedOutput(); err != nil || !bytes.Contains(out, []byte("\nPASS\n")) {
+			t.Fatalf("the queued title bar layout messaged its released window (%v):\n%s", err, out)
+		}
+		return
+	}
+	onMain(func() {
+		loadAppKit()
+		spin := func() {
+			for range 5 {
+				objc.ID(apple.Class("NSRunLoop")).Send(sel("mainRunLoop")).Send(sel("runUntilDate:"), objc.ID(apple.Class("NSDate")).Send(sel("dateWithTimeIntervalSinceNow:"), 0.02))
+			}
+		}
+		for _, closed := range []bool{false, true} {
+			pool := objc.ID(apple.Class("NSAutoreleasePool")).Send(selNew)
+			window := objc.ID(classWindow).Send(selAlloc).Send(sel("initWithContentRect:styleMask:backing:defer:"),
+				apple.Rect(0, 0, 160, 100), uint(styleTitled|styleClosable|styleMiniaturizable|styleResizable), uint(2), false)
+			window.Send(sel("setReleasedWhenClosed:"), false)
+			s := newSurface(Options{Width: 160, Height: 100}, false)
+			s.window, s.id = window, 1
+			window.Send(sel("setContentView:"), s.native)
+			s.setTransparent(true)
+			s.setTransparent(false) // queues applyTitleBar's layout
+			s.closed = closed
+			delete(surfaces, s)
+			delete(views, s.native)
+			s.native.Send(selRelease)
+			window.Send(sel("close"))
+			window.Send(selRelease)
+			pool.Send(sel("drain"))
+			spin()
 		}
 	})
 }

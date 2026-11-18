@@ -284,8 +284,13 @@ func (s *surface) applyTitleBar() {
 	}
 	s.layoutTrafficLights()
 	s.refresh()
-	// AppKit can restore the old content size after setStyleMask:.
+	// AppKit can restore the old content size after setStyleMask:. The block holds the window until it has run, so it never depends on a release being queued after it, and leaves a surface that closed or changed windows meanwhile alone.
+	w.Send(sel("retain"))
 	apple.OnMain(func() {
+		defer w.Send(selRelease)
+		if s.closed || s.window != w {
+			return
+		}
 		content := w.Send(sel("contentView"))
 		size := objc.Send[apple.CGRect](w, sel("contentRectForFrameRect:"), objc.Send[apple.CGRect](w, sel("frame"))).Size
 		if objc.Send[apple.CGRect](content, sel("frame")).Size != size {
