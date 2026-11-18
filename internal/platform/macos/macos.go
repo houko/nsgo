@@ -1216,9 +1216,13 @@ func (s *surface) observe() {
 			}
 			s.refresh()
 			if strings.Contains(name, "FullScreen") {
-				// AppKit lays the bar out again as it leaves full screen,
-				// after the notification.
-				apple.OnMain(func() { s.layoutTrafficLights(); s.refresh() })
+				// AppKit lays the bar out again as it leaves full screen, after the notification. A surface closed by then may have let its window go.
+				apple.OnMain(func() {
+					if !s.closed {
+						s.layoutTrafficLights()
+						s.refresh()
+					}
+				})
 			}
 		}))
 	}
