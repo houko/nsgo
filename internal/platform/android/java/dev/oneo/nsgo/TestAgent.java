@@ -162,8 +162,10 @@ final class TestAgent {
                             scroll.postOnAnimation(this);
                             return;
                         }
-                        touch(down, MotionEvent.ACTION_CANCEL, p);
-                        view.testReply(id, "", Integer.toString(drift));
+                        // The finger lifts where it held, and the reply waits for what the release posts, such as a click.
+                        touch(down, MotionEvent.ACTION_UP, p);
+                        int reply = drift;
+                        scroll.post(() -> view.testReply(id, "", Integer.toString(reply)));
                     }
                 });
                 return;

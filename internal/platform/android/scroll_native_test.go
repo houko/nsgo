@@ -17,7 +17,7 @@ import (
 
 // The agent dispatches real MotionEvents through the Activity. These tests exercise the native scroll view and consuming, recycled rows, rather than nsgotest's model of a touch.
 func listTouchStopsMomentum(t *testing.T, horizontal bool) {
-	var downs, dragStarts, dragEnds, starts, ends, rests atomic.Int32
+	var downs, presses, dragStarts, dragEnds, starts, ends, rests atomic.Int32
 	started := make(chan struct{}, 1)
 	surface, err := testhost.Current().Open(func(cx *core.Scope) core.Node {
 		return core.List{
@@ -30,7 +30,7 @@ func listTouchStopsMomentum(t *testing.T, horizontal bool) {
 				}
 				return core.View{
 					Style: style, Role: core.RoleButton,
-					OnPress:     func(core.PressEvent) {},
+					OnPress:     func(core.PressEvent) { presses.Add(1) },
 					OnPressDown: func(core.PressEvent) { downs.Add(1) },
 					Children: []core.Node{core.Text{ContentFunc: func() string {
 						return fmt.Sprintf("Row %d: %s", row.Index(), strings.Repeat("variable height text ", 2+row.Index()%5))
@@ -89,7 +89,9 @@ func listTouchStopsMomentum(t *testing.T, horizontal bool) {
 		if ends.Load() != int32(trial) {
 			t.Fatal("momentum ended before the braking touch")
 		}
-		before := downs.Load()
+		// The swipe's own DOWN landed on a row, so count from here.
+		s.Sync()
+		downsBefore, pressesBefore := downs.Load(), presses.Load()
 		drift, err := s.ask(map[string]any{"op": "hold-scroll", "x": at.X, "y": at.Y})
 		if err != nil {
 			t.Fatal(err)
@@ -102,12 +104,9 @@ func listTouchStopsMomentum(t *testing.T, horizontal bool) {
 			t.Errorf("scroll moved %d native pixels over 20 frames while a child held the finger", pixels)
 		}
 		s.Sync()
-		wantDowns := before
-		if trial == 0 {
-			wantDowns++
-		}
-		if downs.Load() != wantDowns {
-			t.Errorf("braking DOWN count %d; want %d (trial %d)", downs.Load(), wantDowns, trial)
+		// The touch that brakes is the list's, as on platform lists: the row under it is neither pressed down nor pressed when the finger lifts.
+		if d, p := downs.Load()-downsBefore, presses.Load()-pressesBefore; d != 0 || p != 0 {
+			t.Errorf("a braking touch pressed a row down %d times and pressed it %d times; want neither (trial %d)", d, p, trial)
 		}
 		if starts.Load() != int32(trial+1) || ends.Load() != int32(trial+1) {
 			t.Errorf("momentum events: start %d, end %d; want %d each", starts.Load(), ends.Load(), trial+1)
@@ -118,5 +117,18 @@ func listTouchStopsMomentum(t *testing.T, horizontal bool) {
 		if rests.Load() != 0 {
 			t.Errorf("a touch interrupting momentum reported %d scroll ends", rests.Load())
 		}
+	}
+	// At rest, the same row takes a tap, so the counts above can see a press.
+	s.Sync()
+	downsBefore, pressesBefore := downs.Load(), presses.Load()
+	if err := s.Press(to, 0, driver.Modifiers{}); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(5 * time.Second); presses.Load() == pressesBefore && time.Now().Before(deadline); {
+		time.Sleep(20 * time.Millisecond)
+		s.Sync()
+	}
+	if d, p := downs.Load()-downsBefore, presses.Load()-pressesBefore; d != 1 || p != 1 {
+		t.Errorf("a tap at rest pressed a row down %d times and pressed it %d times; want 1 each", d, p)
 	}
 }

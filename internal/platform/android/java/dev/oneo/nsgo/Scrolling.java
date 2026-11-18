@@ -358,6 +358,11 @@ final class Scrolling {
             }
         }
 
+        /** Whether a glide or an eased move is running, which a finger landing brakes. */
+        boolean moving() {
+            return motion != null || momentum;
+        }
+
         /** Whether the view takes the touch: a vertical refreshable view pulled down at its top. */
         boolean intercept(MotionEvent e) {
             if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
@@ -597,8 +602,12 @@ final class Scrolling {
 
         @Override
         public boolean dispatchTouchEvent(MotionEvent e) {
-            // A consuming child can keep DOWN out of onTouchEvent, so stop our own glide and remember the drag's origin before dispatching it. A view that does not scroll leaves the touch alone, as its onTouchEvent does.
-            if (e.getActionMasked() == MotionEvent.ACTION_DOWN && !d.config.noScroll) d.before(e);
+            // A consuming child can keep DOWN out of onTouchEvent, so stop our own glide and remember the drag's origin before dispatching it. A touch that brakes a glide or an eased move is the view's, as on platform lists: the child under the finger never sees it, so lifting presses nothing and moving drags the view. ScrollView's own onTouchEvent takes that DOWN, as before() has followed it already; with no touch target, ViewGroup hands the view the rest of the touch. A view that does not scroll leaves the touch alone, as its onTouchEvent does.
+            if (e.getActionMasked() == MotionEvent.ACTION_DOWN && !d.config.noScroll) {
+                boolean braking = d.moving();
+                d.before(e);
+                if (braking) return super.onTouchEvent(e);
+            }
             boolean handled = super.dispatchTouchEvent(e);
             if (e.getActionMasked() == MotionEvent.ACTION_UP || e.getActionMasked() == MotionEvent.ACTION_CANCEL) d.touching = false;
             return handled;
@@ -667,7 +676,11 @@ final class Scrolling {
 
         @Override
         public boolean dispatchTouchEvent(MotionEvent e) {
-            if (e.getActionMasked() == MotionEvent.ACTION_DOWN && !d.config.noScroll) d.before(e);
+            if (e.getActionMasked() == MotionEvent.ACTION_DOWN && !d.config.noScroll) {
+                boolean braking = d.moving();
+                d.before(e);
+                if (braking) return super.onTouchEvent(e);
+            }
             boolean handled = super.dispatchTouchEvent(e);
             if (e.getActionMasked() == MotionEvent.ACTION_UP || e.getActionMasked() == MotionEvent.ACTION_CANCEL) d.touching = false;
             return handled;
