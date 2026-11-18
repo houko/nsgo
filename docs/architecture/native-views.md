@@ -10,7 +10,7 @@
 - Core resolves defaults before sending, so platforms see final values: a video's volume, rate, progress interval and resize mode (Contain).
 - Platforms report an event only when the view's `EventMask` has it.
 - NSGo keeps Go's zero values as defaults: `NoScroll` and `NoJavaScript` invert NSH's `scrollable` and `javaScriptEnabled`, and `window.nsgo` replaces `window.nsh`.
-- Restricted web views check page navigations against `WebHosts` and `AccessWebSchemes` on the native backends; the browser cannot enforce these inside an iframe (`core/access.go`).
+- A restricted web view's top-level navigations are decided on the native backends by `driver.WebConfig`, from `WebHosts`, `AccessWebSchemes` and the schemes the app serves (`core/access.go`): `Navigable` for the page's own and `SourceNavigable` for the app's loads and history commands (see below). Apple, Windows and Android refuse them as they start (Android's `WebNode.navigable` mirrors `Navigable`); Linux refuses them before they commit, a page-made `data:` or `blob:` page at its main-frame response, but an `about:` page as it commits (see below). The web's iframe hides its page's navigations, so nothing holds them there. Pages a page opens in a new window (`window.open`, `target=_blank`) are [#113](https://github.com/nsgo-dev/nsgo/issues/113).
 
 ## Web views
 
