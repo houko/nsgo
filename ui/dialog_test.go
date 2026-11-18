@@ -82,6 +82,7 @@ func TestBareDialogClipFollowsTheSurface(t *testing.T) {
 			corners{TopLeft: 8, TopRight: 8, BottomRight: 11, BottomLeft: 11}},
 		{"corners", core.Style{CornerRadii: corners{TopLeft: 20, TopRight: 20}}, corners{TopLeft: 20, TopRight: 20},
 			corners{TopLeft: 19, TopRight: 19}},
+		{"circular", core.Style{BorderCurve: core.BorderCurveCircular}, uniform(RadiusDialog), uniform(RadiusDialog - 1)},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			app, _ := start(t, desktopEnv, func(*core.Scope) core.Node {
@@ -92,8 +93,12 @@ func TestBareDialogClipFollowsTheSurface(t *testing.T) {
 			if got := shownCorners(dialog.Style); got != c.surface {
 				t.Fatalf("surface corners = %+v, want %+v", got, c.surface)
 			}
-			if got := shownCorners(bareClipView(t, dialog).Style); got != c.clip {
+			clip := bareClipView(t, dialog).Style
+			if got := shownCorners(clip); got != c.clip {
 				t.Fatalf("clip corners = %+v, want %+v", got, c.clip)
+			}
+			if clip.ContinuousCorners != dialog.Style.ContinuousCorners {
+				t.Fatalf("clip continuous corners = %v, surface's = %v", clip.ContinuousCorners, dialog.Style.ContinuousCorners)
 			}
 		})
 	}
