@@ -4,6 +4,7 @@ package linux
 
 import (
 	"bytes"
+	"errors"
 	"log"
 	"os"
 	"path/filepath"
@@ -15,35 +16,50 @@ type loginEntry struct {
 	path, name, executable string
 }
 
-func appLoginEntry(id, name, executable string) (loginEntry, bool) {
+// errLoginSandboxed is why a Flatpak or Snap app cannot start at login: its sandbox gives it a config directory of its own, whose autostart folder no session reads, and reaching the session's needs the Background portal or snapd's autostart (roadmap).
+var errLoginSandboxed = errors.New("launch at login is not supported in a Flatpak or Snap sandbox yet")
+
+// appLoginEntry is the entry for the app with ID id, or the executable's name for an app without one.
+func appLoginEntry(id, name, executable string) (loginEntry, error) {
 	if id == "" {
 		id = filepath.Base(executable)
 	}
-	if id == "" || id == "." || id == string(filepath.Separator) || strings.ContainsAny(id, `/\\`) {
-		return loginEntry{}, false
+	if id == "" || id == "." || strings.ContainsAny(id, "/\\") {
+		return loginEntry{}, errors.New("the app ID is not a valid autostart file name")
 	}
 	if name == "" {
 		name = id
 	}
 	config := os.Getenv("XDG_CONFIG_HOME")
-	if config == "" {
+	if !filepath.IsAbs(config) {
+		// The XDG Base Directory Specification ignores a relative path, as it ignores an unset one.
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return loginEntry{}, false
+			return loginEntry{}, err
 		}
 		config = filepath.Join(home, ".config")
 	}
-	return loginEntry{path: filepath.Join(config, "autostart", id+".desktop"), name: name, executable: executable}, true
+	return loginEntry{path: filepath.Join(config, "autostart", id+".desktop"), name: name, executable: executable}, nil
 }
 
+// loginExecutable is the file the session starts: the AppImage itself for an app in one, as its runtime mounts the app at a path of the run's own, else the running executable.
+func loginExecutable() (string, error) {
+	if image := os.Getenv("APPIMAGE"); filepath.IsAbs(image) {
+		return image, nil
+	}
+	return os.Executable()
+}
+
+// desktopExecArg writes one argument of an Exec key as the Desktop Entry Specification reads it: quoted when it holds a reserved character, with ", `, $ and \ escaped inside the quotes, and % doubled, as field codes take it.
 func desktopExecArg(s string) string {
-	if s != "" && !strings.ContainsAny(s, " \t\n\"'\\$`") {
+	s = strings.ReplaceAll(s, "%", "%%")
+	if s != "" && !strings.ContainsAny(s, " \t\n\"'\\><~|&;$*?#()`") {
 		return s
 	}
 	var b strings.Builder
 	b.WriteByte('"')
 	for _, r := range s {
-		if strings.ContainsRune(`\\"'$`, r) {
+		if strings.ContainsRune("\"`$\\", r) {
 			b.WriteByte('\\')
 		}
 		b.WriteRune(r)
@@ -52,12 +68,14 @@ func desktopExecArg(s string) string {
 	return b.String()
 }
 
-func (e loginEntry) data() []byte {
-	return []byte("[Desktop Entry]\nType=Application\nName=" + desktopValue(e.name) + "\nExec=" + desktopExecArg(e.executable) + " --nsgo-launched-at-login\nX-GNOME-Autostart-enabled=true\n")
+// desktopValue escapes a string value of a desktop entry. An Exec value is unescaped this way before its quoting is read, so a backslash inside quotes is written four times.
+func desktopValue(s string) string {
+	return strings.NewReplacer("\\", "\\\\", "\n", "\\n", "\t", "\\t", "\r", "\\r").Replace(s)
 }
 
-func desktopValue(s string) string {
-	return strings.NewReplacer("\\", "\\\\", "\n", "\\n", "\r", "\\r").Replace(s)
+func (e loginEntry) data() []byte {
+	exec := desktopExecArg(e.executable) + " " + desktopExecArg("--nsgo-launched-at-login")
+	return []byte("[Desktop Entry]\nType=Application\nName=" + desktopValue(e.name) + "\nExec=" + desktopValue(exec) + "\nX-GNOME-Autostart-enabled=true\n")
 }
 
 func (e loginEntry) set(on bool) error {
@@ -76,10 +94,6 @@ func (e loginEntry) set(on bool) error {
 		return err
 	}
 	defer os.Remove(tmp.Name())
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
 	if _, err := tmp.Write(e.data()); err != nil {
 		tmp.Close()
 		return err
@@ -90,32 +104,35 @@ func (e loginEntry) set(on bool) error {
 	return os.Rename(tmp.Name(), e.path)
 }
 
+// enabled reports whether the entry starts this executable: one the user turned off, edited or left behind by a copy of the app elsewhere does not.
 func (e loginEntry) enabled() bool {
 	b, err := os.ReadFile(e.path)
 	return err == nil && bytes.Equal(b, e.data())
 }
 
-func setLaunchAtLogin(on bool, id, name string) {
-	executable, err := os.Executable()
+// currentLoginEntry is the running app's entry.
+func currentLoginEntry(id, name string) (loginEntry, error) {
+	if InstalledBy() != "" {
+		return loginEntry{}, errLoginSandboxed
+	}
+	executable, err := loginExecutable()
 	if err != nil {
-		log.Printf("nsgo: launch at login: %v", err)
-		return
+		return loginEntry{}, err
 	}
-	e, ok := appLoginEntry(id, name, executable)
-	if !ok {
-		log.Printf("nsgo: launch at login: app ID is not a valid autostart filename")
-		return
+	return appLoginEntry(id, name, executable)
+}
+
+func setLaunchAtLogin(on bool, id, name string) {
+	e, err := currentLoginEntry(id, name)
+	if err == nil {
+		err = e.set(on)
 	}
-	if err := e.set(on); err != nil {
+	if err != nil {
 		log.Printf("nsgo: launch at login: %v", err)
 	}
 }
 
 func launchesAtLogin(id, name string) bool {
-	executable, err := os.Executable()
-	if err != nil {
-		return false
-	}
-	e, ok := appLoginEntry(id, name, executable)
-	return ok && e.enabled()
+	e, err := currentLoginEntry(id, name)
+	return err == nil && e.enabled()
 }

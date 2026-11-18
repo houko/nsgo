@@ -35,7 +35,7 @@ type launchFlags struct {
 	toastActivation bool
 	// dockTask is the label of the app icon menu's item a Windows Jump List task starts the app with, --nsgo-dock-menu=<label> (desktop.SetDockMenu).
 	dockTask string
-	// launchedAtLogin is set by the legacy macOS LaunchAgent.
+	// launchedAtLogin is set by the login entries of macOS 11 and 12, Windows and Linux.
 	launchedAtLogin bool
 }
 
@@ -45,7 +45,7 @@ var launch launchFlags
 // launchArgs are the program's arguments as it started, its launch flags among them but the Jump List task it chose and the login marker, which a restart passes again.
 var launchArgs []string
 
-// loginMarker is the flag the macOS 11/12 LaunchAgent starts the app with, so it reports the launch as a login one (desktop.LaunchedAtLogin).
+// loginMarker is the flag the macOS 11/12 LaunchAgent, the Windows Run value and the Linux autostart entry start the app with, so it reports the launch as a login one (desktop.LaunchedAtLogin).
 const loginMarker = "--nsgo-launched-at-login"
 
 // The flags leave os.Args before main runs, so the app's own flag
