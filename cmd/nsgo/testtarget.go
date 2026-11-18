@@ -32,9 +32,10 @@ const testTimeout = 3 * time.Minute
 // binary with args, its environment holding env, writing what it prints
 // to out. It returns the process's exit code.
 type targetRunner struct {
-	run              func(ctx context.Context, args, env []string, out io.Writer) (int, error)
-	close            func()
-	timeoutFromStart bool
+	run   func(ctx context.Context, args, env []string, out io.Writer) (int, error)
+	close func()
+	// timesFromStart reports that run holds the test to -timeout itself, from the moment the test host starts, so the context it gets carries no deadline.
+	timesFromStart bool
 }
 
 // runTargetTests runs the app's tests on opts.target, each test in a
@@ -118,13 +119,13 @@ tests:
 			var out bytes.Buffer
 			w := io.MultiWriter(&out, traceWriter{r.out, opts.trace, opts.fps})
 			tctx, cancel := context.WithCancel(ctx)
-			if opts.timeout > 0 {
+			if opts.timeout > 0 && !runner.timesFromStart {
 				tctx, cancel = context.WithTimeout(ctx, opts.timeout)
 			}
 			started := time.Now()
 			args := append(targetTestArgs(name, opts.run, opts.timeout), execution...)
 			code, err := runner.run(tctx, args, env, w)
-			timedOut := !runner.timeoutFromStart && errors.Is(tctx.Err(), context.DeadlineExceeded)
+			timedOut := errors.Is(tctx.Err(), context.DeadlineExceeded)
 			cancel()
 			if timedOut {
 				code, err = -1, timeoutError(opts.timeout)

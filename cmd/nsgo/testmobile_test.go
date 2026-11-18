@@ -27,7 +27,7 @@ func TestReadMarkedRunReportsRuntimeFailureBeforeStart(t *testing.T) {
 			code, err := readMarkedRun(r, "t1", &strings.Builder{}, func() error {
 				t.Error("waited for the device log to end")
 				return errors.New("ended")
-			})
+			}, nil)
 			if code != -1 || err == nil || err.Error() != "NSGo pipe: stdout is reserved; call nsgotest.Main from TestMain" {
 				t.Fatalf("code %d, err %v", code, err)
 			}
@@ -48,7 +48,7 @@ func TestReadMarkedRunKeepsThisRunsOutput(t *testing.T) {
 		"after the mark",
 	}, "\n")
 	var out strings.Builder
-	code, err := readMarkedRun(strings.NewReader(lines), "t1", &out, func() error { return errors.New("ended") })
+	code, err := readMarkedRun(strings.NewReader(lines), "t1", &out, func() error { return errors.New("ended") }, nil)
 	if err != nil || code != 3 {
 		t.Fatalf("code %d, err %v", code, err)
 	}
@@ -59,10 +59,10 @@ func TestReadMarkedRunKeepsThisRunsOutput(t *testing.T) {
 
 func TestReadMarkedRunWithoutAnExitMark(t *testing.T) {
 	ended := errors.New("ended")
-	if _, err := readMarkedRun(strings.NewReader("nsgo-test-start t1\n=== RUN TestA\n"), "t1", &strings.Builder{}, func() error { return ended }); err != ended {
+	if _, err := readMarkedRun(strings.NewReader("nsgo-test-start t1\n=== RUN TestA\n"), "t1", &strings.Builder{}, func() error { return ended }, nil); err != ended {
 		t.Errorf("err %v", err)
 	}
-	if _, err := readMarkedRun(strings.NewReader("nsgo-test-start t1\nnsgo-test-exit t1 x\n"), "t1", &strings.Builder{}, func() error { return ended }); err == nil || err == ended {
+	if _, err := readMarkedRun(strings.NewReader("nsgo-test-start t1\nnsgo-test-exit t1 x\n"), "t1", &strings.Builder{}, func() error { return ended }, nil); err == nil || err == ended {
 		t.Errorf("a mark without a code: %v", err)
 	}
 }
@@ -129,28 +129,48 @@ exit 3
 	}
 }
 
-func TestSimulatorTestTimeout(t *testing.T) {
-	checkXcrun(t, "case \"$2\" in terminate) exit 0;; esac\necho 'waiting for SpringBoard' >&2\nexec sleep 30\n")
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-	defer cancel()
-	var output strings.Builder
-	code, err := (simulatorTest{udid: "simulator", id: "dev.nsgo.test", timeout: time.Second}).run(ctx, nil, nil, &output)
-	if code != -1 || err == nil || !strings.Contains(err.Error(), "launch simulator app") || !strings.Contains(err.Error(), "1s") {
-		t.Fatalf("code=%d err=%v", code, err)
-	}
-	if !strings.Contains(output.String(), "waiting for SpringBoard") {
-		t.Fatalf("timeout lost launcher diagnostics: %s", output.String())
-	}
-}
-
-func TestSimulatorTestTimeoutStartsAfterHost(t *testing.T) {
-	checkXcrun(t, "case \"$2\" in terminate) exit 0;; esac\nsleep 1\nprintf 'nsgo-test-start %s\\n--- PASS: TestFast (0.00s)\\nnsgo-test-exit %s 0\\n' \"$SIMCTL_CHILD_NSGO_TEST_RUN\" \"$SIMCTL_CHILD_NSGO_TEST_RUN\"\n")
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-	defer cancel()
-	var output strings.Builder
-	code, err := (simulatorTest{udid: "simulator", id: "dev.nsgo.test", timeout: time.Second, launchTimeout: 3 * time.Second}).run(ctx, nil, nil, &output)
-	if code != 0 || err != nil {
-		t.Fatalf("code=%d err=%v output=%q", code, err, output.String())
+// The launch and the test have deadlines of their own (#647): the launch's ends at the host's start mark, and -timeout counts from there, so a slow launch does not fail a fast test and a long test is not cut off by the launch's limit.
+func TestSimulatorTestDeadlines(t *testing.T) {
+	const marks = `printf 'nsgo-test-start %s\n' "$SIMCTL_CHILD_NSGO_TEST_RUN"
+`
+	const pass = `printf -- '--- PASS: TestFast (0.00s)\nnsgo-test-exit %s 0\n' "$SIMCTL_CHILD_NSGO_TEST_RUN"
+`
+	for _, tc := range []struct {
+		name, body              string
+		timeout, launchTimeout  time.Duration
+		wantCode                int
+		wantError, wantNotError string
+		output                  string
+	}{
+		{name: "slow launch, fast test", body: "sleep 2\n" + marks + pass,
+			timeout: time.Second, launchTimeout: 10 * time.Second, wantCode: 0, output: "--- PASS: TestFast"},
+		{name: "test outlasts the launch limit", body: marks + "sleep 2\n" + pass,
+			timeout: 10 * time.Second, launchTimeout: time.Second, wantCode: 0, output: "--- PASS: TestFast"},
+		{name: "test outlasts the launch limit without a deadline", body: marks + "sleep 2\n" + pass,
+			launchTimeout: time.Second, wantCode: 0, output: "--- PASS: TestFast"},
+		{name: "test runs past its deadline", body: "sleep 2\n" + marks + "echo '=== RUN   TestSlow'\nexec sleep 30\n",
+			timeout: time.Second, launchTimeout: 10 * time.Second, wantCode: -1, wantError: "the test took over 1s", output: "=== RUN   TestSlow"},
+		{name: "launch never starts the host", body: "echo 'waiting for SpringBoard' >&2\nexec sleep 30\n",
+			timeout: 10 * time.Second, launchTimeout: time.Second, wantCode: -1, wantError: "launch simulator app: the test host did not start within 1s", wantNotError: "took over", output: "waiting for SpringBoard"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			checkXcrun(t, "case \"$2\" in terminate) exit 0;; esac\n"+tc.body)
+			// Only a guard against a hung run: the runner owns the deadlines, as runTargetTests leaves them to it.
+			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+			defer cancel()
+			var output strings.Builder
+			start := time.Now()
+			code, err := (simulatorTest{udid: "simulator", id: "dev.nsgo.test", timeout: tc.timeout, launchTimeout: tc.launchTimeout}).run(ctx, nil, nil, &output)
+			if code != tc.wantCode || tc.wantError == "" && err != nil || tc.wantError != "" && (err == nil || !strings.Contains(err.Error(), tc.wantError)) || tc.wantNotError != "" && err != nil && strings.Contains(err.Error(), tc.wantNotError) {
+				t.Fatalf("code=%d err=%v, want code=%d error=%q; output:\n%s", code, err, tc.wantCode, tc.wantError, output.String())
+			}
+			if !strings.Contains(output.String(), tc.output) {
+				t.Fatalf("output lost %q: %s", tc.output, output.String())
+			}
+			if elapsed := time.Since(start); elapsed > 10*time.Second {
+				t.Fatalf("the run took %v", elapsed)
+			}
+		})
 	}
 }
 
