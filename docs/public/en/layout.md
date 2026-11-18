@@ -28,11 +28,11 @@ core.View{
 ```go
 core.View{Style: core.Style{Direction: core.Row, Gap: 16}, Children: []core.Node{
 	core.View{Style: core.Style{Width: core.Pt(220), FlexShrink: 0}},
-	core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}},
+	core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1}},
 }}
 ```
 
-A box's content gives it its size until a width or height says otherwise. `core.MinContent`, `core.MaxContent` and `core.FitContent` take the sizes CSS names: a text's min-content width is its widest word. `MinWidth: core.Pt(0)` lets a text shrink and wrap inside a row, where its natural width would keep the row wide.
+A box's content gives it its size until a width or height says otherwise. `core.MinContent`, `core.MaxContent` and `core.FitContent` take the sizes CSS names: a text's min-content width is its widest word. Give text that should shrink and wrap inside a row `FlexShrink: 1`, with `FlexGrow: 1` when it should take the remaining space. An unset minimum is already 0; use `core.AutoMinimum` when CSS's automatic minimum is wanted.
 
 A screen that fills the window takes `FlexGrow: 1` and `FlexShrink: 1`, as does each box between it and a list or scroll view that should scroll. With `FlexGrow` alone, a box grows to its content, so a long list stretches it past the window instead of scrolling.
 
