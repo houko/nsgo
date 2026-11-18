@@ -135,11 +135,22 @@ func TestSimulatorTestTimeout(t *testing.T) {
 	defer cancel()
 	var output strings.Builder
 	code, err := (simulatorTest{udid: "simulator", id: "dev.nsgo.test", timeout: time.Second}).run(ctx, nil, nil, &output)
-	if code != -1 || err == nil || !strings.Contains(err.Error(), "1s") {
+	if code != -1 || err == nil || !strings.Contains(err.Error(), "launch simulator app") || !strings.Contains(err.Error(), "1s") {
 		t.Fatalf("code=%d err=%v", code, err)
 	}
 	if !strings.Contains(output.String(), "waiting for SpringBoard") {
 		t.Fatalf("timeout lost launcher diagnostics: %s", output.String())
+	}
+}
+
+func TestSimulatorTestTimeoutStartsAfterHost(t *testing.T) {
+	checkXcrun(t, "case \"$2\" in terminate) exit 0;; esac\nsleep 1\nprintf 'nsgo-test-start %s\\n--- PASS: TestFast (0.00s)\\nnsgo-test-exit %s 0\\n' \"$SIMCTL_CHILD_NSGO_TEST_RUN\" \"$SIMCTL_CHILD_NSGO_TEST_RUN\"\n")
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	var output strings.Builder
+	code, err := (simulatorTest{udid: "simulator", id: "dev.nsgo.test", timeout: time.Second, launchTimeout: 3 * time.Second}).run(ctx, nil, nil, &output)
+	if code != 0 || err != nil {
+		t.Fatalf("code=%d err=%v output=%q", code, err, output.String())
 	}
 }
 
