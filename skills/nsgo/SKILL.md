@@ -80,8 +80,11 @@ Run the tool, never `go vet`, `go test`, `go build` or `go run` directly: it typ
 
 ```sh
 go tool nsgo check                 # vet; -target all also vets available Go/Xcode targets
+go tool nsgo check -target web,linux_x64 -jobs 4 # one bounded process for local target checks
 go tool nsgo test                  # headless; -run as go test's, -target macos|ios|ios_simulator|android|web|all on a platform
 ```
+
+Pass all changed targets to one `check` process. An explicit `-target` skips host and dev-client vets, `-jobs` bounds target checks and Go vet compile workers, and a second check in the same module waits for the first.
 
 Test an app as a user uses it with `nsgotest`, finding views by text, role, label or test ID. Read [references/testing.md](references/testing.md) before writing tests.
 

@@ -11,7 +11,7 @@
 //	                                                      run the app's tests or benchmarks, or an entry
 //	                                                      with the steps of standard input, headless or
 //	                                                      on a platform
-//	nsgo check [dir]                                     vet the app and type-check its TSX
+//	nsgo check [-target T] [-jobs N] [dir]               vet the app and type-check its TSX
 //	nsgo i18n  [-source L] [dir]                         check catalogs and write their Go code
 //	nsgo doctor                                          show which targets this machine builds and runs
 //	nsgo keygen                                          print a key pair for updates or signed packages
@@ -135,12 +135,13 @@ func main() {
 	case "check":
 		fs := flag.NewFlagSet("check", flag.ExitOnError)
 		target := fs.String("target", "", "also vet for these comma-separated `targets` (all for available Go/Xcode targets; a bare OS such as windows vets both its architectures)")
+		jobs := fs.Int("jobs", 0, "how many target vets and Go compile workers run at once (default: half the CPUs)")
 		if err = parseCommand(fs, args, 1); err != nil {
 			break
 		}
 		var p *project
 		if p, err = loadOrDir(treeOf(fs.Arg(0))); err == nil {
-			err = check(ctx, p, *target)
+			err = checkWithJobs(ctx, p, *target, *jobs)
 		}
 	case "i18n":
 		fs := flag.NewFlagSet("i18n", flag.ExitOnError)
