@@ -33,8 +33,7 @@ type Dialog struct {
 	// when 0; a title bar the app draws in takes it further. The strip of
 	// that title bar keeps moving the window under the backdrop.
 	Inset core.Points
-	// Bare leaves out the surface's padding, gap and width, for content
-	// that fills it, sizes it and is clipped to its corners.
+	// Bare leaves out the surface's padding, gap and width, for content that fills it, sizes it and is clipped inside its rim to the corners Style and StyleFunc give it.
 	Bare bool
 	// Label names the dialog for assistive technology, Title when it and LabelFunc are not given, which reads Description after it. Role makes it an alert dialog, one asking for an answer, as a confirmation.
 	Label     string
@@ -89,11 +88,8 @@ func (d Dialog) Render(cx *core.Scope) core.Node {
 	if d.Bare {
 		// The clip is a view of its own: on Android a view that clips loses its outer shadow.
 		popup = core.Style{Transition: dialogPop}
-		body = []core.Node{core.View{Style: core.Style{Overflow: core.Hidden, BorderCurve: core.BorderCurveContinuous,
-			FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)}, StyleFunc: func() core.Style {
-			style := d.surfaceStyle(core.Style{CornerRadius: RadiusDialog})
-			return core.Style{CornerRadius: max(0, style.CornerRadius-1)}
-		}, Children: body}}
+		body = []core.Node{core.View{Style: core.Style{Overflow: core.Hidden, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},
+			StyleFunc: func() core.Style { return bareClip(d.surfaceStyle(dialogShape)) }, Children: body}}
 	}
 	spacer := func(grow float32) core.View {
 		return core.View{Style: core.Style{FlexGrow: grow, MinHeight: core.Pt(0)}, PointerEvents: core.PointerEventsNone}
@@ -106,8 +102,8 @@ func (d Dialog) Render(cx *core.Scope) core.Node {
 		PopupStyleFunc: func() core.Style {
 			window, inset := cx.Env().Window(), dialogInset(cx, d.Inset)
 			finish := FinOf(cx).Dialog()
-			return d.surfaceStyle(finish.Over(core.Style{Background: Alpha(finish.Background, 0.96), Color: colors.Text(), CornerRadius: RadiusDialog, BorderCurve: core.BorderCurveContinuous, BorderWidth: 1,
-				MaxWidth: core.Pt(max(0, window.Width-2*inset)), MaxHeight: core.Pt(max(0, window.Height-2*inset)), FlexShrink: 0}))
+			return d.surfaceStyle(finish.Over(dialogShape.Merge(core.Style{Background: Alpha(finish.Background, 0.96), Color: colors.Text(),
+				MaxWidth: core.Pt(max(0, window.Width-2*inset)), MaxHeight: core.Pt(max(0, window.Height-2*inset)), FlexShrink: 0})))
 		},
 		LayerStyle: core.Style{JustifyContent: core.JustifyStart}, Before: []core.Node{spacer(1)}, After: []core.Node{spacer(2), dialogDragStrip(cx)},
 		Children: body, TestID: d.TestID}
@@ -124,6 +120,35 @@ func (d Dialog) surfaceStyle(style core.Style) core.Style {
 
 // RadiusDialog rounds a dialog on desktops.
 const RadiusDialog core.Points = 16
+
+// dialogShape is a desktop dialog's corners and rim, before the app's Style.
+var dialogShape = core.Style{CornerRadius: RadiusDialog, BorderCurve: core.BorderCurveContinuous, BorderWidth: 1}
+
+// bareClip rounds a bare dialog's clip to the inside of the surface's rim, style being the surface's: each corner's radius less the wider of the borders it joins, curved as the surface's.
+func bareClip(style core.Style) core.Style {
+	var rim core.Edges
+	switch {
+	case style.BorderStyle == core.BorderNone || style.BorderStyle == core.BorderHidden:
+	case style.Borders != (core.Edges{}):
+		rim = style.Borders
+	default:
+		rim = core.All(style.BorderWidth)
+	}
+	r := style.CornerRadii
+	if r == (core.Corners{}) {
+		r = core.Corners{TopLeft: style.CornerRadius, TopRight: style.CornerRadius, BottomRight: style.CornerRadius, BottomLeft: style.CornerRadius}
+	}
+	inside := func(radius, a, b core.Points) core.Points { return max(0, radius-max(a, b)) }
+	r = core.Corners{TopLeft: inside(r.TopLeft, rim.Top, rim.Left), TopRight: inside(r.TopRight, rim.Top, rim.Right),
+		BottomRight: inside(r.BottomRight, rim.Bottom, rim.Right), BottomLeft: inside(r.BottomLeft, rim.Bottom, rim.Left)}
+	clip := core.Style{BorderCurve: style.BorderCurve}
+	if r.Uniform() {
+		clip.CornerRadius = r.TopLeft
+	} else {
+		clip.CornerRadii, clip.PhysicalBorders.Corners = r, style.PhysicalBorders.Corners
+	}
+	return clip
+}
 
 // A dialog's layers move so: the dim fades, and the surface pops
 // in and fades out where it is. Under reduced motion they come and go at
