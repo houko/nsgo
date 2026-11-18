@@ -50,7 +50,7 @@ func TestLoginEntryRoundTrip(t *testing.T) {
 	}
 }
 
-// TestLoginEntryExecReadsAsArguments has GLib read the entry's Exec as the session does (GDesktopAppInfo: the key file's string, then g_shell_parse_argv, then field codes), so a path with spaces, quotes, dollars, backslashes or percents still starts the app with the marker.
+// TestLoginEntryExecReadsAsArguments has GLib read the entry's Exec as the session does (GDesktopAppInfo: the key file's string, then g_shell_parse_argv, then field codes), so a path with spaces, quotes, dollars or backslashes still starts the app with the marker. A percent sign reads back too, but appLoginEntry refuses it, as GDesktopAppInfo looks the program up before it expands %%.
 func TestLoginEntryExecReadsAsArguments(t *testing.T) {
 	lib, err := purego.Dlopen("libglib-2.0.so.0", purego.RTLD_NOW|purego.RTLD_GLOBAL)
 	if err != nil {
@@ -119,6 +119,9 @@ func TestAppLoginEntryUsesXDGConfig(t *testing.T) {
 	}
 	if _, err := appLoginEntry("bad/name", "Test app", "/tmp/app"); err == nil {
 		t.Fatal("path separator accepted in autostart ID")
+	}
+	if _, err := appLoginEntry("dev.nsgo.test", "Test app", "/opt/100% demo/app"); err == nil {
+		t.Fatal("an executable with a percent sign accepted, which GNOME cannot start")
 	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)

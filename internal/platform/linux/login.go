@@ -27,6 +27,10 @@ func appLoginEntry(id, name, executable string) (loginEntry, error) {
 	if id == "" || id == "." || strings.ContainsAny(id, "/\\") {
 		return loginEntry{}, errors.New("the app ID is not a valid autostart file name")
 	}
+	if strings.ContainsRune(executable, '%') {
+		// GLib looks the Exec's program up before it expands field codes, so the %% a percent sign takes there names no file and GNOME starts nothing.
+		return loginEntry{}, errors.New("an executable whose path holds a percent sign cannot start at login")
+	}
 	if name == "" {
 		name = id
 	}
