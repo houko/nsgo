@@ -101,6 +101,7 @@ func (t *dataTable) hitLayer() core.Node {
 	behavior := core.ScrollBehavior{NoBounces: p.NoBounce}
 	pressed := func(e core.PressEvent) { t.press(t.hitAt(e.Position), e.Clicks, e.Modifiers) }
 	box := core.View{
+		Ref: t.focusRef,
 		StyleFunc: func() core.Style {
 			return core.Style{MinWidth: core.Pct(100), Width: px(t.contentWidth()), Height: px(t.sizes.Get().y.extent())}
 		},
@@ -590,7 +591,7 @@ func (t *dataTable) region(which tableRegion, w tableWindows) core.Node {
 // RowStyle and RowClass.
 func (t *dataTable) rowParts(cx *core.Scope, row *core.Memo[int]) (func() core.Style, func() string) {
 	hovered := core.NewMemo(cx, func() bool { r := row.Get(); return r >= 0 && t.hover.Get() == r })
-	selected := core.NewMemo(cx, func() bool { return t.selection() == tableSel{kind: selRow, row: row.Get()} })
+	selected := core.NewMemo(cx, func() bool { return t.rowSelected(row.Get()) })
 	active := core.NewMemo(cx, func() bool {
 		t.dataRev.Get()
 		r := row.Get()
@@ -663,7 +664,7 @@ func (t *dataTable) rowHit(row int, which tableRegion, x core.Points, w tableWin
 
 func (t *dataTable) bodyRow(cx *core.Scope, row *core.Memo[int], which tableRegion, w tableWindows) core.Node {
 	parts, classes := t.rowParts(cx, row)
-	selected := core.NewMemo(cx, func() bool { return t.selection() == tableSel{kind: selRow, row: row.Get()} })
+	selected := core.NewMemo(cx, func() bool { return t.rowSelected(row.Get()) })
 	var children []core.Node
 	switch which {
 	case regionLead:
@@ -794,7 +795,7 @@ func (t *dataTable) cell(cx *core.Scope, row, def *core.Memo[int], which tableRe
 			return flags{}
 		}
 		sel := t.st.sel
-		return flags{selected: sel == tableSel{kind: selCell, row: r, col: d},
+		return flags{selected: t.rowSelected(r) || sel == tableSel{kind: selCell, row: r, col: d},
 			columnSelected: sel == tableSel{kind: selColumn, col: d},
 			active:         t.st.active && t.st.activeRow == r && t.st.activeCol == d}
 	})
@@ -835,7 +836,7 @@ func (t *dataTable) cell(cx *core.Scope, row, def *core.Memo[int], which tableRe
 			t.dataRev.Get()
 			sel := t.st.sel
 			return Cell{Row: r, Column: d, Key: t.column(d).Key, Text: text(),
-				Selected: sel == tableSel{kind: selRow, row: r} || sel == tableSel{kind: selCell, row: r, col: d}}
+				Selected: t.rowSelected(r) || sel == tableSel{kind: selCell, row: r, col: d}}
 		})}}
 	}
 	return core.View{

@@ -6,8 +6,10 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/base/datatable"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/internal/driver"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -129,6 +131,64 @@ func TestDataTableSelectsCellsMovesColumnsAndCopies(t *testing.T) {
 	app.RightClick("text:c4")
 	if len(menus) != 1 || menus[0].Row != 4 || menus[0].Column != 2 {
 		t.Errorf("menus %+v, want c4's", menus)
+	}
+}
+
+func TestDataTableSelectsMultipleRowsAndExtendsWithShift(t *testing.T) {
+	var (
+		ref     datatable.Ref
+		other   core.Ref
+		changes [][]int
+	)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.View{Children: []core.Node{
+			datatable.DataTable{
+				TestID:               "table",
+				Ref:                  &ref,
+				MultiSelect:          true,
+				Columns:              func() []datatable.Column { return []datatable.Column{{Key: "name"}} },
+				RowCount:             func() int { return 6 },
+				Text:                 func(row, _ int) string { return fmt.Sprintf("R%d", row) },
+				Style:                core.Style{Width: core.Pt(300), Height: core.Pt(240)},
+				OnSelectedRowsChange: func(rows []int) { changes = append(changes, append([]int(nil), rows...)) },
+			},
+			base.Button{Ref: &other, TestID: "other", Label: "Other", Style: core.Style{Height: core.Pt(40)}},
+		}}
+	}, nsgotest.Size(300, 300), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}))
+	app.Press("text:R1")
+	app.PressWith("text:R3", driver.Modifiers{Shift: true})
+	if got := ref.SelectedRows(); !slices.Equal(got, []int{1, 2, 3}) {
+		t.Fatalf("selected rows %v, want 1 through 3", got)
+	}
+	if len(changes) != 2 || !slices.Equal(changes[1], []int{1, 2, 3}) {
+		t.Fatalf("selection changes %v", changes)
+	}
+	for _, row := range []int{1, 2, 3} {
+		v := app.Find(fmt.Sprintf("text:R%d", row))
+		for v != nil && v.Props.Role != core.RoleRow {
+			v = v.Parent
+		}
+		if v == nil || !v.Props.Selected {
+			t.Errorf("row %d is not selected to accessibility", row)
+		}
+	}
+	app.Key("shift+down")
+	if got := ref.SelectedRows(); !slices.Equal(got, []int{1, 2, 3, 4}) {
+		t.Fatalf("shift down selected rows %v, want 1 through 4", got)
+	}
+	app.PressWith("text:R2", driver.Modifiers{Platform: true})
+	if got := ref.SelectedRows(); !slices.Equal(got, []int{1, 3, 4}) {
+		t.Fatalf("command click selected rows %v, want row 2 toggled off", got)
+	}
+	app.Press("id:other")
+	other.Focus()
+	app.Settle()
+	if !app.Find("id:other").Focused {
+		t.Fatal("other control did not take focus")
+	}
+	app.Key("shift+down")
+	if got := ref.SelectedRows(); !slices.Equal(got, []int{1, 3, 4}) {
+		t.Fatalf("other control changed selected rows to %v", got)
 	}
 }
 

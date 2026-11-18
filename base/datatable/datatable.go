@@ -240,8 +240,9 @@ type Classes struct {
 // rows and columns as it scrolls. Rows, columns or cells select with the
 // pointer and the keyboard; columns resize with a drag of their edge (a
 // double press fits them), move with a drag of their title, stay at the
-// left when Fixed and ask for a sort. It has no look of its own: Styles
-// gives every part its padding, colors and borders.
+// left when Fixed and ask for a sort. MultiSelect makes rows toggle and
+// extend with the usual modifiers. It has no look of its own: Styles gives
+// every part its padding, colors and borders.
 //
 // The rows are the app's: Text gives a cell's text, read where the cells
 // in view show it, so a change of what it reads updates those cells only;
@@ -278,6 +279,13 @@ type DataTable struct {
 	NoRowSelect, NoColumnSelect bool
 	CellSelect                  func() bool
 	NoSelectOnModifierPress     bool
+	// MultiSelect makes row selection hold several rows. SelectedRows is the
+	// app's selected rows when set; otherwise the table keeps them. A plain
+	// press selects one row, the command key toggles one, and Shift selects
+	// the range from the anchor. Shifted arrows and page keys extend it while
+	// the table has the keyboard.
+	MultiSelect  bool
+	SelectedRows func() []int
 	// Selection, when set, is the selection; the table keeps its own
 	// otherwise.
 	Selection func() Selection
@@ -331,7 +339,10 @@ type DataTable struct {
 	Tooltip  core.Node
 
 	OnSelectionChange func(Selection)
-	OnRowPress        func(Press)
+	// OnSelectedRowsChange receives the rows a user selected in MultiSelect
+	// mode, in ascending order. It does not run for app or Ref writes.
+	OnSelectedRowsChange func([]int)
+	OnRowPress           func(Press)
 	// OnDoublePress receives a row, a cell or a title pressed twice: its
 	// row and column, -1 for none.
 	OnDoublePress func(row, column int)
@@ -379,6 +390,23 @@ func (r *Ref) Selection() Selection {
 func (r *Ref) Select(s Selection) {
 	if r.t != nil {
 		r.t.selectPublic(s, false)
+	}
+}
+
+// SelectedRows returns the rows selected in MultiSelect mode, in ascending
+// order. It returns nil for a table that is not in that mode.
+func (r *Ref) SelectedRows() []int {
+	if r.t == nil || !r.t.multiRows() {
+		return nil
+	}
+	return append([]int(nil), r.t.st.selectedRows...)
+}
+
+// SelectRows selects rows in MultiSelect mode, without
+// OnSelectedRowsChange, and brings the last one into view.
+func (r *Ref) SelectRows(rows []int) {
+	if r.t != nil && r.t.multiRows() {
+		r.t.selectRows(rows, false)
 	}
 }
 
@@ -492,6 +520,10 @@ type tableState struct {
 	// toned is whether each def has styles or classes for rises and falls.
 	toned []bool
 	sel   tableSel
+	// selectedRows is the sorted set in MultiSelect mode. anchorRow is the
+	// row a shifted press or key extends from.
+	selectedRows []int
+	anchorRow    int
 	// active marks the row and column (-1 for none) a context menu was
 	// asked for.
 	active               bool
@@ -531,6 +563,7 @@ type dataTable struct {
 	viewport           *core.Signal[core.Size]
 	hover              *core.Signal[int]
 	focused            *core.Signal[bool]
+	focusRef           *core.Ref
 	drag               *core.Signal[tableDrag]
 	// sizes is the geometry without the offsets, so what reads only sizes
 	// does not run again at each scroll.
@@ -558,10 +591,10 @@ func (t *dataTable) dataStart() int {
 }
 
 func newDataTable(cx *core.Scope, p DataTable) *dataTable {
-	t := &dataTable{p: p, cx: cx, st: &tableState{columns: newTableColumns(nil), loadMoreAt: -1},
+	t := &dataTable{p: p, cx: cx, st: &tableState{columns: newTableColumns(nil), loadMoreAt: -1, anchorRow: -1},
 		layoutRev: core.NewSignal(cx, 0), dataRev: core.NewSignal(cx, 0),
 		scrollX: core.NewSignal(cx, core.Points(0)), scrollY: core.NewSignal(cx, core.Points(0)),
-		viewport: core.NewSignal(cx, core.Size{}), hover: core.NewSignal(cx, -1), focused: core.NewSignal(cx, false),
+		viewport: core.NewSignal(cx, core.Size{}), hover: core.NewSignal(cx, -1), focused: core.NewSignal(cx, false), focusRef: &core.Ref{},
 		drag: core.NewSignal(cx, tableDrag{from: -1}), vscroll: &core.Ref{}, hscroll: &core.Ref{},
 		stripRef: &core.Ref{},
 		colsWin:  window.New(1, 3), resizing: -1, handleTap: -1}
@@ -662,11 +695,48 @@ func (t *dataTable) syncSelection() {
 			}
 		})
 	})
+	if t.p.MultiSelect && t.p.SelectedRows != nil {
+		t.cx.Effect(func() {
+			given := normalizeRows(t.p.SelectedRows(), t.rowCount())
+			t.cx.Untrack(func() {
+				if !slices.Equal(given, t.st.selectedRows) {
+					t.st.selectedRows = given
+					t.bumpData()
+				}
+			})
+		})
+	}
+	if t.p.MultiSelect {
+		t.cx.Effect(func() {
+			rows := t.rowCount()
+			t.layoutRev.Get()
+			t.cx.Untrack(func() {
+				next := normalizeRows(t.st.selectedRows, rows)
+				if !slices.Equal(next, t.st.selectedRows) {
+					t.st.selectedRows = next
+					t.bumpData()
+				}
+			})
+		})
+	}
 }
 
 // selectable is what the table selects (tracked).
 func (t *dataTable) selectable() selectable {
 	return selectable{rows: !t.p.NoRowSelect, columns: !t.p.NoColumnSelect, cells: t.cellSelect()}
+}
+
+func (t *dataTable) multiRows() bool { return t.p.MultiSelect && !t.p.NoRowSelect }
+
+func normalizeRows(rows []int, count int) []int {
+	out := make([]int, 0, len(rows))
+	for _, row := range rows {
+		if row >= 0 && row < count {
+			out = append(out, row)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 func (t *dataTable) rowHeaderShown() bool {
@@ -896,8 +966,82 @@ func (t *dataTable) setSelection(next tableSel, report bool) {
 	}
 }
 
+func (t *dataTable) rowSelected(row int) bool {
+	if row < 0 {
+		return false
+	}
+	if t.multiRows() {
+		t.dataRev.Get()
+		return slices.Contains(t.st.selectedRows, row)
+	}
+	return t.selection() == tableSel{kind: selRow, row: row}
+}
+
+func (t *dataTable) selectRows(rows []int, report bool) {
+	rows = normalizeRows(rows, core.Untracked(t.cx, t.rowCount))
+	if slices.Equal(rows, t.st.selectedRows) {
+		return
+	}
+	t.st.selectedRows = rows
+	t.bumpData()
+	if report && t.p.OnSelectedRowsChange != nil {
+		t.p.OnSelectedRowsChange(append([]int(nil), rows...))
+	}
+}
+
+func (t *dataTable) rowRange(anchor, row int) []int {
+	lo, hi := min(anchor, row), max(anchor, row)
+	rows := make([]int, hi-lo+1)
+	for i := range rows {
+		rows[i] = lo + i
+	}
+	return rows
+}
+
+func (t *dataTable) secondary(mods core.Modifiers) bool {
+	if core.Untracked(t.cx, t.cx.Env().AppleKeys) {
+		return mods.Platform
+	}
+	return mods.Control
+}
+
+func (t *dataTable) multiPress(row int, mods core.Modifiers) {
+	anchor := t.st.anchorRow
+	switch {
+	case mods.Shift:
+		if anchor < 0 {
+			anchor = row
+		}
+		t.selectRows(t.rowRange(anchor, row), true)
+	case t.secondary(mods):
+		rows := append([]int(nil), t.st.selectedRows...)
+		if i := slices.Index(rows, row); i >= 0 {
+			rows = slices.Delete(rows, i, i+1)
+		} else {
+			rows = append(rows, row)
+		}
+		t.selectRows(rows, true)
+		t.st.anchorRow = row
+	default:
+		t.selectRows([]int{row}, true)
+		t.st.anchorRow = row
+	}
+	t.setSelection(tableSel{kind: selRow, row: row}, false)
+	t.revealRow(row)
+}
+
 func (t *dataTable) selectPublic(s Selection, report bool) {
 	rows := core.Untracked(t.cx, t.rowCount)
+	if t.multiRows() && s.Column < 0 {
+		selected := []int(nil)
+		if s.Row >= 0 && s.Row < rows {
+			selected = []int{s.Row}
+			t.st.anchorRow = s.Row
+		} else {
+			t.st.anchorRow = -1
+		}
+		t.selectRows(selected, report)
+	}
 	t.setSelection(clampSel(s.sel(), t.selectable(), rows, t.st.columns.len()), report)
 	t.revealSelection()
 }
@@ -916,6 +1060,13 @@ func (t *dataTable) untrackedGeo() tableGeo { return core.Untracked(t.cx, t.geo)
 
 // keyMove moves the selection by a key.
 func (t *dataTable) keyMove(m tableMove) {
+	if !t.focused.GetUntracked() {
+		return
+	}
+	if t.multiRows() {
+		t.keyMoveRows(m, false)
+		return
+	}
 	g := t.untrackedGeo()
 	nav := tableNav{sel: t.selectable(), rows: core.Untracked(t.cx, t.rowCount), columns: t.selectableColumns(),
 		page: max(int(g.y.viewport/float64(g.rowHeight)), 1), wrap: !t.p.NoLoopSelection}
@@ -923,6 +1074,38 @@ func (t *dataTable) keyMove(m tableMove) {
 		t.setSelection(next, true)
 		t.revealSelection()
 	}
+}
+
+func (t *dataTable) keyMoveRows(m tableMove, extend bool) {
+	if !t.focused.GetUntracked() {
+		return
+	}
+	g := t.untrackedGeo()
+	nav := tableNav{sel: selectable{rows: true}, rows: core.Untracked(t.cx, t.rowCount), page: max(int(g.y.viewport/float64(g.rowHeight)), 1), wrap: !t.p.NoLoopSelection}
+	from := t.st.sel
+	if from.kind != selRow {
+		from = tableSel{}
+	}
+	next, ok := nav.step(from, m)
+	if !ok {
+		return
+	}
+	row, ok := next.rowOf()
+	if !ok {
+		return
+	}
+	if extend {
+		anchor := t.st.anchorRow
+		if anchor < 0 {
+			anchor = row
+		}
+		t.selectRows(t.rowRange(anchor, row), true)
+	} else {
+		t.selectRows([]int{row}, true)
+		t.st.anchorRow = row
+	}
+	t.setSelection(next, false)
+	t.revealRow(row)
 }
 
 // keys binds the table's keys while it has the keyboard.
@@ -937,10 +1120,23 @@ func (t *dataTable) keys(cx *core.Scope) {
 	for _, k := range moves {
 		cx.OnKeyWith(k.key, core.KeyOptions{When: core.KeyNotEditing, Repeat: k.repeat}, func() { t.keyMove(k.m) })
 	}
+	if t.multiRows() {
+		for _, k := range []struct {
+			key    string
+			m      tableMove
+			repeat bool
+		}{{"shift+up", moveUp, true}, {"shift+down", moveDown, true}, {"shift+pageup", movePageUp, true}, {"shift+pagedown", movePageDown, true}, {"shift+home", moveFirst, false}, {"shift+end", moveLast, false}} {
+			cx.OnKeyWith(k.key, core.KeyOptions{When: core.KeyNotEditing, Repeat: k.repeat}, func() { t.keyMoveRows(k.m, true) })
+		}
+	}
 	// Escape clears the selection, and with nothing selected gives up the
 	// keyboard.
 	cx.OnKey("escape", func() {
-		if t.st.sel.kind == selNone {
+		if t.multiRows() {
+			t.selectRows(nil, true)
+			t.st.anchorRow = -1
+			t.setSelection(tableSel{}, false)
+		} else if t.st.sel.kind == selNone {
 			t.focused.Set(false)
 		} else {
 			t.setSelection(tableSel{}, true)
@@ -1043,6 +1239,7 @@ func (t *dataTable) selectsOn(mods core.Modifiers) bool {
 // row when rows select, of a press of its number or of a row whose cells
 // do not select.
 func (t *dataTable) press(h tableHit, clicks int, mods core.Modifiers) {
+	t.focusRef.Focus()
 	t.focused.Set(true)
 	t.st.active = false
 	if h.row < 0 {
@@ -1053,6 +1250,17 @@ func (t *dataTable) press(h tableHit, clicks int, mods core.Modifiers) {
 	col := -1
 	if !h.lead {
 		col = h.col
+	}
+	if t.multiRows() {
+		t.multiPress(h.row, mods)
+		t.bumpData()
+		if t.p.OnRowPress != nil {
+			t.p.OnRowPress(Press{Row: h.row, Column: col, Clicks: clicks, Modifiers: mods})
+		}
+		if clicks == 2 && t.p.OnDoublePress != nil {
+			t.p.OnDoublePress(h.row, col)
+		}
+		return
 	}
 	var next tableSel
 	ok := false
@@ -1082,6 +1290,7 @@ func (t *dataTable) press(h tableHit, clicks int, mods core.Modifiers) {
 
 // contextMenu marks what hit names as the menu's and tells the app.
 func (t *dataTable) contextMenu(h tableHit, at core.Point) {
+	t.focusRef.Focus()
 	t.focused.Set(true)
 	col := h.col
 	if h.lead {
@@ -1311,17 +1520,29 @@ func (t *dataTable) selectionText() (string, bool) {
 	s := t.st.sel
 	var b strings.Builder
 	t.cx.Untrack(func() {
-		switch s.kind {
-		case selCell:
+		switch {
+		case t.multiRows() && len(t.st.selectedRows) > 0:
+			for i, row := range t.st.selectedRows {
+				if i > 0 {
+					b.WriteByte('\n')
+				}
+				for j, def := range t.st.columns.order {
+					if j > 0 {
+						b.WriteByte('\t')
+					}
+					b.WriteString(t.cellText(row, def))
+				}
+			}
+		case s.kind == selCell:
 			b.WriteString(t.cellText(s.row, s.col))
-		case selRow:
+		case s.kind == selRow:
 			for i, def := range t.st.columns.order {
 				if i > 0 {
 					b.WriteByte('\t')
 				}
 				b.WriteString(t.cellText(s.row, def))
 			}
-		case selColumn:
+		case s.kind == selColumn:
 			for row := range min(t.rowCount(), copyRows) {
 				if row > 0 {
 					b.WriteByte('\n')
@@ -1330,7 +1551,7 @@ func (t *dataTable) selectionText() (string, bool) {
 			}
 		}
 	})
-	return b.String(), s.kind != selNone
+	return b.String(), (t.multiRows() && len(t.st.selectedRows) > 0) || s.kind != selNone
 }
 
 func (t *dataTable) copySelection() {

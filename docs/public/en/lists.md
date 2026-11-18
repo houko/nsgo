@@ -64,7 +64,7 @@ core.List{Ref: list, Count: count, EstimatedSize: 64, Row: row, OnLoadMore: load
 
 ## Tables
 
-`base/datatable` shows a table of a million rows with virtualized rows and columns, a sticky header, columns fixed at the left (`Fixed`) or the right (`FixedRight`) while the others scroll under them, sorting, selecting, resizing and moving columns, and the app's own cells. `base.Table` is a plain table of the app's rows for smaller data, and `base/plot` draws charts.
+`base/datatable` shows a table of a million rows with virtualized rows and columns, a sticky header, columns fixed at the left (`Fixed`) or the right (`FixedRight`) while the others scroll under them, sorting, single or multi-row selection, resizing and moving columns, and the app's own cells. `MultiSelect` supports Command or Control toggles, Shift ranges and Shifted keyboard extensions, while `SelectedRows` and `OnSelectedRowsChange` let the app control the rows. `base.Table` is a plain table of the app's rows for smaller data, and `base/plot` draws charts.
 
 ## Next
 

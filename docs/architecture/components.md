@@ -150,6 +150,7 @@ Popups are placed against what their trigger holds (`Overlay.AnchorContent`), th
 - The columns are in three groups in that order (`tableColumns`, `columnSpec.group`): fixed at the left, scrolling, and fixed at the right (`FixedRight`, NSH's `fixed: "right"`), each in a region of its own between which no column moves; the scrolling region's view is the table's width less both fixed groups, and the right group's region sits at its end, with its own edge line.
 - A cell's text fills it and aligns with `TextAlign`, so a new text keeps its frame. A cell restyles for `PositiveStyle` and `NegativeStyle` only when its sign changes.
 - Cells take presses and context menus from assistive technology and tests; a pointer reaches the hit layer. A title's drag moves its column unless it starts in the resize handle's band or a resize is under way.
+- `MultiSelect` makes rows a sorted set. `SelectedRows` controls that set when supplied, `OnSelectedRowsChange` reports user changes, and the rows expose their selected accessibility state. Plain presses replace the set, Command or Control presses toggle a row, Shift presses select the anchor range, and Shifted arrows and page keys extend it while the table has focus.
 
 | NSH | NSGo | Why |
 | --- | --- | --- |

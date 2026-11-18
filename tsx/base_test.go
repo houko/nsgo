@@ -75,6 +75,7 @@ func TestEventsPassOneObject(t *testing.T) {
 		"onChange?: (e: { checked: boolean }) => void",
 		"onOpenChange?: (e: { open: boolean; reason: DialogChangeReason }) => void",
 		"onColumnResize?: (e: { key: string; width: number }) => void",
+		"onSelectedRowsChange?: (e: { rows: (number)[] }) => void",
 		"onVisibleRowsChange?: (e: { range: DataTableRange }) => void",
 		"onLayout?: (e: { bounds: Bounds }) => void",
 	} {
