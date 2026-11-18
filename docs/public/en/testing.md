@@ -45,8 +45,6 @@ Headless runs use the phone idiom by default, whatever the project targets, so `
 
 `app.Key("mod+a")` selects the focused field's text when no binding takes it. In a macOS, Windows or Linux `Environment`, a key that no binding, focused view or field takes chooses the enabled application-menu item it is the shortcut of, so `app.Key("mod+r")` tests that a menu's shortcut reaches its item: a disabled item takes nothing, and a `NotInText` item leaves its key to a focused field. Headless, on desktop targets and on the web, a `KeyAlways` binding takes Return, Backspace and select-all before the field acts; `KeyAuto` and `KeyNotEditing` leave them to the focused field. The Android and iOS test hosts do not yet give the keymap these keys first. A focused view's `OnKeyDown` hears `app.Key` first, a modifier alone (`app.Key("shift")`) included, and a key it consumes reaches no binding, headless and on desktop and web targets.
 
-Headless and on a target, the app runs on `app.Clock`, a `core.ManualClock` that starts at 2026-01-01 00:00 UTC. A screen that depends on the date, such as what is due today, starts with `nsgotest.WallTime(t0)`: the first render's `cx.WallTime()` is `t0`, in its location, and timers keep running on the clock's own time. `nsgotest.Clock(c)` runs the app on a clock of the test's own, so code outside the app shares it; the app's timers fire as `c.Advance` moves it.
-
 ## Run the tests
 
 ```sh
@@ -62,6 +60,14 @@ Tests check reactive graph ownership: access signals and scopes on the app's gor
 `app.Post(func() { state.Set(value) })` queues work on the app's graph goroutine as the next step or wait settles: the test goroutine headless, the engine goroutine on a target. Call it from a test or a stubbed worker, then use `app.Settle()` or a wait to read the resulting views. The function may post more, which the same step runs; it takes no steps and does not call `t.Fatal`, as on a target it runs off the test goroutine.
 
 Headless, each step then moves the clock a frame at a time, for at most 2 seconds, until the animations that end have ended and each style transition has run its `OnTransitionEnd`: a dialog or popover closing through its `EndingStyle` is gone when `app.Press` returns. To look at them on the way, start with `nsgotest.ManualFrames()`; they then move only as `app.Advance` moves the clock.
+
+## Time
+
+Headless and on a target, the app runs on `app.Clock`, a `core.ManualClock` that starts at 2026-01-01 00:00 UTC and moves only as the test moves it. `app.Advance(d)` moves it by `d`, running each timer when it comes due and, while the app waits for one, a display frame every frame interval, as a display does. `app.FastForward(d)` jumps ahead, as a laptop closed for a while and opened: each timer that came due on the way runs once, at the end, and so does one display frame.
+
+The app reads this clock with `cx.Now()`, and the date it shows with `cx.WallTime()`, so time what it measures itself, such as a gesture's speed or a double tap's window, with them. `time.Now()` and `time.Sleep` follow the system's clock, which `Advance` does not move: an app timing with `time.Now()` misses the time a test moves, and a `time.Sleep` in a test only makes it slower. Wait for work that arrives from another goroutine, such as a `cx.Post` after a reply, with `app.WaitFor`, `app.WaitForGone` or `app.WaitUntil`, whose timeouts count real time.
+
+A screen that depends on the date, such as what is due today, starts with `nsgotest.WallTime(t0)`: the first render's `cx.WallTime()` is `t0`, in its location, and timers keep running on the clock's own time. `nsgotest.Clock(c)` runs the app on a clock of the test's own, so code outside the app shares it; the app's timers fire as `c.Advance` moves it. A measurement on a target, started with `nsgotest.Measure()`, runs the app on the system's clock instead, as described below.
 
 ## Run on a platform
 
@@ -98,6 +104,8 @@ Put NSGo flags before the directory: `go tool nsgo test -target web ./app`, not 
 ## TSX tests
 
 A TSX app's `*.test.tsx` files, written with `nsgo/test`, run with its Go tests.
+
+`open("App.tsx", { clock: {} })` runs the app on the manual clock, and `app.clock` moves it: `app.clock.runFor(ms)`, like `app.wait(ms)`, moves it a frame at a time, as `Advance` does, and `app.clock.fastForward(ms)` jumps ahead, as `FastForward` does. `clock: { time }` starts what `Date.now()` and `new Date()` read at `time`, a `Date` or milliseconds since 1970, and `app.clock.setSystemTime(time)` sets it later; neither moves a timer. Without `clock`, a headless app's time also passes while `waitFor` and `waitUntil` wait, a frame at a time, as it would on a device.
 
 To script a TSX app without a test file, pass its entry and the steps on standard input, written as a `*.test.tsx` test's body with `app` the app:
 

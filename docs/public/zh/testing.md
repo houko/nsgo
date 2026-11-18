@@ -45,8 +45,6 @@ func TestMain(m *testing.M) {
 
 没有绑定消费按键时，`app.Key("mod+a")` 会全选当前文本框的内容。在 macOS、Windows 或 Linux 的 `Environment` 中，没有被绑定、聚焦视图或文本框消费的按键会选择以它为快捷键的已启用应用菜单项，因此 `app.Key("mod+r")` 可以测试菜单快捷键能否到达对应的菜单项：已禁用的菜单项不响应，`NotInText` 菜单项把按键留给已聚焦的文本框。在无头测试、桌面目标和 Web 上，`KeyAlways` 绑定会在文本框编辑之前消费 Return、Backspace 和全选；`KeyAuto` 和 `KeyNotEditing` 则把这些键留给已聚焦的文本框。Android 和 iOS 的测试宿主还不会先把这些键交给键位绑定。已聚焦视图的 `OnKeyDown` 会最先收到 `app.Key`，单独的修饰键（`app.Key("shift")`）也算；它消费的键不会再交给任何绑定，无头测试以及桌面和 Web 目标上都是如此。
 
-无论无头运行还是在目标平台上，应用都运行在 `app.Clock` 上，它是一个从 2026-01-01 00:00 UTC 开始的 `core.ManualClock`。首屏依赖日期的界面（例如今天到期的内容）用 `nsgotest.WallTime(t0)` 启动：首次渲染时 `cx.WallTime()` 就是 `t0`，保留它的时区，计时器仍按时钟自身的时间运行。`nsgotest.Clock(c)` 让应用运行在测试自己的时钟上，供应用之外的代码共用；`c.Advance` 推进它时，应用的计时器随之触发。
-
 ## 运行测试
 
 ```sh
@@ -62,6 +60,14 @@ go tool nsgo test
 `app.Post(func() { state.Set(value) })` 把工作排到应用的响应式图所在的 goroutine 上，在下一个步骤或等待稳定时运行：无头运行时是测试 goroutine，在目标平台上是引擎 goroutine。可以从测试或桩出来的工作 goroutine 调用它，再用 `app.Settle()` 或等待读取结果视图。函数可以继续投递，同一个步骤会一并运行；它不执行步骤，也不调用 `t.Fatal`，因为在目标平台上它不在测试 goroutine 上运行。
 
 无头运行时，每个步骤随后会逐帧推进时钟，最多 2 秒，直到有限动画结束、每个样式过渡都执行了它的 `OnTransitionEnd`：经 `EndingStyle` 关闭的对话框或弹出框在 `app.Press` 返回时已经消失。要观察中途的状态，用 `nsgotest.ManualFrames()` 启动；这时它们只随 `app.Advance` 推进的时钟移动。
+
+## 时间
+
+无论无头运行还是在目标平台上，应用都运行在 `app.Clock` 上，它是一个从 2026-01-01 00:00 UTC 开始的 `core.ManualClock`，只在测试推进它时才走动。`app.Advance(d)` 将它推进 `d`，每个计时器在到期时运行；应用等待显示帧时，每隔一个帧间隔运行一帧，和显示器一样。`app.FastForward(d)` 一次跳到前面，就像笔记本合上一段时间后再打开：途中到期的每个计时器在末尾各运行一次，显示帧也运行一次。
+
+应用用 `cx.Now()` 读取这个时钟，用 `cx.WallTime()` 读取它显示的日期，所以应用自己测量的时间（例如手势速度、双击的时间窗口）要用它们来计时。`time.Now()` 和 `time.Sleep` 跟随系统时钟，`Advance` 不会推进它：用 `time.Now()` 计时的应用察觉不到测试推进的时间，测试里的 `time.Sleep` 只会让测试变慢。等待来自其他 goroutine 的工作（例如收到回复后的 `cx.Post`）时，用 `app.WaitFor`、`app.WaitForGone` 或 `app.WaitUntil`，它们的超时按真实时间计算。
+
+首屏依赖日期的界面（例如今天到期的内容）用 `nsgotest.WallTime(t0)` 启动：首次渲染时 `cx.WallTime()` 就是 `t0`，保留它的时区，计时器仍按时钟自身的时间运行。`nsgotest.Clock(c)` 让应用运行在测试自己的时钟上，供应用之外的代码共用；`c.Advance` 推进它时，应用的计时器随之触发。在目标平台上用 `nsgotest.Measure()` 测量时，应用改为运行在系统时钟上，见下文。
 
 ## 在平台上运行
 
@@ -96,6 +102,8 @@ NSGo 的参数要写在目录之前：`go tool nsgo test -target web ./app`，�
 ## TSX 测试
 
 TSX 应用中用 `nsgo/test` 编写的 `*.test.tsx` 文件会随 Go 测试一起运行。
+
+`open("App.tsx", { clock: {} })` 让应用运行在手动时钟上，由 `app.clock` 推进：`app.clock.runFor(ms)` 和 `app.wait(ms)` 一样逐帧推进，如同 `Advance`；`app.clock.fastForward(ms)` 一次跳到前面，如同 `FastForward`。`clock: { time }` 让 `Date.now()` 和 `new Date()` 从 `time`（一个 `Date` 或自 1970 年起的毫秒数）开始，之后用 `app.clock.setSystemTime(time)` 修改；两者都不移动计时器。不传 `clock` 时，无头应用的时间还会在 `waitFor` 和 `waitUntil` 等待期间逐帧流逝，和在设备上一样。
 
 不写测试文件也能驱动 TSX 应用：传入它的入口，并从标准输入提供步骤，写法与 `*.test.tsx` 测试的函数体相同，`app` 即该应用：
 
