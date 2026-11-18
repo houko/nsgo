@@ -192,6 +192,86 @@ func TestDataTableSelectsMultipleRowsAndExtendsWithShift(t *testing.T) {
 	}
 }
 
+// TestDataTableMultiSelectKeepsToRowsAndFollowsTheApp holds a multi-row table off Apple's keys with cell selection asked for: Control toggles, cells and titles do not select, the app's rows and Ref.SelectRows show and anchor the selection, the copy has every selected row, and Escape clears the rows before it gives up the keyboard.
+func TestDataTableMultiSelectKeepsToRowsAndFollowsTheApp(t *testing.T) {
+	var (
+		ref     datatable.Ref
+		version *core.Signal[int]
+		given   = []int{4, 0, 9}
+		changes [][]int
+	)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		version = core.NewSignal(cx, 0)
+		return datatable.DataTable{
+			TestID:      "table",
+			Ref:         &ref,
+			MultiSelect: true,
+			CellSelect:  func() bool { return true },
+			Columns: func() []datatable.Column {
+				return []datatable.Column{{Key: "a", Title: "A"}, {Key: "b", Title: "B"}}
+			},
+			RowCount:             func() int { return 6 },
+			Text:                 func(row, col int) string { return fmt.Sprintf("%c%d", 'a'+col, row) },
+			Style:                core.Style{Width: core.Pt(300), Height: core.Pt(300)},
+			SelectedRows:         func() []int { version.Get(); return given },
+			OnSelectedRowsChange: func(rows []int) { changes = append(changes, append([]int(nil), rows...)) },
+		}
+	}, nsgotest.Size(300, 300), nsgotest.Environment(core.Environment{OS: core.OSWindows, Idiom: core.IdiomDesktop}))
+	rowSelected := func(text string) bool {
+		v := app.Find("text:" + text)
+		for v != nil && v.Props.Role != core.RoleRow {
+			v = v.Parent
+		}
+		return v != nil && v.Props.Selected
+	}
+	if got := ref.SelectedRows(); !slices.Equal(got, []int{0, 4}) {
+		t.Fatalf("app's rows %v, want 0 and 4 (9 is past the end)", got)
+	}
+	if !rowSelected("a0") || !rowSelected("a4") || rowSelected("a2") {
+		t.Error("the app's rows are not the ones selected to accessibility")
+	}
+	if len(app.Query("text:6")) != 0 {
+		t.Error("row numbers show though cells do not select in MultiSelect mode")
+	}
+	given = []int{1}
+	version.Set(1)
+	app.Settle()
+	if got := ref.SelectedRows(); !slices.Equal(got, []int{1}) {
+		t.Fatalf("app's new rows %v, want 1", got)
+	}
+	app.Press("text:b2")
+	app.PressWith("text:a3", driver.Modifiers{Control: true})
+	if got := ref.SelectedRows(); !slices.Equal(got, []int{2, 3}) {
+		t.Fatalf("rows %v after a press and a Control press, want 2 and 3", got)
+	}
+	if s := ref.Selection(); s != (datatable.Selection{Row: 3, Column: -1}) {
+		t.Errorf("selection %v, want the keyboard on row 3, not a cell", s)
+	}
+	app.Press("text:A")
+	if s := ref.Selection(); s.Column >= 0 {
+		t.Errorf("a title press selected %v, want no column in MultiSelect mode", s)
+	}
+	ref.SelectRows([]int{3, 1})
+	app.Key("shift+down")
+	if got := ref.SelectedRows(); !slices.Equal(got, []int{1, 2}) {
+		t.Fatalf("shift down after SelectRows(3, 1) selected %v, want 1 and 2 from the anchor 1", got)
+	}
+	app.Key("mod+c")
+	if app.Clipboard != "a1\tb1\na2\tb2" {
+		t.Errorf("copied %q, want rows 1 and 2", app.Clipboard)
+	}
+	n := len(changes)
+	app.Key("escape")
+	if got := ref.SelectedRows(); len(got) != 0 || len(changes) != n+1 || len(changes[n]) != 0 {
+		t.Fatalf("escape left rows %v, changes %v", got, changes[n:])
+	}
+	app.Key("escape")
+	app.Key("shift+down")
+	if got := ref.SelectedRows(); len(got) != 0 {
+		t.Errorf("shift down selected %v after Escape gave up the keyboard", got)
+	}
+}
+
 // TestDataTableReadsTheCellsNearTheView scrolls and ticks a table whose
 // texts change: the rows made are those in view and half a viewport
 // around, so a scroll reads the rows coming near the view and a tick the

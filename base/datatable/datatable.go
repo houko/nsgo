@@ -234,15 +234,7 @@ type Classes struct {
 	RowHeader, RowHeaderCorner, FixedEdge, Empty             string
 }
 
-// DataTable shows rows and columns as a spreadsheet does and scrolls both
-// ways over any number of either, as gpui-component's: only the cells in
-// view and a reach around them exist as views, made once and given other
-// rows and columns as it scrolls. Rows, columns or cells select with the
-// pointer and the keyboard; columns resize with a drag of their edge (a
-// double press fits them), move with a drag of their title, stay at the
-// left when Fixed and ask for a sort. MultiSelect makes rows toggle and
-// extend with the usual modifiers. It has no look of its own: Styles gives
-// every part its padding, colors and borders.
+// DataTable shows rows and columns as a spreadsheet does and scrolls both ways over any number of either, as gpui-component's: only the cells in view and a reach around them exist as views, made once and given other rows and columns as it scrolls. Rows, columns or cells select with the pointer and the keyboard; columns resize with a drag of their edge (a double press fits them), move with a drag of their title, stay at the left when Fixed and ask for a sort. MultiSelect makes rows toggle and extend with the usual modifiers. It has no look of its own: Styles gives every part its padding, colors and borders.
 //
 // The rows are the app's: Text gives a cell's text, read where the cells
 // in view show it, so a change of what it reads updates those cells only;
@@ -279,11 +271,7 @@ type DataTable struct {
 	NoRowSelect, NoColumnSelect bool
 	CellSelect                  func() bool
 	NoSelectOnModifierPress     bool
-	// MultiSelect makes row selection hold several rows. SelectedRows is the
-	// app's selected rows when set; otherwise the table keeps them. A plain
-	// press selects one row, the command key toggles one, and Shift selects
-	// the range from the anchor. Shifted arrows and page keys extend it while
-	// the table has the keyboard.
+	// MultiSelect makes row selection hold several rows, unless NoRowSelect; cells and columns do not select then, and NoSelectOnModifierPress has no effect. SelectedRows is the app's selected rows when set; otherwise the table keeps them. A plain press or arrow key selects one row, a press with the command key (Control off Apple's keys) toggles one, and a press with Shift selects the range from the anchor, the row last pressed or reached without Shift. Shifted arrows, Page Up/Down and Home/End extend that range, only while the table has the keyboard. Escape clears the rows, and with none selected gives up the keyboard. Selection and Ref.Selection then name only the keyboard's row, and OnSelectionChange does not run: OnSelectedRowsChange reports the rows.
 	MultiSelect  bool
 	SelectedRows func() []int
 	// Selection, when set, is the selection; the table keeps its own
@@ -339,8 +327,7 @@ type DataTable struct {
 	Tooltip  core.Node
 
 	OnSelectionChange func(Selection)
-	// OnSelectedRowsChange receives the rows a user selected in MultiSelect
-	// mode, in ascending order. It does not run for app or Ref writes.
+	// OnSelectedRowsChange receives the rows a user selected in MultiSelect mode, in ascending order. It does not run for app or Ref writes.
 	OnSelectedRowsChange func([]int)
 	OnRowPress           func(Press)
 	// OnDoublePress receives a row, a cell or a title pressed twice: its
@@ -393,8 +380,7 @@ func (r *Ref) Select(s Selection) {
 	}
 }
 
-// SelectedRows returns the rows selected in MultiSelect mode, in ascending
-// order. It returns nil for a table that is not in that mode.
+// SelectedRows returns the rows selected in MultiSelect mode, in ascending order. It returns nil for a table that is not in that mode.
 func (r *Ref) SelectedRows() []int {
 	if r.t == nil || !r.t.multiRows() {
 		return nil
@@ -402,11 +388,10 @@ func (r *Ref) SelectedRows() []int {
 	return append([]int(nil), r.t.st.selectedRows...)
 }
 
-// SelectRows selects rows in MultiSelect mode, without
-// OnSelectedRowsChange, and brings the last one into view.
+// SelectRows selects rows in MultiSelect mode, without OnSelectedRowsChange, and brings the last one into view; Shift extends from it.
 func (r *Ref) SelectRows(rows []int) {
 	if r.t != nil && r.t.multiRows() {
-		r.t.selectRows(rows, false)
+		r.t.selectRowsPublic(rows)
 	}
 }
 
@@ -472,8 +457,7 @@ func (r *Ref) Dump(start, end int) Dump {
 	return r.t.dump(start, end)
 }
 
-// Copy puts the selection's text on the clipboard: a row's cells with tabs
-// between, a column's with line breaks, a cell's text.
+// Copy puts the selection's text on the clipboard: a row's cells with tabs between, a column's with line breaks, a cell's text; in MultiSelect mode the selected rows', one per line.
 func (r *Ref) Copy() {
 	if r.t != nil {
 		r.t.copySelection()
@@ -483,6 +467,7 @@ func (r *Ref) Copy() {
 // Focus gives the table the keyboard, and Blur takes it back.
 func (r *Ref) Focus() {
 	if r.t != nil {
+		r.t.focusRef.Focus()
 		r.t.focused.Set(true)
 	}
 }
@@ -490,6 +475,9 @@ func (r *Ref) Focus() {
 // Blur takes the keyboard from the table.
 func (r *Ref) Blur() {
 	if r.t != nil {
+		if r.t.focusRef.HoldsFocus() {
+			r.t.focusRef.Blur()
+		}
 		r.t.focused.Set(false)
 	}
 }
@@ -520,8 +508,7 @@ type tableState struct {
 	// toned is whether each def has styles or classes for rises and falls.
 	toned []bool
 	sel   tableSel
-	// selectedRows is the sorted set in MultiSelect mode. anchorRow is the
-	// row a shifted press or key extends from.
+	// selectedRows is the sorted set in MultiSelect mode. anchorRow is the row a shifted press or key extends from.
 	selectedRows []int
 	anchorRow    int
 	// active marks the row and column (-1 for none) a context menu was
@@ -723,6 +710,9 @@ func (t *dataTable) syncSelection() {
 
 // selectable is what the table selects (tracked).
 func (t *dataTable) selectable() selectable {
+	if t.multiRows() {
+		return selectable{rows: true}
+	}
 	return selectable{rows: !t.p.NoRowSelect, columns: !t.p.NoColumnSelect, cells: t.cellSelect()}
 }
 
@@ -743,7 +733,10 @@ func (t *dataTable) rowHeaderShown() bool {
 	return !t.p.NoRowHeader && (t.p.RowHeader || t.cellSelect())
 }
 
-func (t *dataTable) cellSelect() bool { return t.p.CellSelect != nil && t.p.CellSelect() }
+// cellSelect is whether cells select (tracked); they do not in MultiSelect mode, where rows do.
+func (t *dataTable) cellSelect() bool {
+	return !t.multiRows() && t.p.CellSelect != nil && t.p.CellSelect()
+}
 
 func (t *dataTable) rowCount() int {
 	if t.p.RowCount == nil && t.p.Data != nil {
@@ -972,7 +965,8 @@ func (t *dataTable) rowSelected(row int) bool {
 	}
 	if t.multiRows() {
 		t.dataRev.Get()
-		return slices.Contains(t.st.selectedRows, row)
+		_, found := slices.BinarySearch(t.st.selectedRows, row)
+		return found
 	}
 	return t.selection() == tableSel{kind: selRow, row: row}
 }
@@ -989,6 +983,25 @@ func (t *dataTable) selectRows(rows []int, report bool) {
 	}
 }
 
+// selectRowsPublic selects rows for the app: the last of them (in the order given) becomes the anchor and the keyboard's row.
+func (t *dataTable) selectRowsPublic(rows []int) {
+	t.selectRows(rows, false)
+	last := -1
+	for _, row := range slices.Backward(rows) {
+		if _, ok := slices.BinarySearch(t.st.selectedRows, row); ok {
+			last = row
+			break
+		}
+	}
+	t.st.anchorRow = last
+	if last < 0 {
+		t.setSelection(tableSel{}, false)
+		return
+	}
+	t.setSelection(tableSel{kind: selRow, row: last}, false)
+	t.revealRow(last)
+}
+
 func (t *dataTable) rowRange(anchor, row int) []int {
 	lo, hi := min(anchor, row), max(anchor, row)
 	rows := make([]int, hi-lo+1)
@@ -998,6 +1011,7 @@ func (t *dataTable) rowRange(anchor, row int) []int {
 	return rows
 }
 
+// secondary reports whether mods hold the command key: Command with Apple's keys, Control otherwise.
 func (t *dataTable) secondary(mods core.Modifiers) bool {
 	if core.Untracked(t.cx, t.cx.Env().AppleKeys) {
 		return mods.Platform
@@ -1060,9 +1074,6 @@ func (t *dataTable) untrackedGeo() tableGeo { return core.Untracked(t.cx, t.geo)
 
 // keyMove moves the selection by a key.
 func (t *dataTable) keyMove(m tableMove) {
-	if !t.focused.GetUntracked() {
-		return
-	}
 	if t.multiRows() {
 		t.keyMoveRows(m, false)
 		return
@@ -1077,9 +1088,6 @@ func (t *dataTable) keyMove(m tableMove) {
 }
 
 func (t *dataTable) keyMoveRows(m tableMove, extend bool) {
-	if !t.focused.GetUntracked() {
-		return
-	}
 	g := t.untrackedGeo()
 	nav := tableNav{sel: selectable{rows: true}, rows: core.Untracked(t.cx, t.rowCount), page: max(int(g.y.viewport/float64(g.rowHeight)), 1), wrap: !t.p.NoLoopSelection}
 	from := t.st.sel
@@ -1132,11 +1140,11 @@ func (t *dataTable) keys(cx *core.Scope) {
 	// Escape clears the selection, and with nothing selected gives up the
 	// keyboard.
 	cx.OnKey("escape", func() {
-		if t.multiRows() {
+		if t.multiRows() && len(t.st.selectedRows) > 0 {
 			t.selectRows(nil, true)
 			t.st.anchorRow = -1
 			t.setSelection(tableSel{}, false)
-		} else if t.st.sel.kind == selNone {
+		} else if t.st.sel.kind == selNone || t.multiRows() {
 			t.focused.Set(false)
 		} else {
 			t.setSelection(tableSel{}, true)
@@ -1227,11 +1235,7 @@ func (t *dataTable) hitAt(p core.Point) tableHit {
 
 // selectsOn reports whether a press with mods selects a row.
 func (t *dataTable) selectsOn(mods core.Modifiers) bool {
-	secondary := mods.Control
-	if core.Untracked(t.cx, t.cx.Env().AppleKeys) {
-		secondary = mods.Platform
-	}
-	return !t.p.NoSelectOnModifierPress || !(secondary || mods.Shift)
+	return !t.p.NoSelectOnModifierPress || !(t.secondary(mods) || mods.Shift)
 }
 
 // press is a press of hit, as gpui-component's table takes it: a cell when
@@ -1317,8 +1321,9 @@ func (t *dataTable) hoverAt(p core.Point) {
 // headerPress selects the column def when columns select (sorting is the
 // sort button's).
 func (t *dataTable) headerPress(def, clicks int) {
+	t.focusRef.Focus()
 	t.focused.Set(true)
-	if !t.p.NoColumnSelect && t.colSelectable(def) {
+	if core.Untracked(t.cx, t.selectable).columns && t.colSelectable(def) {
 		t.setSelection(tableSel{kind: selColumn, col: def}, true)
 	}
 	if clicks == 2 && t.p.OnDoublePress != nil {
