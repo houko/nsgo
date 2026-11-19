@@ -67,9 +67,10 @@ func (p *videoPlayback) expect(reason int) {
 
 // changed takes a play state the player reached on its own, from its controls or the system, with paused the app's Paused, and returns the event that reports it. reason is the pause's, unless the system gave one before. A pause for an audio-session interruption may resume when the interruption ends.
 func (p *videoPlayback) changed(playing, paused bool, reason int) (driver.Event, bool) {
-	if !playing && reason == videoPauseBackground {
+	background := !playing && reason == videoPauseBackground
+	if background {
 		// The background's rate notification may come after an interruption already paused the player: it reports nothing, but the video stays paused.
-		p.ok, p.resumable = false, false
+		p.resumable = false
 	}
 	if playing == p.playing {
 		return driver.Event{}, false
@@ -84,7 +85,8 @@ func (p *videoPlayback) changed(playing, paused bool, reason int) (driver.Event,
 	if p.ok {
 		reason, p.ok = p.reason, false
 	}
-	p.resumable = p.held && reason == driver.VideoPauseInterruption
+	// A reason the system gave before stays the one reported, but the background still keeps the pause from resuming.
+	p.resumable = p.held && reason == driver.VideoPauseInterruption && !background
 	if reason == videoPauseBackground {
 		reason = driver.VideoPauseInterruption
 	}

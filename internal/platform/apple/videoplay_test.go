@@ -166,6 +166,14 @@ func TestVideoBackgroundPauseDoesNotResume(t *testing.T) {
 			{name: "interruption begins", do: interruptionBegins, apply: true},
 			{name: "backgrounded", do: background, want: []driver.Event{pausedFor(driver.VideoPauseInterruption)}},
 		}},
+		// The reason the system gave before the player stopped is the one reported.
+		{"background while a lost route is expected", []step{
+			{name: "route lost begins", do: func(p *videoPlayback) (driver.Event, bool) {
+				p.expect(driver.VideoPauseRouteLost)
+				return driver.Event{}, false
+			}, apply: true},
+			{name: "backgrounded", do: background, want: []driver.Event{pausedFor(driver.VideoPauseRouteLost)}},
+		}},
 		{"background after an interruption paused", []step{
 			{name: "interrupted", do: interrupted, want: []driver.Event{pausedFor(driver.VideoPauseInterruption)}},
 			{name: "backgrounded", do: background},
