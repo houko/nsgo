@@ -37,6 +37,7 @@ type Video struct {
 	rateToken         objc.ID
 	stopInterruptions func()
 	stopRoutes        func()
+	stopBackground    func()
 	status            *videoStatus
 	config            driver.VideoConfig
 	made              bool
@@ -332,6 +333,10 @@ func (v *Video) close() {
 		v.stopRoutes()
 		v.stopRoutes = nil
 	}
+	if v.stopBackground != nil {
+		v.stopBackground()
+		v.stopBackground = nil
+	}
 	if v.endToken != 0 || v.rateToken != 0 {
 		center := objc.ID(Class("NSNotificationCenter")).Send(sel("defaultCenter"))
 		for _, id := range []objc.ID{v.endToken, v.rateToken} {
@@ -508,7 +513,7 @@ func avName(name string) objc.ID {
 	return NSString(name)
 }
 
-// watchSystemPauses follows the iOS audio session's interruptions and lost routes, which pause the player: they say why before the player says it stopped, and when an interruption ends whether the video may play on. macOS has neither, and hears only of its controls.
+// watchSystemPauses follows the iOS audio session's interruptions and lost routes, which pause the player: they say why before the player says it stopped, and when an interruption ends whether the video may play on. It also pauses a playing video as the app enters the background. macOS has none of these, and hears only of its controls.
 func (v *Video) watchSystemPauses(st *videoStatus) {
 	if runtime.GOOS != "ios" {
 		return
@@ -525,6 +530,12 @@ func (v *Video) watchSystemPauses(st *videoStatus) {
 			st.asked()
 			v.player.Send(sel("setRate:"), v.config.Rate)
 			v.rateChanged(driver.VideoPauseInterruption)
+		}
+	})
+	// iOS pauses a playing video as the app enters the background, reporting it as an audio-session interruption rather than AVPlayerRateDidChangeReasonAppBackgrounded, and plays it again as the app comes back. The backend pauses it first, for the background, so it stays paused as the design says.
+	v.stopBackground = Observe(center, NSString("UIApplicationDidEnterBackgroundNotification"), func(objc.ID) {
+		if v.status == st && v.player != 0 && st.play.playing {
+			v.systemPause(videoPauseBackground)
 		}
 	})
 	v.stopRoutes = Observe(center, avName("AVAudioSessionRouteChangeNotification"), func(note objc.ID) {
