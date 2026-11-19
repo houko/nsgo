@@ -35,7 +35,7 @@ start := ui.Button{
 
 自定义树可显示文字、视图、图片和 Canvas；不会捕获原生视频、WebView、Metal 着色器或背景效果。动图和原生图层过渡显示其模型状态，需要动态内容时使用显式动画值。系统窗口只接收播放、暂停和跳转控制，不接收任意触摸或文字输入。App Store 审核可能拒绝与视频无关的用途。
 
-`Supported: false` 表示平台不可用，与尚未就绪或通过 `Error` 报告失败的受支持会话不同。目前实现目标是 iOS，tvOS、macOS、Android 和网页的画中画仍不可用。启用画中画期间，共享音频会话保持在播放类别，暂停时也一样。
+`Supported: false` 表示平台不可用，与尚未就绪或通过 `Error` 报告失败的受支持会话不同。目前实现目标是 iOS，tvOS、macOS、Android 和网页的画中画仍不可用。启用画中画期间，共享音频会话保持在播放类别，暂停时也一样；视频的 `AudioSession` 为 `AudioSessionMixWithOthers` 时与其他应用的音频混音。
 
 在 headless 测试中，`nsgotest.PictureInPictureSupport(supported, possible)` 在 iOS 的 `nsgotest.Environment` 下设定系统提供的支持，视图的 `PiPState`、`PiPStarts` 和 `PiPStops` 记录会话，`app.ReportPictureInPicture` 报告系统会给出的状态，`app.PictureInPictureControl` 发送窗口的 `play`、`pause`、`skip` 和 `restore`。视频画中画窗口的播放和暂停作用于视频自身的播放器，由 `Video.OnPlay` 和 `Video.OnPause` 报告，暂停的原因是 `VideoPauseControls`；测试中用 `app.PlayVideo` 和 `app.PauseVideo` 报告。
 

@@ -24,7 +24,7 @@ A session belongs to its view. Deleting the view stops PiP; its controller, dele
 
 Restoration queues an event on the engine and holds the native completion block. The resulting mount batch reserves the completion, applies all its changes and then acknowledges success, including when it removed the owner. Deletion before an acknowledgement or a five-second timeout answers false; each block is called and released once.
 
-The shared audio coordinator holds the playback category while PiP is enabled, including while paused, and restores the previous category after its last owner leaves. A custom session does not record or request microphone access. Mixing a silent custom session with another app's audio still needs device verification; the current session uses the playback category without mixing.
+The shared audio coordinator (`internal/audiosession`) holds the playback category while PiP is enabled, including while paused, and restores the previous category after its last owner leaves. A video's session mixes with other apps' audio when its `AudioSession` is `AudioSessionMixWithOthers`, as the video does while it plays, and pauses theirs otherwise; whether AVKit starts PiP with the mixing option is checked on a device with the rest. A custom session does not record or request microphone access. Mixing a silent custom session with another app's audio still needs device verification; the current session uses the playback category without mixing.
 
 ## Configuration
 

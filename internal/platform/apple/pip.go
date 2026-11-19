@@ -93,9 +93,8 @@ func NewPictureInPicture(layer objc.ID, dispatch func(driver.Event)) *PictureInP
 	p.controller.Send(sel("setDelegate:"), p.delegate)
 	p.controller.Send(sel("addObserver:forKeyPath:options:context:"), p.delegate, NSString("pictureInPicturePossible"), uint(1), uintptr(0))
 	p.observing = true
-	// Keep playback active while PiP prepares or pauses, too. The audio
-	// coordinator restores the host's category after the last owner leaves.
-	audioPlaying(p, driver.AudioSessionPlayback, true)
+	// Keep playback active while PiP prepares or pauses, too. The audio coordinator restores the host's category after the last owner leaves.
+	p.HoldAudio(driver.AudioSessionPlayback)
 	p.update()
 	p.report()
 	return p
@@ -130,6 +129,17 @@ func (p *PictureInPicture) update() {
 		p.state.Possible = possible
 		p.report()
 	}
+}
+
+// HoldAudio holds the shared audio session in the playback category PiP needs while the session lives, paused or not: mixing with other apps' audio for AudioSessionMixWithOthers, which a video asks for, and pausing it otherwise.
+func (p *PictureInPicture) HoldAudio(session driver.AudioSession) {
+	if p.controller == 0 || p.closing {
+		return
+	}
+	if session != driver.AudioSessionMixWithOthers {
+		session = driver.AudioSessionPlayback
+	}
+	audioPlaying(p, session, true)
 }
 
 // Configure updates the sample delegate's state without calling Go from

@@ -35,7 +35,7 @@ start := ui.Button{
 
 The custom tree can show text, views, images and Canvas. Native video, WebView, Metal shaders and backdrop effects are not captured. Animated images and native layer transitions show their model state; use explicit animated values for motion. The system window accepts play, pause and skip controls, with no arbitrary touch or text input. App Store review may reject uses unrelated to video.
 
-`Supported: false` distinguishes an unavailable platform from a supported session that is not ready or whose `Error` explains a failure. iOS is the implemented target; tvOS, macOS, Android and web PiP remain unavailable. The shared audio session stays in the playback category while PiP is enabled, including while paused.
+`Supported: false` distinguishes an unavailable platform from a supported session that is not ready or whose `Error` explains a failure. iOS is the implemented target; tvOS, macOS, Android and web PiP remain unavailable. The shared audio session stays in the playback category while PiP is enabled, including while paused, mixing with other apps' audio when the video's `AudioSession` is `AudioSessionMixWithOthers`.
 
 In headless tests, `nsgotest.PictureInPictureSupport(supported, possible)` sets what the system offers under an iOS `nsgotest.Environment`, the view's `PiPState`, `PiPStarts` and `PiPStops` record the session, `app.ReportPictureInPicture` reports a state the system would, and `app.PictureInPictureControl` sends the window's `play`, `pause`, `skip` and `restore`. The video's PiP window plays and pauses the video's own player, which `Video.OnPlay` and `Video.OnPause` report, with `VideoPauseControls` for a pause; `app.PlayVideo` and `app.PauseVideo` report them in tests.
 

@@ -779,6 +779,7 @@ func (v *Video) configurePiP() {
 		v.pip = NewPictureInPicture(layer, v.Dispatch)
 	}
 	v.pip.Configure(driver.PictureInPictureConfig{Automatically: v.config.AutoPictureInPicture})
+	v.pip.HoldAudio(v.config.AudioSession)
 }
 
 // PictureInPictureCommand starts or stops the video's PiP session.
