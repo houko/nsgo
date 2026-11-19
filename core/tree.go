@@ -72,6 +72,7 @@ type Tree struct {
 	shaderStarts []NodeID
 	navTops      map[*node]*node
 	lists        []*node
+	pips         []*node
 	accessories  []*node
 	// labels registers elements declaring label associations; labelled also holds controls named by those labels in the previous round.
 	labels, labelled []*node
@@ -295,6 +296,7 @@ type node struct {
 	// accessory is an InputAccessoryView's: a layout root as wide as the
 	// surface that no view holds.
 	accessory *accessoryNode
+	pip       *pictureInPictureNode
 	// headerView is a view of a screen's system header: a layout root
 	// at its content size that the platform puts in the bar.
 	headerView bool
@@ -2282,6 +2284,9 @@ func (t *Tree) Dispatch(ev driver.Event) {
 		t.dispatchWeb(n, ev)
 		return
 	}
+	if t.dispatchPictureInPicture(n, ev) {
+		return
+	}
 	if n.video != nil && t.dispatchVideo(n, ev) {
 		return
 	}
@@ -2680,7 +2685,7 @@ func appendNative(out []*node, children []*node) []*node {
 		switch {
 		case c.kind == 0:
 			out = appendNative(out, c.children)
-		case c.hoist == nil && c.attach == nil && c.accessory == nil && !c.headerView:
+		case c.hoist == nil && c.attach == nil && c.accessory == nil && c.pip == nil && !c.headerView:
 			out = append(out, c)
 		}
 	}
@@ -2821,6 +2826,9 @@ func (n *node) events() driver.EventMask {
 	}
 	if n.web != nil {
 		m |= n.web.events()
+	}
+	if n.pip != nil {
+		bit(driver.EventNative, true)
 	}
 	if n.video != nil {
 		m &^= maskOf(driver.EventLoadStart, driver.EventProgress, driver.EventLoad, driver.EventError)

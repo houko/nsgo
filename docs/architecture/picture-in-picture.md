@@ -1,73 +1,45 @@
 # Picture in Picture on iOS
 
-This is the design for issue [#54](https://github.com/nsgo-dev/nsgo/issues/54). It is not an implemented API. iOS has two different Picture in Picture paths and they must not be hidden behind one operation with ambiguous ownership:
+Issue [#54](https://github.com/nsgo-dev/nsgo/issues/54) has two paths: `core.Video` uses its native player, and `mobile.PictureInPicture` renders an independent NSGo tree into sample buffers. Both use `AVPictureInPictureController` through purego, with no Swift or C adapter. The user confirmed both paths, separate APIs from Android overlays, view-owned lifetimes, a retained background frame, playback callbacks, YAML arrays and programmatic starts with native controls on 2026-11-15.
 
-- video PiP uses the existing native video player and its timed playback;
-- custom-content PiP supplies video frames to `AVPictureInPictureController` and needs a renderer, clock and playback delegate of its own.
+## Video
 
-The first target is iOS. The other targets have PiP surfaces of their own, which the [roadmap](../roadmap.md#picture-in-picture) lists until a design covers them: macOS's `AVPlayerView`, which a macOS video with `Controls` already is, has `allowsPictureInPicturePlayback` and a PiP delegate (macOS 10.15), and `AVPictureInPictureController` and its content sources exist there too (10.15 and 12); Android has `Activity.enterPictureInPictureMode`, and the web's `<video>` has `requestPictureInPicture`. tvOS runs iOS's backend and AVKit has PiP there from tvOS 14, without automatic starts, so the backend reports PiP unavailable on tvOS until it is checked there, rather than trusting `isPictureInPictureSupported`.
+Set `Video.PictureInPicture`, follow `OnPictureInPicture`, and call `Ref.StartPictureInPicture` or `StopPictureInPicture` from an app control. `AutoPictureInPicture` explicitly permits automatic entry when the app backgrounds. `PictureInPictureState` distinguishes unsupported, supported but not possible, active and failed states. Repeated starts while starting or active, and stops while inactive, are idempotent. Starting before AVKit is ready reports an error; it does not wait silently.
 
-## Video PiP
+A video without controls uses its existing player layer. A controlled video has a second layer in `AVPlayerViewController.contentOverlayView`, between its video and its controls. AVPlayer vends video to one layer at a time, so a layer behind the native controller would disappear behind its empty video surface. A flexible host follows the overlay into full screen. The native controller's independent PiP button is disabled; the app's control and automatic policy use the one owned session, whose public stop operation NSGo can call.
 
-The video path takes a `core.Video` or an explicit video handle, and what starts its PiP depends on how `internal/platform/apple/video.go` shows it:
+The PiP window's play, pause and skip act on the `AVPlayer` directly, as the inline controls do: the backend hears the player's rate change, keeps what the window did until the app's `Paused` changes, so an unrelated change such as `Muted` leaves it alone, and reports it through `Video.OnPause`, with `VideoPauseControls`, and `Video.OnPlay` ([videos](native-views.md#videos)). Player time remains in AVPlayer; `Ref.Seek` and the window's skip controls use that player.
 
-- a video without `Controls` shows its `AVPlayer` in an `AVPlayerLayer`, so the backend makes an `AVPictureInPictureController` with `initWithPlayerLayer:` and starts and stops it from code with `startPictureInPicture` and `stopPictureInPicture`;
-- a video with `Controls` shows an `AVPlayerViewController`, which has no start or stop of its own and does not expose its layer: the user starts PiP with its button, which `allowsPictureInPicturePlayback` shows, and the controller's delegate reports it. Starting it from code would need a second `AVPlayerLayer` on the same player, an open decision; until then a start from code reports it unsupported.
+## Custom content
 
-The player must be configured for PiP before the view appears, and the app must declare the playback/background intent that the system requires. The backend reports whether PiP is supported (`isPictureInPictureSupported`), possible (`pictureInPicturePossible`, which changes as the player becomes ready), started, stopped or failed with the delegate's error; calling start while it is already active is idempotent, and a start while it is not possible reports a failure rather than waiting.
+`mobile.PictureInPicture` occupies no space where declared. Its children inherit their owner's context but have a detached layout root of `Size`, defaulting to 320 by 180 points. `Ref` starts and stops its session; `OnState`, `OnRestore`, `OnPlay`, `OnPause` and `OnSkip` report the system's actions on the engine goroutine. `PausedFunc`, `PositionFunc` and `Duration` describe the playback delegate's state; a zero duration is live content. Skip intervals are signed.
 
-The player remains the owner of timing, buffering, subtitles, controls and audio focus. PiP does not copy frames into Go. The PiP window's play, pause and skip act on the `AVPlayer` directly, as an inline video's controls do. The backend hears the player's rate change, keeps what the window did until the app's `Paused` changes, so an unrelated change such as `Muted` leaves it alone, and reports it through `Video.OnPause` and `Video.OnPlay` ([videos](native-views.md#videos)). How long the player lives in PiP is under [Lifecycle and ownership](#lifecycle-and-ownership).
+UIKit mounts a one-point sample display layer as AVKit's inline source anchor, while the content tree stays detached. After a commit or animated frame changes content, one dirty flag schedules rendering on the next display tick. `renderInContext:` draws into a locked BGRA CoreVideo buffer in sRGB, which CoreMedia wraps as a sample buffer with immediate display. A full display layer keeps the dirty flag and drops intermediate changes; no frame queue grows. Its control timebase and an atomic playback snapshot answer AVKit without waiting for the engine. Suspension keeps the last enqueued frame, and resuming renders the latest content.
 
-PiP starts on its own only where the app asks for it. An app setting maps to `canStartPictureInPictureAutomaticallyFromInline` (iOS 14.2, on both controllers), so a playing inline video enters PiP as the app goes to the background. A video with `Controls` also enters PiP by itself when the user leaves the app during full-screen playback while `allowsPictureInPicturePlayback` is set, so the backend sets that property from the app's choice rather than leaving AVKit's default.
+Views, text, images and Canvas render through this layer path. Image loads invalidate the sample after their pixels arrive, without requiring an app state change. Native video, WebView, Metal shaders, backdrop blur and glass do not render into these samples. Native layer transitions and animated images are captured at their model state; use explicit animated values for changing content. The system window takes play, pause and skip commands, with no pointer, text or arbitrary touch input.
 
-When the user returns to the app from the PiP window, AVKit calls `restoreUserInterfaceForPictureInPictureStopWithCompletionHandler:` on the controller's delegate. The backend reports it as an event on the engine goroutine, so the app can show its player page again, and calls the completion handler with true once that event's handler and the commit it leads to are done; it never leaves the handler uncalled. NSGo does not persist a video URL or playback position for the restore.
+## Ownership and audio
 
-## Custom content PiP
+A session belongs to its view. Deleting the view stops PiP; its controller, delegate, source layer and player stay referenced until AVKit reports that it stopped or failed. Reopening a source makes a new generation without releasing the old active player early. Disabling PiP releases its extra layer without removing an inline video's own layer.
 
-Custom content is issue #54's live-stream case: a small window that shows what NSGo draws, such as the current script, a countdown or the recording level, and follows the app's state. The backend uses `AVPictureInPictureController` with a content source made of an `AVSampleBufferDisplayLayer` and an `AVPictureInPictureSampleBufferPlaybackDelegate` (`initWithSampleBufferDisplayLayer:playbackDelegate:`, iOS 15); it never screenshots a window.
+Restoration queues an event on the engine and holds the native completion block. The resulting mount batch reserves the completion, applies all its changes and then acknowledges success, including when it removed the owner. Deletion before an acknowledgement or a five-second timeout answers false; each block is called and released once.
 
-The goal is that the app gives an element tree, laid out at the window's fixed size, which the backend pictures into `CMSampleBuffer`s, as Apple backends already picture views for `ShaderEffect` ([shaders](shaders.md)), so that no CoreVideo type reaches the app's API. Taking frames the app makes (`CVPixelBuffer`s) instead would be simpler to build, but a Go app has no NSGo way to draw them. Which the first release takes, and how a tree that shows only in PiP is mounted, are open decisions, as is whether custom content is a component of its own or shares an API with video.
+The shared audio coordinator holds the playback category while PiP is enabled, including while paused, and restores the previous category after its last owner leaves. A custom session does not record or request microphone access. Mixing a silent custom session with another app's audio still needs device verification; the current session uses the playback category without mixing.
 
-Frames follow the content: one after each commit that changes it, at most once a display frame. The backend drops stale frames under back-pressure, retains at most one pending frame and reports the effective frame interval. The playback delegate maps play, pause and skip (`setPlaying:`, `skipByInterval:completionHandler:`) to app callbacks and answers `pictureInPictureControllerTimeRangeForPlayback:` and `pictureInPictureControllerIsPlaybackPaused:` from the session's state. If no new frame comes while PiP is visible, the backend holds the last frame or ends PiP according to the app's chosen policy; it never blocks the main thread waiting for Go.
+## Configuration
 
-Custom content is therefore a product surface with its own size, color space, clock and control model. Its window takes no input beyond play, pause and skip.
+Declare background playback in the app or embedding host's Info.plist. `apple.info` now accepts scalar values and arrays, preserving existing strings:
 
-## Lifecycle and ownership
+```yaml
+apple:
+  info:
+    UIBackgroundModes: [audio]
+```
 
-Entering PiP is an explicit user action, an app action permitted by the current iOS policy, or the automatic start the app chose above. The backend never starts PiP merely because a video is playing. PiP callbacks are delivered on the engine goroutine, while AVKit delegate methods are acknowledged promptly on their required queue.
-
-A session belongs to the video or the custom-content view that started it and has a stable ID. Apple requires the player, its layer or controller and the PiP controller to stay referenced while PiP is active, but in NSGo a view leaves the screen mostly by its scope's disposal (`Show`, a popped page, `Each`), and deleting a video's view runs `apple.Video.Close`, which pauses and releases the player and detaches and releases its layer or controller at once. So deleting a view while its PiP is active stops PiP, and `Close` keeps those objects until the stop callback and releases them then, which it does not do today. A view whose scope lives on keeps its PiP, the app's background included.
-
-Apple's usual flow dismisses the player's page as PiP starts and shows it again on the restore, which in NSGo disposes the video. A session that outlives its view would be held by a scope the app names and handed the native player as the view is deleted, which needs a deferred deletion in the mount protocol; whether NSGo supports it is an open decision.
-
-A backgrounded app can receive lifecycle callbacks, but it cannot assume the engine will run continuously. Custom content must keep enough state in the session adapter to answer AVKit while the engine is suspended, or declare that PiP ends when the app backgrounds.
-
-PiP needs the shared `AVAudioSession` in the playback category and the `audio` background mode (Apple's "Configuring your app for media playback"). The existing video rules (`apple/audiosession_ios.go`) set that category only while a video whose `AudioSession` is not the default plays, and deactivate the session and restore the previous category once none plays, a pause included. A video with PiP enabled therefore takes the playback category as `AudioSessionPlayback` does even with the default `AudioSession`, from when PiP is enabled so that it can become possible, and keeps the session active, paused or not, until PiP's stop callback. Custom content needs the category too, with or without sound; whether a silent session can mix with other apps' audio, so that a countdown does not stop the user's music, is checked on a device before the implementation chooses. The PiP design does not add a second audio mixer or silently request microphone access.
-
-## Configuration and privacy
-
-The tool must make the app's intent explicit in YAML. PiP needs no entitlement but the Info.plist's `UIBackgroundModes` with `audio`, for custom content as for video, as PiP exists to show while the app is not in front. That key is an array, while `nsgo.yaml`'s `apple.info` holds string entries alone (`cmd/nsgo/project.go`, written as `<string>` by `cmd/nsgo/build.go`), so issue #54's route through `apple.info` cannot declare it: the tool needs a field that writes the array, an open decision. NSGo's iOS minimum, 15.0, has every API here: `AVPictureInPictureController` from iOS 9, automatic starts from 14.2 and content sources from 15.
-
-PiP content is an app-owned frame or video URL. NSGo does not upload it, persist it or inspect its pixels. A network video continues to use the existing `AccessNetwork` check; a custom frame stream is app data and must follow the app's own access grant.
+An iOS session missing `audio` reports a configuration error. Unsupported systems, including tvOS until its path is verified, report `Supported: false`. macOS, Android and web PiP remain in the roadmap. The app's existing network access check applies to video URLs. Custom content stays in the app; NSGo uploads and persists no frame. App Store review may reject non-video uses of custom PiP, as issue #54 records.
 
 ## Verification
 
-The implementation is complete only when these checks exist:
+Core and headless tests exercise detached layout, changing content, ownership, support/readiness, duplicate commands, the window's play and pause, background state and restoration. Apple tests call real Objective-C delegate methods, including the `CMTimeRange` return and signed skip argument, invoke native blocks through their ABI, check deferred release, exercise back-pressure, and inspect the pixels of successive CoreVideo/CoreMedia frames. Plist tests cover arrays and escaping on every Apple template. `examples/pip` packages both paths with the required background mode.
 
-- headless core tests cover support checks, session ownership, idempotent start/stop, lifecycle callbacks and owner cleanup;
-- iOS tests use fake AVKit delegates for video and sample-buffer paths, including pause, resume, seek, stale-frame dropping and an app background transition;
-- simulator tests verify a video enters and exits PiP, enters it on its own as the app goes to the background when the app chose so, and delivers the restore event as the user returns, and that deleting the view while PiP is active stops PiP and releases its player after the stop callback, leaking nothing; and
-- a device test verifies custom content with a controlled frame source and confirms that no callback blocks an AVKit delegate queue.
-
-## Open decisions
-
-These decisions need confirmation before an implementation chooses them:
-
-1. Should the first release expose video PiP only, or custom content at the same time?
-2. Does custom content draw an NSGo element tree, as issue #54 asks, or take frames the app makes, and how is a tree that shows only in PiP mounted?
-3. Does custom content end when the engine is suspended, or must the adapter retain and present frames independently?
-4. Is the public entry point a `core.Video` field or method for video and a component of its own for custom content, one `mobile` session type for both, or an API shared with #53's Android floating windows?
-5. Which `nsgo.yaml` field declares the `audio` background mode: a PiP setting of its own, or `apple.info` taking arrays?
-6. Should PiP control callbacks expose seek/skip commands, or only play and pause initially?
-7. Can a session outlive the view that started it, through a deferred deletion in the mount protocol, or does deleting the view always end it?
-8. Does a video with `Controls` start PiP from code through a second `AVPlayerLayer` on its player, or only by its button?
+On the iOS simulator `examples/pip` launches with both paths, which report the unsupported state AVKit gives there (`isPictureInPictureSupported` is false). Entering, automatically entering and leaving PiP on an iPhone, fullscreen controlled-video rendering, and custom frame behavior during suspension still need a device run, and are not recorded as passed.

@@ -582,3 +582,26 @@ func (a *App) AnswerScript(selector, result, errText string) {
 	}
 	a.t.Fatalf("nsgotest: %q waits for no script's answer", selector)
 }
+
+// ReportPictureInPicture reports a system session state. It also finds
+// detached custom content, whose tree never joins the app's inline UI.
+func (a *App) ReportPictureInPicture(selector string, state core.PictureInPictureState) {
+	a.t.Helper()
+	vs := a.QueryMounted(selector)
+	if len(vs) != 1 {
+		a.t.Fatalf("nsgotest: %d mounted PiP views match %q", len(vs), selector)
+	}
+	v := vs[0]
+	v.PiPState = state
+	a.dispatch(driver.Event{Kind: driver.EventNative, ID: v.ID, Text: driver.PictureInPictureEventName, Data: &driver.PictureInPictureEvent{State: state}})
+}
+
+// PictureInPictureControl sends what the PiP window asks of a mobile.PictureInPicture: play, pause, skip, or, for a video too, restore. interval is skip's signed duration. A video's PiP window plays and pauses its player, which PauseVideo and PlayVideo report.
+func (a *App) PictureInPictureControl(selector, action string, interval time.Duration) {
+	a.t.Helper()
+	vs := a.QueryMounted(selector)
+	if len(vs) != 1 {
+		a.t.Fatalf("nsgotest: %d mounted PiP views match %q", len(vs), selector)
+	}
+	a.dispatch(driver.Event{Kind: driver.EventNative, ID: vs[0].ID, Text: driver.PictureInPictureEventName, Data: &driver.PictureInPictureEvent{Action: action, Time: interval, Token: 1}})
+}

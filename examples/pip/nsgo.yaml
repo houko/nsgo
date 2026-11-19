@@ -1,0 +1,8 @@
+name: PictureInPicture
+id: dev.example.nsgo.pip
+version: 0.1.0
+apple:
+  info:
+    UIBackgroundModes: [audio]
+dev:
+  target: ios_simulator

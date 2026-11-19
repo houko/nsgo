@@ -30,6 +30,14 @@ type Video struct {
 	ResizeMode     ResizeMode
 	ResizeModeFunc func() ResizeMode
 	Controls       bool
+	// PictureInPicture enables iOS Picture in Picture: Ref.StartPictureInPicture and StopPictureInPicture start and stop it, and the video holds the playback audio session from then on, paused or not. Other targets report Supported false through OnPictureInPicture. What the PiP window plays and pauses is reported by OnPlay and OnPause.
+	PictureInPicture bool
+	// AutoPictureInPicture lets iOS start PiP on its own as the app goes to the background while the video plays.
+	AutoPictureInPicture bool
+	// OnPictureInPicture receives the session's state as it changes: whether the platform supports PiP, whether it can start now, whether it is active, and why a start failed.
+	OnPictureInPicture func(PictureInPictureState)
+	// OnPictureInPictureRestore runs when the user returns to the app from the PiP window, so the app can show the video's page again; iOS restores its interface once the commit that follows is applied.
+	OnPictureInPictureRestore func()
 	// ProgressInterval is the time between OnProgress calls while the
 	// video plays: 250 milliseconds when 0, and at least 16.
 	ProgressInterval time.Duration
@@ -116,6 +124,7 @@ type videoNode struct {
 	loadError    func(error)
 	// refused is the source Access refused last.
 	refused string
+	pip     *pictureInPictureNode
 }
 
 func (t *Tree) mountVideo(cx *Scope, parent *node, v Video) {
@@ -128,11 +137,22 @@ func (t *Tree) mountVideo(cx *Scope, parent *node, v Video) {
 	vn := &videoNode{
 		config: driver.VideoConfig{Source: v.Source, Paused: v.Paused, Muted: v.Muted, Volume: videoVolume(v.Volume),
 			Rate: videoRate(v.Rate), Repeat: v.Repeat, ResizeMode: v.ResizeMode, Controls: v.Controls,
-			ProgressInterval: videoInterval(v.ProgressInterval), AudioSession: v.AudioSession},
+			ProgressInterval: videoInterval(v.ProgressInterval), AudioSession: v.AudioSession,
+			PictureInPicture: v.PictureInPicture, AutoPictureInPicture: v.AutoPictureInPicture},
 		loadStart: v.OnLoadStart, load: v.OnLoad, progress: v.OnProgress, end: v.OnEnd,
 		buffer: v.OnBuffer, pause: v.OnPause, play: v.OnPlay, loadError: v.OnError,
 	}
+	if v.PictureInPicture {
+		vn.pip = &pictureInPictureNode{state: v.OnPictureInPicture, restore: v.OnPictureInPictureRestore}
+	}
 	n.video = vn
+	if v.PictureInPicture && !pictureInPicturePlatform(cx) {
+		t.reports = append(t.reports, report{owner: n, fn: func() {
+			if !pictureInPicturePlatform(cx) && v.OnPictureInPicture != nil {
+				v.OnPictureInPicture(PictureInPictureState{})
+			}
+		}})
+	}
 	bind := func(set func(*driver.VideoConfig)) {
 		cx.renderEffect(func() {
 			c := vn.config
@@ -247,6 +267,7 @@ func (vn *videoNode) events() driver.EventMask {
 	bit(driver.EventBuffer, vn.buffer != nil)
 	bit(driver.EventVideoPause, vn.pause != nil)
 	bit(driver.EventVideoPlay, vn.play != nil)
+	bit(driver.EventNative, vn.pip != nil)
 	bit(driver.EventError, vn.loadError != nil)
 	return m
 }

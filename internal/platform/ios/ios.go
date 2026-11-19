@@ -89,7 +89,8 @@ type view struct {
 	container  objc.ID            // what holds its children under an effect or for its clip, once it has one
 	clipHeld   bool               // whether container clips the children in place of the view's own layer, which keeps its shadow and outline (clipsInHolder)
 	web        *apple.Web         // a web view's
-	video      *apple.Video       // a video's
+	pip        *apple.PictureInPicture
+	video      *apple.Video // a video's
 
 	activation           driver.PanActivation
 	handoff              bool    // its pan hands off from the scroll views inside it
@@ -182,6 +183,7 @@ type surface struct {
 	audio       *apple.Audio // the engine's sounds and players, made with its first ItemAudio and closed with the surface
 	batches     queue.Batches
 	views       []*view // index is NodeID
+	pips        []*view // the views of mobile.PictureInPicture trees, which draw into their sessions' frames
 	fingers     fingers // the touches reported
 	env         driver.Environment
 
@@ -880,6 +882,12 @@ func (s *surface) RequestFrame() {
 }
 
 func (s *surface) apply(b *driver.MountBatch) {
+	var restored []func()
+	defer func() {
+		for _, done := range restored {
+			done()
+		}
+	}()
 	s.batch++
 	var lb *layoutBatch
 	if b.LayoutAnimation != nil && !s.env.ReduceMotion {
@@ -896,6 +904,21 @@ func (s *surface) apply(b *driver.MountBatch) {
 			s.views[it.ID] = s.create(it.View, it.ID)
 			if lb != nil {
 				lb.created[it.ID] = true
+			}
+			continue
+		case driver.ItemPictureInPictureCommand:
+			if it.Count == driver.PictureInPictureRestored {
+				restored = append(restored, apple.PictureInPictureRestoreCompletion(uint32(it.Before)))
+				continue
+			}
+			if int(it.ID) < len(s.views) {
+				if v := s.views[it.ID]; v != nil {
+					if v.pip != nil {
+						v.pip.Command(it.Count)
+					} else if v.video != nil {
+						v.video.PictureInPictureCommand(it.Count)
+					}
+				}
 			}
 			continue
 		case driver.ItemAnimation:
@@ -1145,6 +1168,18 @@ func (s *surface) apply(b *driver.MountBatch) {
 			v.web.Configure(it.Web)
 		case driver.ItemWebCommand:
 			v.web.Command(it.WebCommand, it.Value, it.Data)
+		case driver.ItemPictureInPicture:
+			if v.pip == nil {
+				v.pip = apple.NewPictureInPicture(0, v.report)
+				s.pips = append(s.pips, v)
+				if layer := v.pip.Layer(); layer != 0 {
+					// AVKit needs an inline source attached to a window. The content
+					// tree stays detached; a one-point layer is its system anchor.
+					layer.Send(selSetFrame, apple.Rect(0, 0, 1, 1))
+					s.native.Send(selLayer).Send(sel("addSublayer:"), layer)
+				}
+			}
+			v.pip.Configure(*it.PictureInPicture)
 		case driver.ItemVideo:
 			v.video.Configure(it.Video)
 		case driver.ItemVideoSeek:
@@ -1280,6 +1315,7 @@ func (s *surface) apply(b *driver.MountBatch) {
 		s.applyAnimated()
 	})
 	s.drawShaders()
+	s.dirtyPictureInPictures()
 	if s.animator.Running() {
 		s.startTicking()
 	}
@@ -1338,6 +1374,7 @@ func (s *surface) create(kind driver.ViewKind, id driver.NodeID) *view {
 	case driver.KindImage:
 		v.image = apple.NewImageView(v.native.Send(selLayer))
 		v.image.Dispatch = v.report
+		v.image.Changed = s.dirtyPictureInPictures
 	case driver.KindWeb:
 		v.web = apple.NewWeb(v.native)
 		v.web.Dispatch = v.report
@@ -1417,6 +1454,11 @@ func (s *surface) delete(v *view, kept bool) {
 	}
 	if v.web != nil {
 		v.web.Close()
+	}
+	if v.pip != nil {
+		v.pip.Close(nil)
+		v.pip = nil
+		s.pips = slices.DeleteFunc(s.pips, func(p *view) bool { return p == v })
 	}
 	if v.video != nil {
 		v.video.Close()
@@ -1813,4 +1855,25 @@ func scrolled(self objc.ID, _ objc.SEL, _ objc.ID) {
 	}
 	v.surface.followLargeTitle(v, offset.Y)
 	v.scrollEvent(driver.EventScroll)
+}
+
+// dirtyPictureInPictures schedules snapshots after tree changes, animation steps and image loads, including ones that need no engine commit.
+func (s *surface) dirtyPictureInPictures() {
+	for _, v := range s.pips {
+		v.pip.Dirty()
+		if v.pip.Layer() != 0 {
+			s.startTicking()
+		}
+	}
+}
+
+// drawPictureInPictures retains one pending frame under back-pressure.
+func (s *surface) drawPictureInPictures() bool {
+	pending := false
+	for _, v := range s.pips {
+		if v.pip.DrawFrame(v.native.Send(selLayer), float64(s.env.PixelRatio)) {
+			pending = true
+		}
+	}
+	return pending
 }

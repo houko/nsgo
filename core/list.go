@@ -570,7 +570,7 @@ func (ln *listNode) findOuter() (*node, int) {
 		if p.scroll != nil && p.scroll.config.Horizontal == ln.spec.Horizontal {
 			return p, depth
 		}
-		if p.isRoot || p.hoist != nil || p.screen != nil || p.accessory != nil || p.attach != nil || p.parent == nil {
+		if p.isRoot || p.hoist != nil || p.screen != nil || p.accessory != nil || p.pip != nil || p.attach != nil || p.parent == nil {
 			return p, depth
 		}
 	}

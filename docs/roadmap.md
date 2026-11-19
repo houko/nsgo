@@ -259,12 +259,11 @@ What `app_clip` lacks of App Clips ([tool](architecture/tool.md#app-clips)).
 
 ## Picture in Picture
 
-What issue #54 asks of Picture in Picture ([Picture in Picture](architecture/picture-in-picture.md)), which waits on its [open questions](../ARCHITECTURE.md#open-questions).
+The iOS video and independent-tree paths of #54 are implemented with native delegate and frame tests ([Picture in Picture](architecture/picture-in-picture.md)); native acceptance and other targets remain.
 
 | Item | Reference | Done when |
 | --- | --- | --- |
-| Videos on iOS | `AVPictureInPictureController`, `AVPlayerViewController` | On an iPhone and the simulator a `Video` enters and leaves PiP and keeps playing there with the default `AudioSession`, enters it on its own as the app goes to the background when the app chose so, and the app hears when the user returns; a device without PiP reports it unavailable |
-| Custom content on iOS | `AVSampleBufferDisplayLayer`, `AVPictureInPictureSampleBufferPlaybackDelegate` | On an iPhone a PiP window shows what the app's content draws and follows its state, fast enough to show a recording level change, and its play, pause and skip reach the app |
+| iOS native acceptance | `examples/pip` | On an iPhone, video enters and leaves PiP, automatically enters only when requested, and returns to the app; fullscreen controls keep showing video; custom content updates and retains its last frame during background suspension, and silent-session audio policy is checked |
 | PiP on tvOS | `AVPictureInPictureController` | A video enters PiP on an Apple TV, where iOS's backend reports PiP unavailable until then |
 | PiP on macOS | `AVPlayerView.allowsPictureInPicturePlayback`, `AVPictureInPictureController` | A `Video` on a Mac enters and leaves PiP with the same states as on iOS |
 | PiP on Android | `Activity.enterPictureInPictureMode` | An Android app's activity enters PiP showing its video, with the same states as on iOS |

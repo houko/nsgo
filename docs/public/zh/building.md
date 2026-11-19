@@ -59,6 +59,7 @@ build:
 # apple: { purchases: true }  # App 内购买所经由的 StoreKit 库，放进 macOS、iOS 和 tvOS 包
 # apple: { requires_full_screen: false }  # 让 iPad 在分屏、侧拉和台前调度中运行 App，支持全部四种方向
 # apple: { orientations: [portrait, landscape_left] }  # 全屏 App 在 iPad 上支持的方向
+# apple: { info: { UIBackgroundModes: [audio] } }  # iOS 画中画的后台播放模式
 # android: { permissions: [REQUEST_INSTALL_PACKAGES] }  # 运行时所需之外的清单权限
 # android: { recording: true }  # microphone.RecordWAV 录音所用的麦克风服务，连同 RECORD_AUDIO、前台服务权限和 POST_NOTIFICATIONS；从 Android 13 起 RecordWAV 会一并申请后者以显示录音通知，用户拒绝时照常录音
 # windows: { command_line: true }  # 添加 <name>.com 控制台伴侣，把参数和标准流转给 <name>.exe；store 构建不含

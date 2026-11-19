@@ -9,16 +9,16 @@ import (
 	"github.com/nsgo-dev/nsgo/internal/driver"
 )
 
-// videoSessions are the videos playing and the audio session each holds, which internal/audiosession weighs against the other holders of the shared AVAudioSession. Only the main thread touches it.
-var videoSessions = map[*Video]videoSession{}
+// videoSessions are the videos and Picture in Picture sessions playing and the audio session each holds, which internal/audiosession weighs against the other holders of the shared AVAudioSession. Only the main thread touches it.
+var videoSessions = map[any]videoSession{}
 
 type videoSession struct {
 	session driver.AudioSession
 	release func()
 }
 
-// audioPlaying says video key plays with session, or, playing false, plays no more. AudioSessionDefault holds the session at the app's own category, so that it stays active under the playing video: deactivating it, as a holder of another level letting go would, stops the video.
-func audioPlaying(key *Video, session driver.AudioSession, playing bool) {
+// audioPlaying says video or Picture in Picture session key plays with session, or, playing false, plays no more. AudioSessionDefault holds the session at the app's own category, so that it stays active under the playing video: deactivating it, as a holder of another level letting go would, stops the video.
+func audioPlaying(key any, session driver.AudioSession, playing bool) {
 	held, ok := videoSessions[key]
 	if !playing {
 		if ok {

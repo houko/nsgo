@@ -70,6 +70,8 @@ type (
 	// defaults applied: Volume in 0 to 1, Rate above 0, a ResizeMode and
 	// ProgressInterval at least 16 milliseconds.
 	VideoConfig = driver.VideoConfig
+	// PictureInPictureConfig describes a detached custom session.
+	PictureInPictureConfig = driver.PictureInPictureConfig
 	// ViewKind is the kind of native view a node mounts.
 	ViewKind = driver.ViewKind
 	// ViewProps is a view's accessibility and identity.

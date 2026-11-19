@@ -100,7 +100,7 @@ var itemNames = map[ItemKind]string{
 	ItemSetClipboard: "set-clipboard", ItemReadClipboard: "read-clipboard", ItemAnnounce: "announce", ItemInputSource: "input-source",
 	ItemKeymap: "keymap", ItemStatusBar: "status-bar", ItemTitle: "title",
 	ItemBackUnhandled: "back-unhandled", ItemWindow: "window", ItemMenu: "menu", ItemDockMenu: "dock-menu", ItemRecentFile: "recent-file", ItemWeb: "web",
-	ItemWebCommand: "web-command", ItemVideo: "video", ItemVideoSeek: "video-seek",
+	ItemWebCommand: "web-command", ItemVideo: "video", ItemVideoSeek: "video-seek", ItemPictureInPicture: "picture-in-picture", ItemPictureInPictureCommand: "picture-in-picture-command",
 	ItemNative: "native", ItemNativeCommand: "native-command", ItemAnimation: "animation",
 	ItemZoomTo: "zoom-to", ItemImageInfo: "image-info", ItemSelection: "selection",
 	ItemScrollBy: "scroll-by", ItemStickyCells: "sticky-cells", ItemAccessibilityLabel: "label",

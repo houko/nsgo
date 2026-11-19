@@ -153,7 +153,7 @@ func (t *Tree) markLayout(n *node) {
 // a view in its parent's flow whose size nothing inside can change. A
 // view whose style changed is none: its own size may have.
 func (t *Tree) boundary(n *node) bool {
-	if n.kind == 0 || n.isRoot || !n.lstyleOK || n.deleted || n.hoist != nil || n.attach != nil || n.accessory != nil ||
+	if n.kind == 0 || n.isRoot || !n.lstyleOK || n.deleted || n.hoist != nil || n.attach != nil || n.accessory != nil || n.pip != nil ||
 		n.headerView {
 		return false
 	}
@@ -544,6 +544,7 @@ func (t *Tree) layout() {
 	}
 	if !t.view.layoutDirty {
 		t.placeFollowers(false)
+		t.layoutPictureInPictures()
 		t.layoutAccessories()
 		t.layoutHeaderViews()
 		return
@@ -560,6 +561,7 @@ func (t *Tree) layout() {
 	if len(t.frames) > 0 {
 		t.placeFrames()
 	}
+	t.layoutPictureInPictures()
 	t.layoutAccessories()
 	t.layoutHeaderViews()
 }

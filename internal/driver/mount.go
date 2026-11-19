@@ -362,6 +362,10 @@ const (
 	ItemWebCookies
 	// ItemLookUp shows the platform's dictionary panel for Value, drawn over Frame, a box in the surface.
 	ItemLookUp
+	// ItemPictureInPicture configures a detached custom-content tree.
+	ItemPictureInPicture
+	// ItemPictureInPictureCommand starts, stops or acknowledges restoration.
+	ItemPictureInPictureCommand
 )
 
 // AppleSignInRequest is an ItemSignInWithApple's request, as core.AppleSignInOptions: the scopes it asks for and Nonce, which the core hashes as the request carries it, "" for none.
@@ -527,10 +531,11 @@ type MountItem struct {
 	Menu   []MenuEntry
 	Web    *WebConfig
 	// WebCommand is ItemWebCommand's.
-	WebCommand WebCommand
-	Video      *VideoConfig
-	Time       time.Duration // ItemVideoSeek
-	Native     *NativeConfig
+	WebCommand       WebCommand
+	PictureInPicture *PictureInPictureConfig
+	Video            *VideoConfig
+	Time             time.Duration // ItemVideoSeek
+	Native           *NativeConfig
 	// Data is ItemNativeCommand's argument.
 	Data      any
 	Animation []AnimationOp
@@ -1432,16 +1437,18 @@ type StatusBarConfig struct {
 // defaults applied: Volume in 0 to 1, Rate above 0, a ResizeMode and
 // ProgressInterval at least 16 milliseconds.
 type VideoConfig struct {
-	Source           string
-	Paused           bool
-	Muted            bool
-	Volume           float32
-	Rate             float32
-	Repeat           bool
-	ResizeMode       ResizeMode
-	Controls         bool
-	ProgressInterval time.Duration
-	AudioSession     AudioSession
+	Source               string
+	Paused               bool
+	Muted                bool
+	Volume               float32
+	Rate                 float32
+	Repeat               bool
+	ResizeMode           ResizeMode
+	Controls             bool
+	PictureInPicture     bool
+	AutoPictureInPicture bool
+	ProgressInterval     time.Duration
+	AudioSession         AudioSession
 }
 
 // AudioSession is what a video's sound does to the rest of the device's

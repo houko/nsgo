@@ -211,7 +211,8 @@ type App struct {
 	size driver.Size
 	// modality is the input modality last reported, as a platform reports
 	// a key or a press before what it causes (inputBy).
-	modality uint32
+	modality                  uint32
+	pipSupported, pipPossible bool
 	// report takes what the app reports failing (Errors).
 	report func(error)
 	// Clipboard is the clipboard's text, ClipboardImage its image as the
@@ -1134,4 +1135,10 @@ func (a *App) answerAt(i, index int) {
 	tree := a.alertTrees[i]
 	a.alertTrees = slices.Delete(slices.Clone(a.alertTrees), i, i+1)
 	a.dispatchOn(tree, driver.Event{Kind: driver.EventAlert, Count: alert.ID, Index: index})
+}
+
+// PictureInPictureSupport configures the headless system's PiP support
+// and current readiness. Native tests always use their platform's state.
+func PictureInPictureSupport(supported, possible bool) Option {
+	return func(a *App) { a.pipSupported = supported; a.pipPossible = supported && possible }
 }

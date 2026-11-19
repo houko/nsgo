@@ -1,0 +1,42 @@
+---
+title: Picture in Picture
+description: Play a video or show an independent NSGo tree in iOS Picture in Picture.
+group: Platform features
+order: 45
+---
+
+Declare background playback before using Picture in Picture:
+
+```yaml
+apple:
+  info:
+    UIBackgroundModes: [audio]
+```
+
+For a video, enable `PictureInPicture`, keep a `core.Ref`, and start or stop it from an app control. Follow the state callback to enable that control when `Possible` becomes true:
+
+```go
+ref := &core.Ref{}
+state := core.NewSignal(cx, core.PictureInPictureState{})
+video := core.Video{
+    Source: "asset:clip.mp4", Ref: ref,
+    PictureInPicture: true, AutoPictureInPicture: true,
+    OnPictureInPicture: state.Set,
+}
+start := ui.Button{
+    Text: "Picture in Picture", OnPress: ref.StartPictureInPicture,
+    Disabled: func() bool { return !state.Get().Possible },
+}
+```
+
+`AutoPictureInPicture` opts into automatic entry when the app backgrounds. `Controls` still shows the native playback controls; the app's PiP button uses the same managed session for a controlled video. `OnPictureInPictureRestore` lets the app reveal its player page when the user returns. Keep the video mounted while PiP is active: deleting its scope stops playback and PiP.
+
+`mobile.PictureInPicture` takes `Children` with a layout of their own, defaulting to 320 × 180 points. It occupies no space in the app. Its `Ref` has the same start and stop methods, while `OnState`, `OnRestore`, `OnPlay`, `OnPause` and `OnSkip` deliver system actions. Bind `PausedFunc` and `PositionFunc` to the playback state those callbacks update; `Duration: 0` describes live content. A suspended app retains the last rendered frame.
+
+The custom tree can show text, views, images and Canvas. Native video, WebView, Metal shaders and backdrop effects are not captured. Animated images and native layer transitions show their model state; use explicit animated values for motion. The system window accepts play, pause and skip controls, with no arbitrary touch or text input. App Store review may reject uses unrelated to video.
+
+`Supported: false` distinguishes an unavailable platform from a supported session that is not ready or whose `Error` explains a failure. iOS is the implemented target; tvOS, macOS, Android and web PiP remain unavailable. The shared audio session stays in the playback category while PiP is enabled, including while paused.
+
+In headless tests, `nsgotest.PictureInPictureSupport(supported, possible)` sets what the system offers under an iOS `nsgotest.Environment`, the view's `PiPState`, `PiPStarts` and `PiPStops` record the session, `app.ReportPictureInPicture` reports a state the system would, and `app.PictureInPictureControl` sends the window's `play`, `pause`, `skip` and `restore`. The video's PiP window plays and pauses the video's own player, which `Video.OnPlay` and `Video.OnPause` report, with `VideoPauseControls` for a pause; `app.PlayVideo` and `app.PauseVideo` report them in tests.
+
+Run `go tool nsgo dev -target ios examples/pip` for both paths. Device and simulator acceptance, including controlled-video fullscreen and automatic entry, remains pending; the implementation currently has native delegate/frame tests and headless app coverage.

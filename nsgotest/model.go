@@ -51,9 +51,12 @@ type View struct {
 	Web       driver.WebConfig
 	// WebCommands are what the app asked a web view to do, oldest first;
 	// answered counts those AnswerScript went past.
-	WebCommands []WebCommand
-	answered    int
-	Video       driver.VideoConfig
+	WebCommands                      []WebCommand
+	answered                         int
+	Video                            driver.VideoConfig
+	PictureInPicture                 driver.PictureInPictureConfig
+	PiPState                         core.PictureInPictureState
+	PiPStarts, PiPStops, PiPRestores int
 	// Seeks are the positions the app asked a video to jump to, oldest
 	// first.
 	Seeks []time.Duration
@@ -458,7 +461,21 @@ func (a *App) apply(b *driver.MountBatch) {
 		case driver.ItemWebCommand:
 			v.WebCommands = append(v.WebCommands, WebCommand{Command: it.WebCommand, Value: it.Value, Data: it.Data})
 		case driver.ItemVideo:
+			enabled := v.Video.PictureInPicture
 			v.Video = *it.Video
+			if it.Video.PictureInPicture && !enabled {
+				a.configurePiP(v)
+			}
+		case driver.ItemPictureInPicture:
+			first := v.PictureInPicture.Size == (driver.Size{})
+			v.PictureInPicture = *it.PictureInPicture
+			if first {
+				a.configurePiP(v)
+			}
+		case driver.ItemPictureInPictureCommand:
+			if v != nil {
+				a.commandPiP(v, it.Count)
+			}
 		case driver.ItemVideoSeek:
 			v.Seeks = append(v.Seeks, it.Time)
 		case driver.ItemNative:
@@ -1259,4 +1276,42 @@ func (v *View) pageMatrix() driver.Matrix3D {
 		m = parent.pageMatrix().Mul(m)
 	}
 	return m
+}
+
+func (a *App) configurePiP(v *View) {
+	v.PiPState = core.PictureInPictureState{Supported: a.pipSupported, Possible: a.pipPossible}
+	a.postPiP(v)
+}
+func (a *App) postPiP(v *View) {
+	a.post(driver.Event{Kind: driver.EventNative, ID: v.ID, Text: driver.PictureInPictureEventName, Data: &driver.PictureInPictureEvent{State: v.PiPState}})
+}
+func (a *App) commandPiP(v *View, command uint32) {
+	switch command {
+	case driver.PictureInPictureStart:
+		if v.PiPState.Active {
+			return
+		}
+		if !v.PiPState.Supported {
+			a.postPiP(v)
+			return
+		}
+		if !v.PiPState.Possible {
+			v.PiPState.Error = "Picture in Picture is not possible yet"
+			a.postPiP(v)
+			return
+		}
+		v.PiPStarts++
+		v.PiPState.Active = true
+		v.PiPState.Error = ""
+		a.postPiP(v)
+	case driver.PictureInPictureStop:
+		if !v.PiPState.Active {
+			return
+		}
+		v.PiPStops++
+		v.PiPState.Active = false
+		a.postPiP(v)
+	case driver.PictureInPictureRestored:
+		v.PiPRestores++
+	}
 }

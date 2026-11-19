@@ -441,15 +441,16 @@ func sameSource(a, b driver.ImageSource) bool {
 type ImageView struct {
 	// Dispatch reports an event to the engine if the view listens for it.
 	Dispatch func(driver.Event)
+	// Changed runs on the main thread after rendered content changes,
+	// including an asynchronous image load, for snapshot renderers.
+	Changed func()
 
 	layer, picture, mask objc.ID
-	// changed is a drawn image's (NewDrawnImage), which has no layers.
-	changed func()
-	config  driver.ImageConfig
-	tint    driver.Color
-	corners driver.ViewStyle // its corners: CornerRadius, Corners, ContinuousCorners
-	bounds  CGSize
-	ratio   float64
+	config               driver.ImageConfig
+	tint                 driver.Color
+	corners              driver.ViewStyle // its corners: CornerRadius, Corners, ContinuousCorners
+	bounds               CGSize
+	ratio                float64
 
 	image   uintptr // the CGImage shown, retained
 	shown   decoded // what image was decoded from
@@ -466,7 +467,7 @@ type ImageView struct {
 // NewDrawnImage is an ImageView with no layer, for a backend that draws
 // it itself (Draw): changed runs on the main thread each time what it
 // shows changes.
-func NewDrawnImage(changed func()) *ImageView { return &ImageView{changed: changed} }
+func NewDrawnImage(changed func()) *ImageView { return &ImageView{Changed: changed} }
 
 // NewImageView adds an image layer to host, a view's layer.
 func NewImageView(host objc.ID) *ImageView {
@@ -663,10 +664,10 @@ func (iv *ImageView) fitted() CGRect {
 // render shows the image in the picture layer: as it is, or as a template
 // the tint fills through a mask of the image's alpha.
 func (iv *ImageView) render(fade time.Duration) {
+	if iv.Changed != nil {
+		defer iv.Changed()
+	}
 	if iv.layer == 0 {
-		if iv.changed != nil {
-			iv.changed()
-		}
 		return
 	}
 	WithoutAnimation(func() {

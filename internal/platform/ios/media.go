@@ -139,6 +139,7 @@ func (s *surface) tick() {
 		defer s.measuring(s.animator.Running() || len(s.motions) > 0 || len(s.ghosts) > 0 || s.frameWanted.Load())()
 	}
 	now := s.clock()
+	contentAnimated := s.animator.Running() || len(s.motions) > 0
 	if s.animator.Running() {
 		s.animator.Step(now)
 	}
@@ -150,13 +151,17 @@ func (s *surface) tick() {
 		s.staleEffects()
 	}
 	s.drawShaders()
+	if contentAnimated {
+		s.dirtyPictureInPictures()
+	}
+	pipPending := s.drawPictureInPictures()
 	s.startImages()
 	if s.frameWanted.Swap(false) && s.engine != nil {
 		s.engine.Frame()
 	}
 	apple.YieldFrame()
 	// A monitor closes a frame at every refresh.
-	if !s.animator.Running() && len(s.motions) == 0 && len(s.ghosts) == 0 && !s.frameWanted.Load() && s.perf == nil {
+	if !pipPending && !s.animator.Running() && len(s.motions) == 0 && len(s.ghosts) == 0 && !s.frameWanted.Load() && s.perf == nil {
 		s.stopTicking()
 		// The app asked for a frame as the clock stopped, seeing it still
 		// ticking.

@@ -282,6 +282,7 @@ func (t *Tree) commitRound() {
 	t.sendSticky()
 	t.sizeCanvases()
 	t.laidOut = t.laidOut[:0]
+	t.emitPictureInPictures()
 	t.emitAccessories()
 	t.emitHeaderViews()
 	t.makeCommanded()
@@ -825,6 +826,12 @@ func (t *Tree) emitParts(n *node) bool {
 		add(driver.MountItem{Kind: driver.ItemEvents, ID: n.id, Events: ev})
 	}
 	switch {
+	case n.pip != nil:
+		if p := n.pip; pictureInPicturePlatform(t.root) && (first || p.config != p.sent) {
+			c := p.config
+			p.sent = c
+			add(driver.MountItem{Kind: driver.ItemPictureInPicture, ID: n.id, PictureInPicture: &c})
+		}
 	case n.text != nil:
 		tn := n.text
 		if tn.prepared != nil && (tn.resent || tn.box != tn.sentBox) {
@@ -1218,7 +1225,7 @@ func (t *Tree) insertedElsewhere(c, p *node) bool {
 	}
 	for n != nil && !n.deleted {
 		switch {
-		case n == t.view || n.accessory != nil || n.headerView:
+		case n == t.view || n.accessory != nil || n.pip != nil || n.headerView:
 			return true
 		case n.hoist != nil:
 			n = n.hoist.host

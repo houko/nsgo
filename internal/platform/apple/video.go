@@ -41,6 +41,9 @@ type Video struct {
 	status            *videoStatus
 	config            driver.VideoConfig
 	made              bool
+	pip               *PictureInPicture
+	pipLayer          objc.ID // iOS: the second AVPlayerLayer a video with controls starts PiP from
+	pipHost           objc.ID // iOS: the view holding pipLayer in the controller's content overlay
 }
 
 // videoStatus is what a player reported so far.
@@ -182,6 +185,7 @@ func (v *Video) Configure(c *driver.VideoConfig) {
 		}
 	}
 	v.followAudio()
+	v.configurePiP()
 	gravity := NSString("AVLayerVideoGravityResizeAspect")
 	switch c.ResizeMode {
 	case driver.Cover:
@@ -196,6 +200,9 @@ func (v *Video) Configure(c *driver.VideoConfig) {
 		v.controller.Send(sel("setVideoGravity:"), gravity)
 	case v.shown != 0:
 		v.shown.Send(sel("setVideoGravity:"), gravity)
+	}
+	if v.pipLayer != 0 {
+		v.pipLayer.Send(sel("setVideoGravity:"), gravity)
 	}
 }
 
@@ -351,13 +358,27 @@ func (v *Video) close() {
 		}
 	}
 	v.timeToken, v.endToken, v.rateToken = 0, 0, 0
-	if v.player != 0 {
-		v.player.Send(sel("pause"))
-		v.player.Send(sel("release"))
-		v.player = 0
-	}
+	// The objects leave this Video before it opens again, but an active PiP session keeps its generation, the player and its layer or controller, until AVKit says it stopped.
+	player, layer, controller, pipLayer, pipHost := v.player, v.layer, v.controller, v.pipLayer, v.pipHost
+	v.player, v.pipLayer, v.pipHost = 0, 0, 0
 	if runtime.GOOS == "ios" {
-		v.detach()
+		v.layer, v.controller = 0, 0
+	}
+	release := func() {
+		if player != 0 {
+			player.Send(sel("pause"))
+			player.Send(sel("release"))
+		}
+		if runtime.GOOS == "ios" {
+			releasePlayerViews(layer, controller)
+		}
+		releasePiPLayer(pipLayer, pipHost)
+	}
+	if p := v.pip; p != nil {
+		v.pip = nil
+		p.Close(release)
+	} else {
+		release()
 	}
 }
 
@@ -402,6 +423,7 @@ func (v *Video) show() {
 // attach shows an iOS player in a layer, or in an
 // AVPlayerViewController with its controls.
 func (v *Video) attach() {
+	v.endPiP()
 	v.detach()
 	if v.player == 0 {
 		return
@@ -443,17 +465,21 @@ func (v *Video) parentController() objc.ID {
 
 // detach undoes attach.
 func (v *Video) detach() {
-	if v.layer != 0 {
-		v.layer.Send(sel("removeFromSuperlayer"))
-		v.layer.Send(sel("release"))
-		v.layer = 0
+	releasePlayerViews(v.layer, v.controller)
+	v.layer, v.controller = 0, 0
+}
+
+// releasePlayerViews removes and releases an iOS player's layer and controller, either of which may be 0.
+func releasePlayerViews(layer, controller objc.ID) {
+	if layer != 0 {
+		layer.Send(sel("removeFromSuperlayer"))
+		layer.Send(sel("release"))
 	}
-	if v.controller != 0 {
-		v.controller.Send(sel("willMoveToParentViewController:"), objc.ID(0))
-		v.controller.Send(sel("view")).Send(sel("removeFromSuperview"))
-		v.controller.Send(sel("removeFromParentViewController"))
-		v.controller.Send(sel("release"))
-		v.controller = 0
+	if controller != 0 {
+		controller.Send(sel("willMoveToParentViewController:"), objc.ID(0))
+		controller.Send(sel("view")).Send(sel("removeFromSuperview"))
+		controller.Send(sel("removeFromParentViewController"))
+		controller.Send(sel("release"))
 	}
 }
 
@@ -467,6 +493,9 @@ func fill(holder, view objc.ID) {
 
 // Layout keeps an iOS player layer at the view's size.
 func (v *Video) Layout() {
+	if v.pipLayer != 0 {
+		WithoutAnimation(func() { v.pipLayer.Send(sel("setFrame:"), objc.Send[CGRect](v.pipHost, sel("bounds"))) })
+	}
 	if runtime.GOOS == "ios" && v.layer != 0 {
 		WithoutAnimation(func() { v.layer.Send(sel("setFrame:"), objc.Send[CGRect](v.holder, sel("bounds"))) })
 	}
@@ -656,6 +685,9 @@ func (v *Video) itemDuration() time.Duration {
 // report reports a finished load and a failure, each once, and buffering
 // changes.
 func (v *Video) report() {
+	if v.pip != nil {
+		v.pip.update()
+	}
 	item := v.player.Send(sel("currentItem"))
 	if item == 0 {
 		return
@@ -715,4 +747,70 @@ func (v *Video) Close() {
 		}
 	}
 	v.shown, v.layer = 0, 0
+}
+
+// configurePiP gives a video with PictureInPicture its PiP session: from its own player layer, or, with controls, from a second layer in the controller's content overlay that code can start and stop.
+func (v *Video) configurePiP() {
+	if runtime.GOOS != "ios" {
+		return
+	}
+	enabled := v.config.PictureInPicture
+	if v.controller != 0 {
+		// One session owns this player. AVPlayerViewController has no public stop, and its own PiP button would start a second session nothing owns, so every start, an automatic one included, goes through the overlay's layer.
+		v.controller.Send(sel("setAllowsPictureInPicturePlayback:"), false)
+		if objc.Send[bool](v.controller, sel("respondsToSelector:"), sel("setCanStartPictureInPictureAutomaticallyFromInline:")) {
+			v.controller.Send(sel("setCanStartPictureInPictureAutomaticallyFromInline:"), false)
+		}
+	}
+	if !enabled || v.player == 0 {
+		v.endPiP()
+		if enabled && v.Dispatch != nil {
+			v.Dispatch(pipStateEvent(driver.PictureInPictureState{Supported: pictureInPictureSupported()}))
+		}
+		return
+	}
+	if v.pip == nil {
+		layer := v.layer
+		if layer == 0 {
+			v.pipLayer = objc.ID(Class("AVPlayerLayer")).Send(sel("playerLayerWithPlayer:"), v.player).Send(sel("retain"))
+			layer = v.pipLayer
+			v.pipHost = newPiPPlayerHost(v.controller.Send(sel("contentOverlayView")), layer)
+		}
+		v.pip = NewPictureInPicture(layer, v.Dispatch)
+	}
+	v.pip.Configure(driver.PictureInPictureConfig{Automatically: v.config.AutoPictureInPicture})
+}
+
+// PictureInPictureCommand starts or stops the video's PiP session.
+func (v *Video) PictureInPictureCommand(command uint32) {
+	if v.pip != nil {
+		v.pip.Command(command)
+	} else if v.Dispatch != nil {
+		v.Dispatch(pipStateEvent(driver.PictureInPictureState{Supported: pictureInPictureSupported(), Error: "Picture in Picture needs an enabled video with a playable source"}))
+	}
+}
+
+// endPiP ends the video's PiP session and lets its extra layer go once the session stopped, leaving the video's own layer.
+func (v *Video) endPiP() {
+	layer, host := v.pipLayer, v.pipHost
+	v.pipLayer, v.pipHost = 0, 0
+	release := func() { releasePiPLayer(layer, host) }
+	if p := v.pip; p != nil {
+		v.pip = nil
+		p.Close(release)
+	} else {
+		release()
+	}
+}
+
+// releasePiPLayer removes and releases a controlled video's PiP layer and its host view, either of which may be 0.
+func releasePiPLayer(layer, host objc.ID) {
+	if host != 0 {
+		host.Send(sel("removeFromSuperview"))
+		host.Send(sel("release"))
+	}
+	if layer != 0 {
+		layer.Send(sel("removeFromSuperlayer"))
+		layer.Send(sel("release"))
+	}
 }

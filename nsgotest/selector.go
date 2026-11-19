@@ -338,6 +338,9 @@ func (a *App) mounted() []*View {
 	var loose []*View
 	for _, v := range a.views {
 		ids := []driver.NodeID{v.Screen.Left, v.Screen.Right, v.Screen.TitleView, v.Screen.Header, v.Input.Accessory}
+		if v.PictureInPicture.Size != (driver.Size{}) {
+			ids = append(ids, v.ID)
+		}
 		for _, id := range ids {
 			if r := a.views[id]; id != 0 && r != nil && r.Parent == nil && !seen[r] && !slices.Contains(loose, r) {
 				loose = append(loose, r)
