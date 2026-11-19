@@ -561,9 +561,9 @@ func (v *Video) watchSystemPauses(st *videoStatus) {
 			v.rateChanged(driver.VideoPauseInterruption)
 		}
 	})
-	// iOS pauses a playing video as the app enters the background, reporting it as an audio-session interruption rather than AVPlayerRateDidChangeReasonAppBackgrounded, and plays it again as the app comes back. The backend pauses it first, for the background, so it stays paused as the design says.
+	// iOS pauses a playing video as the app enters the background, reporting it as an audio-session interruption rather than AVPlayerRateDidChangeReasonAppBackgrounded, and plays it again as the app comes back. The backend pauses it first, for the background, so it stays paused as the design says, unless its Picture in Picture plays it on.
 	v.stopBackground = Observe(center, NSString("UIApplicationDidEnterBackgroundNotification"), func(objc.ID) {
-		if v.status == st && v.player != 0 && st.play.playing {
+		if v.status == st && v.player != 0 && st.play.playing && (v.pip == nil || !v.pip.ContinuesInBackground()) {
 			v.systemPause(videoPauseBackground)
 		}
 	})

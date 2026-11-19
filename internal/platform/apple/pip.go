@@ -131,6 +131,18 @@ func (p *PictureInPicture) update() {
 	}
 }
 
+// ContinuesInBackground says whether the session plays on as the app enters the background: it is active or starting, or AVKit is about to start it automatically.
+func (p *PictureInPicture) ContinuesInBackground() bool {
+	if p.controller == 0 || p.closing {
+		return false
+	}
+	if p.state.Active || p.starting || objc.Send[bool](p.controller, sel("isPictureInPictureActive")) {
+		return true
+	}
+	c := p.snapshot.Load()
+	return c != nil && c.Automatically && objc.Send[bool](p.controller, sel("isPictureInPicturePossible"))
+}
+
 // HoldAudio holds the shared audio session in the playback category PiP needs while the session lives, paused or not: mixing with other apps' audio for AudioSessionMixWithOthers, which a video asks for, and pausing it otherwise.
 func (p *PictureInPicture) HoldAudio(session driver.AudioSession) {
 	if p.controller == 0 || p.closing {
