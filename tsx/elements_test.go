@@ -233,6 +233,29 @@ mount(App);`)
 	}
 }
 
+// userAgentSuffix reaches the web view's config, and a change makes a new web view with the new suffix, as Apple reads it only as the view is first made.
+func TestWebViewUserAgentSuffixFollowsItsProp(t *testing.T) {
+	app := run(t, `import { mount, signal, Text, View, WebView } from "nsgo";
+function App() {
+	const suffix = signal("Version/26.0 Safari/605.1.15");
+	return <View style={{ flex: 1 }}>
+		<WebView testID="web" src="https://example.com/" userAgentSuffix={suffix()} style={{ height: 50 }} />
+		<Text testID="change" onPress={() => suffix.set("Test/2")}>Change</Text>
+	</View>;
+}
+mount(App);`)
+	v := app.Find("id:web")
+	if v.Web.UserAgentSuffix != "Version/26.0 Safari/605.1.15" || v.Web.UserAgent != "" {
+		t.Fatalf("mounted with %+v, want the suffix alone", v.Web)
+	}
+	id := v.ID
+	app.Press("id:change")
+	app.Settle()
+	if v := app.Find("id:web"); v.Web.UserAgentSuffix != "Test/2" || v.ID == id {
+		t.Errorf("after the change: view %v (was %v), %+v", v.ID, id, v.Web)
+	}
+}
+
 func TestWebViewMessagesCarryTheirOrigin(t *testing.T) {
 	app := run(t, `import { mount, signal, Text, View, WebView } from "nsgo";
 function App() {
