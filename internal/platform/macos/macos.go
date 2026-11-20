@@ -567,6 +567,7 @@ func loadAppKit() {
 	registerInput()
 	registerContent()
 	registerCanvasNodes()
+	registerQuickLook()
 	classMenuTarget = register("NsgoMenuTarget", apple.Class("NSObject"), nil, []objc.MethodDef{
 		{Cmd: selMenuChosen, Fn: menuChosen},
 		{Cmd: selMenuRoleChosen, Fn: menuRoleChosen},
@@ -757,7 +758,7 @@ func startApp(opts Options, ready func(login bool)) objc.ID {
 	defaultLanguage, _ = apple.Locale()
 	defaultMenu = mainMenu(defaultLanguage)
 	showDefaultMenu()
-	delegate := objc.ID(register("NsgoAppDelegate", apple.Class("NSObject"), nil, []objc.MethodDef{{
+	delegate := objc.ID(register("NsgoAppDelegate", apple.Class("NSObject"), nil, append([]objc.MethodDef{{
 		Cmd: sel("applicationShouldTerminateAfterLastWindowClosed:"),
 		Fn:  func(self objc.ID, _ objc.SEL, app objc.ID) bool { return false },
 	}, {
@@ -850,7 +851,7 @@ func startApp(opts Options, ready func(login bool)) objc.ID {
 	}, {
 		Cmd: sel("applicationWillTerminate:"),
 		Fn:  func(self objc.ID, _ objc.SEL, note objc.ID) { engine.SyncStorage() },
-	}})).Send(selNew)
+	}}, quickLookControl()...))).Send(selNew)
 	nsApp.Send(sel("setDelegate:"), delegate)
 	// Before the app finishes launching, so a press that launched it is heard; only for an app that used notifications before, as touching the center makes the Dock badge wait for the user to allow badges.
 	if apple.NotificationsUsed() {
@@ -1166,6 +1167,8 @@ func (s *surface) environment() driver.Environment {
 		CanSetWindowWorkspaces: !s.embedded && s.window != 0,
 		// The dictionary panel shows over the window the view is in.
 		CanLookUp: s.window != 0,
+		// The preview panel shows over the window too, where QuickLookUI loads.
+		CanQuickLook: s.window != 0 && quickLookAvailable(),
 
 		// A transparent window or panel draws nothing of its own wherever it is (look.go, newPanel).
 		WindowTransparent: s.transparent,
@@ -1759,6 +1762,9 @@ func (s *surface) apply(b *driver.MountBatch) {
 			continue
 		case driver.ItemLookUp:
 			s.lookUp(it.Value, it.Frame)
+			continue
+		case driver.ItemQuickLook:
+			quickLook(it.QuickLook)
 			continue
 		case driver.ItemCheckForUpdates:
 			s.checkForUpdates(it.On, it.Count)

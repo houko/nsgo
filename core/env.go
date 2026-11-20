@@ -29,6 +29,7 @@ type Env struct {
 	scanCode                *Signal[bool]
 	canSendInput            *Signal[bool]
 	canLookUp               *Signal[bool]
+	canQuickLook            *Signal[bool]
 	level, place            *Signal[bool]
 	workspaces              *Signal[bool]
 	hasWebView              *Signal[bool]
@@ -106,6 +107,7 @@ func newEnv(cx *Scope, app *Env) *Env {
 		scanCode:         NewSignal(cx, false),
 		canSendInput:     NewSignal(cx, false),
 		canLookUp:        NewSignal(cx, false),
+		canQuickLook:     NewSignal(cx, false),
 		level:            NewSignal(cx, false),
 		place:            NewSignal(cx, false),
 		workspaces:       NewSignal(cx, false),
@@ -223,6 +225,7 @@ func (e *Env) set(v Environment) {
 	e.scanCode.Set(v.ScanCode)
 	e.canSendInput.Set(v.CanSendInput)
 	e.canLookUp.Set(v.CanLookUp)
+	e.canQuickLook.Set(v.CanQuickLook)
 	e.level.Set(v.CanSetWindowLevel)
 	e.place.Set(v.CanPlaceWindows)
 	e.workspaces.Set(v.CanSetWindowWorkspaces)
@@ -379,6 +382,9 @@ func (e *Env) CanSendInput() bool { return e.canSendInput.Get() }
 
 // CanLookUp reports whether desktop.LookUp can show the system dictionary panel.
 func (e *Env) CanLookUp() bool { return e.canLookUp.Get() }
+
+// CanQuickLook reports whether desktop.QuickLook can show the system's file preview panel.
+func (e *Env) CanQuickLook() bool { return e.canQuickLook.Get() }
 
 // HasWebView reports whether this target provides the native or browser web
 // view host used by WebView.

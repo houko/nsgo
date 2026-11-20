@@ -64,6 +64,8 @@ type Environment struct {
 	CanSendInput bool
 	// CanLookUp says ItemLookUp can show the system dictionary panel.
 	CanLookUp bool
+	// CanQuickLook says ItemQuickLook can show the system's file preview panel.
+	CanQuickLook bool
 	// CanSetWindowLevel says WindowSetLevel reaches the window's stacking, and CanPlaceWindows that WindowSetFrame's position moves it; false without a desktop window of the surface's own (an embedded view, the app's own hidden surface, a tray icon), the first for an Android overlay, which has no level, and the second on Linux, whose window manager or compositor places windows.
 	CanSetWindowLevel bool
 	CanPlaceWindows   bool

@@ -37,7 +37,8 @@ var unsupportedItems = map[string]string{
 	"notifications and badges": `ItemBadge ItemCloseNotification ItemHaptic`,
 	"desktop only": `ItemDock ItemMenu ItemPopupMenu ItemLaunchAtLogin
 		ItemSetLaunchAtLogin ItemOpenSurface ItemQuit ItemTray ItemTrayMenu
-		ItemWindow ItemHotKeys ItemQuitResponse ItemDockMenu ItemRecentFile`,
+		ItemWindow ItemHotKeys ItemQuitResponse ItemDockMenu ItemRecentFile
+		ItemQuickLook`,
 	"Apple only": `ItemAppleCredentialState ItemSignInWithApple`,
 	// Services main added after this target, which no HarmonyOS kit answers here yet.
 	"services added since": `ItemAuthSession ItemPurchase ItemSensor ItemSpeak

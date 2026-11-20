@@ -66,6 +66,14 @@ if desktop.CanLookUp(cx) {
 }
 ```
 
+`desktop.QuickLook` shows the system's file preview panel on files, starting at an index, as Space does in the Finder, and shows the new files when called again while it is open. `desktop.CanQuickLook` says whether it can, in a window on macOS; Windows, Linux and the web have no such panel.
+
+```go
+if desktop.CanQuickLook(cx) {
+	desktop.QuickLook(cx, []string{reportPath, sourcePath}, 0)
+}
+```
+
 ## Photos and files
 
 `cx.PickImages` shows the system's photo picker and answers with `core.PickedFile`s, whose bytes, name, type and pixel size the app reads. `cx.TakePhoto` shows the camera where the platform has one; `cx.Env().CanTakePhoto` says whether it does. `cx.ScanCode` shows the camera full screen and answers with the first code it reads, a QR code unless `ScanOptions.Kinds` asks for others, or nil when the user closes it; `cx.Env().CanScanCode` says whether the platform has a scanner: iOS and Android devices so far. It needs `NSCameraUsageDescription` on iOS, as `TakePhoto` does, and `CAMERA` in `android.permissions` on Android, which reads every kind but PDF417; a code's text is untrusted input.

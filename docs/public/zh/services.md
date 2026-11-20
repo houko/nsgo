@@ -66,6 +66,14 @@ if desktop.CanLookUp(cx) {
 }
 ```
 
+`desktop.QuickLook` 为一组文件显示系统的文件预览面板，从指定序号的文件开始，如同在访达中按空格键；面板打开时再次调用会换成新的文件。`desktop.CanQuickLook` 说明能否显示，即在 macOS 的窗口中；Windows、Linux 和 Web 没有这样的面板。
+
+```go
+if desktop.CanQuickLook(cx) {
+	desktop.QuickLook(cx, []string{reportPath, sourcePath}, 0)
+}
+```
+
 ## 照片与文件
 
 `cx.PickImages` 显示系统照片选择器，返回 `core.PickedFile`，其中包含字节、名称、类型和像素尺寸。`cx.TakePhoto` 在平台有相机时打开相机；`cx.Env().CanTakePhoto` 说明是否有。`cx.ScanCode` 全屏打开相机，返回读到的第一个码，默认只读二维码，`ScanOptions.Kinds` 可以指定其他种类；用户关闭时返回 nil。`cx.Env().CanScanCode` 说明平台是否能扫码，目前是 iOS 和 Android 真机。在 iOS 上它和 `TakePhoto` 一样需要 `NSCameraUsageDescription`；在 Android 上需要在 `android.permissions` 里加 `CAMERA`，除 PDF417 外都能识别。码里的文本是不可信的输入。

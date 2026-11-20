@@ -369,6 +369,8 @@ const (
 	ItemPictureInPictureCommand
 	// ItemScanCode shows the system's camera to read one code of the kinds Scan asks for; the platform answers with EventPick carrying Count and Data the *ScannedCode read, none when the user closed it, Text saying what failed. Sent only where the environment says ScanCode.
 	ItemScanCode
+	// ItemQuickLook shows the system's file preview panel on QuickLook's Paths, starting at its Index. Sent only where the environment says CanQuickLook.
+	ItemQuickLook
 )
 
 // AppleSignInRequest is an ItemSignInWithApple's request, as core.AppleSignInOptions: the scopes it asks for and Nonce, which the core hashes as the request carries it, "" for none.
@@ -582,13 +584,21 @@ type MountItem struct {
 	Save        *SaveRequest
 	Directories *DirectoriesRequest
 	Open        *SharedFile
-	Share       *ShareRequest
+	// QuickLook is ItemQuickLook's request.
+	QuickLook *QuickLookRequest
+	Share     *ShareRequest
 	// Surface is ItemOpenSurface's window, Tray ItemTray's icon, and On
 	// ItemDock's and ItemSetLaunchAtLogin's choice and whether
 	// ItemCheckForUpdates checks in the background.
 	Surface *SurfaceConfig
 	Tray    *TrayConfig
 	On      bool
+}
+
+// QuickLookRequest is an ItemQuickLook's files, regular files the core checked, and the index of the one shown first, within them.
+type QuickLookRequest struct {
+	Paths []string
+	Index int
 }
 
 // StickyCell is a sticky list cell and its travel, in its scroll view's main-axis offsets: from Start it moves with the offset, as far as End (which may be infinite). End below Start pins to the viewport's end, with a negative shift back toward the content's start.

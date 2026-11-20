@@ -204,6 +204,49 @@ func TestLookUp(t *testing.T) {
 	}
 }
 
+func TestQuickLook(t *testing.T) {
+	var cx *Scope
+	h := newHost(t, Size{Width: 100, Height: 100}, func(c *Scope) Node { cx = c; return View{} })
+	h.commit()
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.txt")
+	second := filepath.Join(dir, "second.txt")
+	if err := os.WriteFile(first, []byte("one"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("two"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.tree.SetEnvironment(Environment{OS: OSMacOS, CanLookUp: true})
+	h.commit()
+	if cx.QuickLook([]string{first}, 0) {
+		t.Fatal("QuickLook answered true where the environment has a dictionary panel but no preview panel")
+	}
+	h.tree.SetEnvironment(Environment{OS: OSMacOS, CanQuickLook: true})
+	h.commit()
+	if !cx.QuickLook([]string{first, second}, 1) {
+		t.Fatal("QuickLook answered false where the environment has a preview panel")
+	}
+	it := command(h.commit(), driver.ItemQuickLook)
+	if it == nil || it.QuickLook == nil || !slices.Equal(it.QuickLook.Paths, []string{first, second}) || it.QuickLook.Index != 1 {
+		t.Fatalf("quick look = %+v", it)
+	}
+	if cx.QuickLook([]string{filepath.Join(dir, "missing")}, 0) || cx.QuickLook([]string{first, dir}, 0) {
+		t.Fatal("a missing path or a folder opened Quick Look")
+	}
+	if !cx.QuickLook([]string{first, second}, 5) {
+		t.Fatal("QuickLook answered false for an index past the end")
+	}
+	if it := command(h.commit(), driver.ItemQuickLook); it == nil || it.QuickLook.Index != 1 {
+		t.Fatalf("an index past the end = %+v, want the last file", it)
+	}
+	h.tree.SetEnvironment(Environment{OS: OSWindows})
+	h.commit()
+	if cx.QuickLook([]string{first}, 0) {
+		t.Fatal("unsupported target opened Quick Look")
+	}
+}
+
 func TestPickImages(t *testing.T) {
 	var cx *Scope
 	h := newHost(t, Size{Width: 100, Height: 100}, func(c *Scope) Node { cx = c; return View{} })

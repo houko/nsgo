@@ -337,6 +337,29 @@ func (cx *Scope) LookUp(text string, in *Ref, at Bounds) bool {
 	return true
 }
 
+// QuickLook is the core's part of desktop.QuickLook, which apps use: it shows the system's file preview panel on paths, starting at index, clamped to the list. It reports whether it asked the platform: false for an empty list, a path that is not a regular file, where Env.CanQuickLook is false, and for a confined owner as Scope.Confine allows a PopupMenu.
+func (cx *Scope) QuickLook(paths []string, index int) bool {
+	t := cx.tree()
+	if t == nil || len(paths) == 0 || !Untracked(cx, cx.Env().CanQuickLook) {
+		return false
+	}
+	resolved := make([]string, len(paths))
+	for i, path := range paths {
+		f, err := resolvePath(path, false)
+		if err != nil {
+			return false
+		}
+		resolved[i] = f.Path
+	}
+	if !t.confinedMay(cx.current(), refusedPresent, askedToPresent) {
+		return false
+	}
+	t.commands = append(t.commands, driver.MountItem{Kind: driver.ItemQuickLook,
+		QuickLook: &driver.QuickLookRequest{Paths: resolved, Index: min(max(index, 0), len(resolved)-1)}})
+	t.changed = true
+	return true
+}
+
 // PickOptions say how PickImages picks and prepares images.
 type PickOptions struct {
 	// Multiple lets the user pick several images, at most Limit (0: up
