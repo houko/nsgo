@@ -247,3 +247,20 @@ mount(App);`)}}
 		}
 	}
 }
+
+// A TSX Select's options take a group, as a Go one's do.
+func TestSelectOptionGroupsFromTSX(t *testing.T) {
+	files := fstest.MapFS{"App.tsx": {Data: []byte(`import { mount, signal } from "nsgo";
+import { Select } from "nsgo/ui";
+function App() {
+    const value = signal("");
+    return <Select testID="service" label="Service" value={value()} onChange={(v) => value.set(v)}
+        options={[{ value: "one", label: "One", group: "Built in" }, { value: "two", label: "Two", group: "Plugins" }]} />;
+}
+mount(App);`)}}
+	app := nsgotest.Start(t, compiler.App(files, "App.tsx"), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}))
+	app.Press("service")
+	if !app.Exists("role:header Built in") || !app.Exists("role:header Plugins") {
+		t.Fatal("the options' groups show no headers")
+	}
+}

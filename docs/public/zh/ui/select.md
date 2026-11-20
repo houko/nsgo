@@ -19,7 +19,7 @@ ui.Select[string]{
 
 ## 选项与搜索
 
-`Options` 由 `ui.Option[T]` 组成，每项有 `Value`、`Label`，以及可选的 `Icon`、`Disabled` 函数或应用自己的 `Content`。选项跟随 signal 时使用 `OptionsFunc`，打开的列表会原地更新并保留字段的值和焦点。未选择时显示 `Placeholder`。`Searchable` 允许输入过滤列表，`OnClear` 显示清除按钮，`Disabled` 停用它。
+`Options` 由 `ui.Option[T]` 组成，每项有 `Value`、`Label`，以及可选的 `Group`、`Icon`、`Disabled` 函数或应用自己的 `Content`。在 `Select` 或 `Combobox` 中，相邻且 `Group` 相同（非空）的选项显示在该分组的标题下，方向键和输入跳转会越过标题，屏幕阅读器把它读作标题。选项跟随 signal 时使用 `OptionsFunc`，打开的列表会原地更新并保留字段的值和焦点。未选择时显示 `Placeholder`。`Searchable` 允许输入过滤列表，`OnClear` 显示清除按钮，`Disabled` 停用它。
 
 ```go preview=select/searchable height=400
 ui.Select[string]{

@@ -5,6 +5,7 @@ import (
 
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
+	"github.com/nsgo-dev/nsgo/internal/driver"
 )
 
 // TestSelect shows the placeholder until a choice, then the chosen
@@ -33,6 +34,30 @@ func TestSelect(t *testing.T) {
 		}
 		if n := len(app.Find("fruit-1").Children); n != 1 {
 			t.Fatalf("a row has %d children, want its text, with no check", n)
+		}
+	})
+}
+
+// TestSelectOptionGroups shows adjacent options of a group under a header that cannot be chosen or focused, and options with no group under none.
+func TestSelectOptionGroups(t *testing.T) {
+	each(t, func(t *testing.T, e core.Environment) {
+		var selected *core.Signal[string]
+		app, _ := start(t, e, func(cx *core.Scope) core.Node {
+			selected = core.NewSignal(cx, "")
+			return Select[string]{TestID: "service", Label: "Service", Value: selected.Get, OnChange: selected.Set,
+				Options: []Option[string]{{Value: "one", Label: "One"}, {Value: "two", Label: "Two", Group: "Built in"}, {Value: "three", Label: "Three", Group: "Built in"}, {Value: "four", Label: "Four", Group: "Plugins"}}}
+		})
+		app.Press("service")
+		if n := len(app.Query("role:header")); n != 2 {
+			t.Fatalf("%d headers, want Built in and Plugins", n)
+		}
+		header := app.Find("role:header Plugins")
+		if header.Props.Focusable || header.Events.Has(driver.EventPress) {
+			t.Fatal("a group's header can be focused or pressed")
+		}
+		app.Press("role:option Four")
+		if selected.Get() != "four" {
+			t.Fatalf("selected %q, want four", selected.Get())
 		}
 	})
 }

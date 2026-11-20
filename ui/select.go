@@ -58,7 +58,7 @@ func optionItemsFunc[T comparable](options func() []Option[T]) func() []base.Sel
 		options := options()
 		items := make([]base.SelectItem, len(options))
 		for i, o := range options {
-			items[i] = base.SelectItem{Value: strconv.Itoa(i), Title: o.Label, Disabled: o.Disabled != nil && o.Disabled()}
+			items[i] = base.SelectItem{Value: strconv.Itoa(i), Title: o.Label, Group: o.Group, Disabled: o.Disabled != nil && o.Disabled()}
 		}
 		return items
 	}
