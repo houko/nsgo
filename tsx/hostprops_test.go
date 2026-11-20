@@ -112,11 +112,11 @@ func TestTextPropsSetTheirFields(t *testing.T) {
 
 func TestScrollPropsSetTheirFields(t *testing.T) {
 	r := decoding()
-	p := setProps(t, r, (*runtime).scrollProp, `{testID: "a", horizontal: true, contentOffset: {x: 1, y: 2},
+	p := setProps(t, r, (*runtime).scrollProp, `{testID: "a", horizontal: true, noShrink: true, contentOffset: {x: 1, y: 2},
 		minimumZoomScale: 0.5, maximumZoomScale: 3, zoomScale: 2, bouncesZoom: false, zoomable: false,
 		centerContent: true, refreshing: true, scrollEventThrottle: 16,
 		onScroll: e => { globalThis.at = e.offset.x }}`)
-	if p.TestID != "a" || !p.Horizontal || p.ContentOffset != (core.Point{X: 1, Y: 2}) || p.MinZoomScale != 0.5 ||
+	if p.TestID != "a" || !p.Horizontal || !p.NoShrink || p.ContentOffset != (core.Point{X: 1, Y: 2}) || p.MinZoomScale != 0.5 ||
 		p.MaxZoomScale != 3 || p.ZoomScaleFunc() != 2 || !p.NoBouncesZoom || !p.NoPinchZoom || !p.CenterContent ||
 		!p.Refreshing() || p.ScrollEventThrottle != 16*time.Millisecond {
 		t.Errorf("decoded %+v", p)

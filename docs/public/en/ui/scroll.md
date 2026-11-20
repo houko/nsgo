@@ -13,7 +13,7 @@ core.Scroll{Style: core.Style{FlexGrow: 1}, Children: []core.Node{
 }}
 ```
 
-The padding goes on the content, not the scroll view, so the scroll bar stays against the edge. The scroll view shrinks to fit its parent unless its style says otherwise.
+The padding goes on the content, not the scroll view, so the scroll bar stays against the edge. The scroll view shrinks to fit its parent unless its style says otherwise. Set `NoShrink` when it must keep its requested size while a sibling shrinks.
 
 ## Behavior
 

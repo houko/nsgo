@@ -15,7 +15,7 @@ core.Scroll{Style: core.Style{FlexGrow: 1}, Children: []core.Node{
 }}
 ```
 
-滚动视图填满容器，内边距放在内容上，因此滚动条贴着边缘。除非样式另有设置，它会收缩以适应父容器。`HideIndicator` 隐藏平台指示器，`Bar` 绘制应用自己的滚动条。
+滚动视图填满容器，内边距放在内容上，因此滚动条贴着边缘。除非样式另有设置，它会收缩以适应父容器。兄弟视图收缩时若它必须保持请求的尺寸，设置 `NoShrink`。`HideIndicator` 隐藏平台指示器，`Bar` 绘制应用自己的滚动条。
 
 `Behavior` 和 `BehaviorFunc` 决定滚动方式：`Paging`、`SnapToInterval` 和 `SnapToOffsets` 配合 `SnapToAlignment`、`DecelerationRate`、`NoBounces`、`ContentInset` 以及键盘相关规则。`MinZoomScale` 和 `MaxZoomScale` 允许双指缩放，`OnRefresh` 和 `Refreshing` 让下拉刷新，`OffsetValues` 在主线程跟随偏移，用于随滚动移动的效果。
 

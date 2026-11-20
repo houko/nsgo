@@ -447,6 +447,8 @@ export interface ScrollHostProps {
   bouncesZoom?: boolean;
   zoomable?: boolean;
   centerContent?: boolean;
+  /** Keeps the scroll view at its requested size when its parent is short, where it otherwise shrinks to fit. */
+  noShrink?: boolean;
 }
 export interface ScrollProps extends CommonProps, ScrollingHostProps, ScrollHostProps {
   style?: StyleProp<ViewStyle>;

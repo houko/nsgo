@@ -496,13 +496,13 @@ func (i Input) Render(*Scope) Node { return i }
 
 func (i Input) mountIn(t *Tree, cx *Scope, parent *node) { t.mountInput(cx, parent, i) }
 
-// Scroll scrolls its children, laid out as a column (or a row when
-// Horizontal) as long as they need. Like React Native's ScrollView, it
-// shrinks to fit its parent (FlexShrink 1) unless its style says else.
+// Scroll scrolls its children, laid out as a column (or a row when Horizontal) as long as they need. Like React Native's ScrollView, it shrinks to fit its parent (FlexShrink 1) unless its style says else; NoShrink keeps it at its requested size when its parent is short.
 type Scroll struct {
 	// Class is Tailwind CSS classes, as View's.
-	Class         string
-	Horizontal    bool
+	Class      string
+	Horizontal bool
+	// NoShrink keeps the scroll view from shrinking below its requested size.
+	NoShrink      bool
 	HideIndicator bool
 	// Bar draws its scroll bar in place of the platform's indicator, over
 	// the app's (Scope.SetScrollbars).

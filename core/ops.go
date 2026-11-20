@@ -299,7 +299,11 @@ func (t *Tree) setText(cx *Scope, n *node, v Text) {
 // setScroll sets scroll view n's parts from v, reading its functions
 // once.
 func (t *Tree) setScroll(n *node, v Scroll) {
-	base := scrollDefaults.Merge(v.Style)
+	defaults := scrollDefaults
+	if v.NoShrink {
+		defaults.FlexShrink = 0
+	}
+	base := defaults.Merge(v.Style)
 	if v.StyleFunc != nil {
 		base = base.Merge(v.StyleFunc())
 	}

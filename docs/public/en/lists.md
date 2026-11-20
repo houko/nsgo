@@ -15,7 +15,7 @@ core.Scroll{Style: core.Style{FlexGrow: 1}, Children: []core.Node{
 }}
 ```
 
-The scroll view fills its container and the padding goes on its content, so the scroll bar stays against the edge. It shrinks to fit its parent unless its style says otherwise. `HideIndicator` hides the platform's indicator, and `Bar` draws the app's own.
+The scroll view fills its container and the padding goes on its content, so the scroll bar stays against the edge. It shrinks to fit its parent unless its style says otherwise. Set `NoShrink` when it must keep its requested size while a sibling shrinks. `HideIndicator` hides the platform's indicator, and `Bar` draws the app's own.
 
 `Behavior` and `BehaviorFunc` choose how it scrolls: `Paging`, `SnapToInterval` and `SnapToOffsets` with `SnapToAlignment`, a `DecelerationRate`, `NoBounces`, `ContentInset` and the keyboard's rules. `MinZoomScale` and `MaxZoomScale` let pinches zoom, `OnRefresh` and `Refreshing` make a pull refresh it, and `OffsetValues` follows its offset on the main thread for effects that move with it.
 

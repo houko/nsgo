@@ -2088,7 +2088,11 @@ var scrollDefaults = Style{FlexShrink: 1}
 func (t *Tree) mountScroll(cx *Scope, parent *node, v Scroll) {
 	n := t.newNode(driver.KindScroll, parent, cx)
 	t.setClasses(n, v.Class)
-	t.bindStyle(cx, n, scrollDefaults.Merge(v.Style), v.StyleFunc)
+	defaults := scrollDefaults
+	if v.NoShrink {
+		defaults.FlexShrink = 0
+	}
+	t.bindStyle(cx, n, defaults.Merge(v.Style), v.StyleFunc)
 	n.h = handlers{layout: v.OnLayout}
 	if on := v.OnScroll; on != nil {
 		n.h.scroll = func(p Point) { on(n.scrollEvent(p)) }

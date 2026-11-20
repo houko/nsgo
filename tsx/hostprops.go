@@ -316,6 +316,8 @@ func (r *runtime) scrollProp(p *core.Scroll, name string, v js.Value) bool {
 		p.TestID = stringOf(v)
 	case "horizontal":
 		p.Horizontal = v.ToBoolean()
+	case "noShrink":
+		p.NoShrink = v.ToBoolean()
 	case "scrollbar":
 		p.HideIndicator, p.Bar = !v.ToBoolean(), r.scrollbarTheme(v)
 	case "contentOffset":

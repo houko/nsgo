@@ -878,6 +878,24 @@ func TestScrollContentSize(t *testing.T) {
 	}
 }
 
+func TestScrollNoShrinkKeepsItsRequestedSize(t *testing.T) {
+	h := newHost(t, Size{Width: 100, Height: 100}, func(cx *Scope) Node {
+		return View{Style: Style{Height: Pt(100)}, Children: []Node{
+			Scroll{TestID: "strip", NoShrink: true, Style: Style{Height: Pt(60)}, Children: []Node{
+				Text{Content: "Lines Words Notes Parts"},
+			}},
+			View{TestID: "sibling", Style: Style{Height: Pt(80), FlexShrink: 1}},
+		}}
+	})
+	h.commit()
+	if got := h.find("strip").frame.Size.Height; got != 60 {
+		t.Fatalf("strip height = %v, want 60", got)
+	}
+	if got := h.find("sibling").frame.Size.Height; got != 40 {
+		t.Fatalf("sibling height = %v, want 40", got)
+	}
+}
+
 func TestIncreasingRun(t *testing.T) {
 	got := increasingRun([]int{2, 0, -1, 1, 3})
 	want := []bool{false, true, false, true, true}
