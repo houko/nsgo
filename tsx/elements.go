@@ -104,22 +104,24 @@ func webViewFace(p *props) core.Node {
 			}
 			return core.WebSrc(p.str("src"))
 		},
-		InjectedJavaScript:              p.str("injectedJavaScript"),
-		InjectedJavaScriptBeforeContent: p.str("injectedJavaScriptBeforeContentLoaded"),
-		UserAgent:                       p.str("userAgent"),
-		NoScroll:                        !p.boolOr("scrollable", true),
-		NoJavaScript:                    !p.boolOr("javaScriptEnabled", true),
-		BackForwardGestures:             p.bool("allowsBackForwardNavigationGestures"),
-		Mobile:                          p.bool("mobile"),
-		Media:                           r.webMedia(p.get("media")),
-		MessageOrigins:                  r.stringList(p.get("messageOrigins")),
-		Class:                           p.class(),
-		StyleFunc:                       p.styleFunc(),
-		OnError:                         p.onError("onError"),
-		OnLayout:                        p.onLayout(),
-		Ref:                             p.n.ref,
-		Label:                           p.str("accessibilityLabel"),
-		TestID:                          p.str("testID"),
+		InjectedJavaScript: p.str("injectedJavaScript"),
+		InjectedJavaScriptBeforeContentFunc: func() string {
+			return p.str("injectedJavaScriptBeforeContentLoaded")
+		},
+		UserAgent:           p.str("userAgent"),
+		NoScroll:            !p.boolOr("scrollable", true),
+		NoJavaScript:        !p.boolOr("javaScriptEnabled", true),
+		BackForwardGestures: p.bool("allowsBackForwardNavigationGestures"),
+		Mobile:              p.bool("mobile"),
+		Media:               r.webMedia(p.get("media")),
+		MessageOrigins:      r.stringList(p.get("messageOrigins")),
+		Class:               p.class(),
+		StyleFunc:           p.styleFunc(),
+		OnError:             p.onError("onError"),
+		OnLayout:            p.onLayout(),
+		Ref:                 p.n.ref,
+		Label:               p.str("accessibilityLabel"),
+		TestID:              p.str("testID"),
 	}
 	nav := func(name string) func(core.WebNavigation) {
 		h := p.handler(name)

@@ -144,6 +144,31 @@ mount(App);`)
 	app.WaitFor("text:100@0", time.Second)
 }
 
+// A change of injectedJavaScriptBeforeContentLoaded loads the source again with the new script in the same web view, as core's InjectedJavaScriptBeforeContentFunc does, rather than making a new one.
+func TestWebViewBeforeContentScriptFollowsItsProp(t *testing.T) {
+	app := run(t, `import { mount, signal, Text, View, WebView } from "nsgo";
+function App() {
+	const script = signal("one");
+	return <View>
+		<WebView testID="web" src="https://example.com" style={{ height: 50 }} injectedJavaScriptBeforeContentLoaded={script()} />
+		<Text testID="change" onPress={() => script.set("two")}>Change</Text>
+	</View>;
+}
+mount(App);`)
+	web := app.Find("id:web")
+	if got := web.Web.InjectedJavaScriptBeforeContent; got != "one" {
+		t.Fatalf("initial script %q", got)
+	}
+	app.Press("id:change")
+	again := app.Find("id:web")
+	if got := again.Web.InjectedJavaScriptBeforeContent; got != "two" {
+		t.Fatalf("updated script %q", got)
+	}
+	if again.ID != web.ID {
+		t.Fatalf("the script's change made a new web view, %v in place of %v", again.ID, web.ID)
+	}
+}
+
 func TestVideoReportsWhatThePlatformPausedAndPlayed(t *testing.T) {
 	app := run(t, `import { mount, signal, Text, View, Video } from "nsgo";
 function App() {
