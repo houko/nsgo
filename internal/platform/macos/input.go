@@ -387,6 +387,9 @@ func (in *input) setText(text string) {
 	default:
 		in.field.Send(selSetString, ns)
 	}
+	if in.multiline {
+		in.applyTextStyle()
+	}
 }
 
 // selection is the editor's selection, if it has one: a field has one
@@ -692,6 +695,7 @@ func (in *input) styleEditor() {
 	}
 	e.Send(sel("setContinuousSpellCheckingEnabled:"), !c.NoAutoCorrect)
 	e.Send(sel("setAutomaticSpellingCorrectionEnabled:"), !c.NoAutoCorrect)
+	in.applyTextStyle()
 	in.followAccent(e)
 }
 
@@ -768,14 +772,16 @@ func (v *view) configure(c *driver.InputConfig) {
 		in.label.Send(selSetFont, objc.ID(font))
 		in.label.Send(selSetTextColor, nsColor(placeholderColor(c)))
 		in.label.Send(selSetAlignment, align)
-		in.label.Send(selSetString, apple.NSString(c.Placeholder))
+		setLabelPlaceholder(in.label, c.Placeholder, objc.ID(font), placeholderColor(c), align, c.Style.LineHeight)
+		in.applyTextStyle()
 	} else {
 		in.field.Send(selSetEnabled, !c.Disabled)
-		setPlaceholder(in.field, c.Placeholder, objc.ID(font), placeholderColor(c), align)
+		setPlaceholder(in.field, c.Placeholder, objc.ID(font), placeholderColor(c), align, c.Style.LineHeight)
 		if e := in.field.Send(selCurrentEditor); e != 0 {
 			e.Send(selSetFont, objc.ID(font))
 			e.Send(selSetTextColor, nsColor(c.Style.Color))
 			e.Send(selSetAlignment, align)
+			in.applyTextStyle()
 		}
 		setContentType(in.field, c.AutoComplete, in.masked)
 	}
@@ -807,9 +813,79 @@ var textAttrs = sync.OnceValue(func() (a struct{ font, color, background, paragr
 	return a
 })
 
+func paragraphStyle(align int, lineHeight driver.Points) objc.ID {
+	para := objc.ID(apple.Class("NSMutableParagraphStyle")).Send(selAlloc).Send(sel("init"))
+	para.Send(selSetAlignment, align)
+	if lineHeight > 0 {
+		para.Send(sel("setMinimumLineHeight:"), float64(lineHeight))
+		para.Send(sel("setMaximumLineHeight:"), float64(lineHeight))
+	}
+	return para
+}
+
+func textAttributes(font objc.ID, color driver.Color, para objc.ID) objc.ID {
+	a := textAttrs()
+	attrs := objc.ID(apple.Class("NSMutableDictionary")).Send(sel("dictionary"))
+	if a.font != 0 {
+		attrs.Send(sel("setObject:forKey:"), font, a.font)
+	}
+	if a.color != 0 {
+		attrs.Send(sel("setObject:forKey:"), nsColor(color), a.color)
+	}
+	if a.paragraph != 0 && para != 0 {
+		attrs.Send(sel("setObject:forKey:"), para, a.paragraph)
+	}
+	return attrs
+}
+
+// applyTextStyle keeps AppKit's editor on the resolved core line height.
+func (in *input) applyTextStyle() {
+	if in == nil || in.field == 0 {
+		return
+	}
+	c := &in.fs.Config
+	font := apple.Font(c.Style.Font)
+	defer apple.Release(font)
+	align := nsAlignLeft
+	switch c.Style.Align {
+	case driver.TextAlignCenter:
+		align = nsAlignCenter
+	case driver.TextAlignEnd:
+		align = nsAlignRight
+	}
+	para := paragraphStyle(align, c.Style.LineHeight)
+	defer para.Send(selRelease)
+	attrs := textAttributes(objc.ID(font), c.Style.Color, para)
+	defer attrs.Send(selRelease)
+	if in.multiline {
+		in.field.Send(sel("setDefaultParagraphStyle:"), para)
+		in.field.Send(sel("setTypingAttributes:"), attrs)
+		storage := in.field.Send(sel("textStorage"))
+		text := storage.Send(sel("string"))
+		if n := objc.Send[uint](text, selLength); n > 0 {
+			storage.Send(sel("setAttributes:range:"), attrs, apple.NSRange{Location: 0, Length: n})
+		}
+		return
+	}
+	if e := in.editor(); e != 0 {
+		e.Send(sel("setTypingAttributes:"), attrs)
+	}
+}
+
+func setLabelPlaceholder(label objc.ID, text string, font objc.ID, color driver.Color, align int, lineHeight driver.Points) {
+	para := paragraphStyle(align, lineHeight)
+	defer para.Send(selRelease)
+	attrs := textAttributes(font, color, para)
+	defer attrs.Send(selRelease)
+	str := objc.ID(apple.Class("NSAttributedString")).Send(selAlloc).Send(
+		sel("initWithString:attributes:"), apple.NSString(text), attrs)
+	defer str.Send(selRelease)
+	label.Send(sel("setAttributedStringValue:"), str)
+}
+
 // setPlaceholder gives a field its placeholder in its font, color and
 // alignment: an attributed placeholder keeps to the start otherwise.
-func setPlaceholder(f objc.ID, text string, font objc.ID, color driver.Color, align int) {
+func setPlaceholder(f objc.ID, text string, font objc.ID, color driver.Color, align int, lineHeight driver.Points) {
 	a := textAttrs()
 	if a.font == 0 || a.color == 0 {
 		f.Send(selSetPlaceholder, apple.NSString(text))
@@ -819,8 +895,7 @@ func setPlaceholder(f objc.ID, text string, font objc.ID, color driver.Color, al
 	attrs.Send(sel("setObject:forKey:"), font, a.font)
 	attrs.Send(sel("setObject:forKey:"), nsColor(color), a.color)
 	if a.paragraph != 0 {
-		para := objc.ID(apple.Class("NSMutableParagraphStyle")).Send(selAlloc).Send(sel("init"))
-		para.Send(selSetAlignment, align)
+		para := paragraphStyle(align, lineHeight)
 		attrs.Send(sel("setObject:forKey:"), para, a.paragraph)
 		para.Send(selRelease)
 	}
