@@ -949,7 +949,8 @@ func (s *subscribers) remove(i int) {
 
 func (rt *runtime) track(src source, subs *subscribers) {
 	c := rt.observer
-	if c == nil {
+	// A disposed computation never runs again, so nothing would take out a link it made (#997).
+	if c == nil || c.disposed {
 		return
 	}
 	for _, s := range c.sources {
