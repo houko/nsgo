@@ -79,7 +79,7 @@ func certify(o certifyOptions) error {
 }
 
 type publishOptions struct {
-	cert, entry, minRuntime, out string
+	cert, entry, minRuntime, out, extra string
 }
 
 // publish compiles the app in dir and signs it with NSGO_RELEASE_KEY's
@@ -101,6 +101,9 @@ func publish(o publishOptions, path string) error {
 		return fmt.Errorf("%s: %w", rel(o.cert), err)
 	}
 	if strings.HasSuffix(path, packageExt) {
+		if o.extra != "" {
+			return errors.New("publish: -extra goes with an app's directory; signing a package again keeps its metadata")
+		}
 		if o.out == "" {
 			return errors.New("publish: signing a package again needs -out")
 		}
@@ -121,13 +124,19 @@ func publish(o publishOptions, path string) error {
 	if err != nil {
 		return err
 	}
+	var extra []byte
+	if o.extra != "" {
+		if extra, err = os.ReadFile(o.extra); err != nil {
+			return fmt.Errorf("-extra: %w", err)
+		}
+	}
 	header(p.Name, p.Version, "package")
 	source, err := bundler.Compile(os.DirFS(p.Dir), entry)
 	if err != nil {
 		return err
 	}
 	app := pkg.App{ID: p.ID, Name: p.Name, Version: p.Version, Build: uint64(p.versionCode())}
-	contents := pkg.Contents{App: app, Source: source, MinRuntime: o.minRuntime}
+	contents := pkg.Contents{App: app, Source: source, MinRuntime: o.minRuntime, Extra: extra}
 	caps, err := p.capabilities()
 	if err != nil {
 		return err

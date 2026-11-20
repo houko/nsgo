@@ -190,6 +190,7 @@ func main() {
 		fs.StringVar(&o.cert, "cert", "", "the release key's certificate `file`; its secret key is NSGO_RELEASE_KEY's")
 		fs.StringVar(&o.entry, "entry", "", "the TSX `entry` to compile (default: the one the main package runs, else App.tsx)")
 		fs.StringVar(&o.minRuntime, "min-runtime", "", "the oldest runtime `version` the package runs on (default: this tool's)")
+		fs.StringVar(&o.extra, "extra", "", "opaque metadata `file` to sign into the package")
 		fs.StringVar(&o.out, "out", "", "the package's `file` (default: build.output's <name>-<version>.nsgopkg)")
 		if err = parseCommand(fs, args, 1); err != nil {
 			break
@@ -247,7 +248,7 @@ func usage() {
   nsgo doctor
   nsgo keygen
   nsgo certify -key P -apps A [-days N] [-out F]
-  nsgo publish -cert C [-entry E] [-min-runtime V] [-out F] [dir | package]
+  nsgo publish -cert C [-entry E] [-min-runtime V] [-extra F] [-out F] [dir | package]
   nsgo verify  [-root P,... [-revocations F,...]] package
   nsgo revoke  -sequence N [-days N] [-keys IDs] [-packages H,...] -out F
 

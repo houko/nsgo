@@ -97,6 +97,11 @@ capabilities:
 `), 0o644)
 	os.WriteFile(filepath.Join(app, "App.tsx"), []byte(`import { mount, Text } from "nsgo";
 mount(() => <Text>plugin</Text>);`), 0o644)
+	extra := []byte(`{"permissions":["read"]}`)
+	extraPath := at("manifest.json")
+	if err := os.WriteFile(extraPath, extra, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	out := at("plugin.nsgopkg")
 	t.Setenv("NSGO_RELEASE_KEY", secret["release"])
@@ -106,9 +111,19 @@ mount(() => <Text>plugin</Text>);`), 0o644)
 	if err := publish(tooNew, app); err == nil {
 		t.Fatal("published for a newer runtime")
 	}
-	signing.out = out
+	missing := signing
+	missing.extra, missing.out = at("missing.json"), out
+	if err := publish(missing, app); err == nil {
+		t.Fatal("published without the -extra file")
+	}
+	signing.extra, signing.out = extraPath, out
 	if err := publish(signing, app); err != nil {
 		t.Fatal(err)
+	}
+	resign := signing
+	resign.out = at("again.nsgopkg")
+	if err := publish(resign, out); err == nil {
+		t.Fatal("signed a package again with -extra")
 	}
 	data, _ := os.ReadFile(out)
 	info, err := pkg.Inspect(data)
@@ -117,6 +132,9 @@ mount(() => <Text>plugin</Text>);`), 0o644)
 	}
 	if info.App != (pkg.App{ID: "com.example.plugin", Name: "Plugin", Version: "1.2.0", Build: 7}) {
 		t.Fatalf("got %+v", info.App)
+	}
+	if string(info.Extra) != string(extra) {
+		t.Fatalf("extra = %q, want %q", info.Extra, extra)
 	}
 	c := info.Capabilities
 	if !c.Allows("network", "https://api.example.com/v1/x", "GET") || c.Allows("network", "https://api.example.com/v2", "GET") ||
