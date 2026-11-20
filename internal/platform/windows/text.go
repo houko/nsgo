@@ -91,6 +91,87 @@ var (
 )
 
 var (
+	fallbacksMu sync.Mutex
+	// fallbacks holds an IDWriteFontFallback per FontFamily list of more than one family, which formats share and keep until the app's fonts change.
+	fallbacks = map[string]*comObject{}
+)
+
+// unicodeRange is a DWRITE_UNICODE_RANGE.
+type unicodeRange struct {
+	first, last uint32
+}
+
+// fallbackNames returns the Windows family each family of list names, in order.
+func fallbackNames(list string) []string {
+	families := driver.FontFamilies(list)
+	names := make([]string, 0, len(families))
+	for _, f := range families {
+		switch f.Kind {
+		case driver.FamilyMonospace:
+			names = append(names, "Consolas")
+		case driver.FamilySerif:
+			names = append(names, "Times New Roman")
+		case driver.FamilySystem, driver.FamilyRounded:
+			names = append(names, defaultFontName)
+		default:
+			names = append(names, f.Name)
+		}
+	}
+	return names
+}
+
+// fontFallback returns a font fallback that sets each character in the first family of list that has it, then where the system's fallback would, or nil for a list of one family or a Windows without IDWriteFactory2: DirectWrite's own fallback follows the system's locale rather than the list. The caller releases it.
+func fontFallback(list string) *comObject {
+	names := fallbackNames(list)
+	if len(names) < 2 {
+		return nil
+	}
+	fallbacksMu.Lock()
+	defer fallbacksMu.Unlock()
+	if f, ok := fallbacks[list]; ok {
+		f.addRef()
+		return f
+	}
+	factory := dwriteFactory()
+	if factory == nil {
+		return nil
+	}
+	f2 := factory.query(&iidDWriteFactory2)
+	if f2 == nil {
+		return nil
+	}
+	defer f2.release()
+	var builder, system, fallback *comObject
+	defer releaseAll(&builder, &system)
+	if failed(f2.call(dw2CreateFontFallbackBuilder, uintptr(unsafe.Pointer(&builder)))) {
+		return nil
+	}
+	fonts := fontCollection()
+	if fonts != nil {
+		defer fonts.release()
+	}
+	all := unicodeRange{first: 0, last: 0x10ffff}
+	targets := make([]*uint16, len(names))
+	for i, name := range names {
+		targets[i] = wide(name)
+	}
+	if failed(builder.callF(fallbackAddMapping, 1<<7, uintptr(unsafe.Pointer(&all)), 1,
+		uintptr(unsafe.Pointer(&targets[0])), uintptr(len(targets)), fonts.ptr(), 0, 0, f32(1))) {
+		return nil
+	}
+	// A custom fallback replaces the system's, which still covers what no family of the list has, such as emoji.
+	if !failed(f2.call(dw2GetSystemFontFallback, uintptr(unsafe.Pointer(&system)))) {
+		builder.call(fallbackAddMappings, system.ptr())
+	}
+	if failed(builder.call(fallbackCreateFontFallback, uintptr(unsafe.Pointer(&fallback)))) {
+		return nil
+	}
+	fallbacks[list] = fallback
+	fallback.addRef()
+	return fallback
+}
+
+var (
 	typographiesMu sync.Mutex
 	// typographies holds an IDWriteTypography per font variant, which
 	// texts share and keep for the process.
@@ -150,19 +231,7 @@ func firstInstalled(list string) string {
 	if name, ok := families[list]; ok {
 		return name
 	}
-	names := make([]string, 0, 1)
-	for _, f := range driver.FontFamilies(list) {
-		switch f.Kind {
-		case driver.FamilyMonospace:
-			names = append(names, "Consolas")
-		case driver.FamilySerif:
-			names = append(names, "Times New Roman")
-		case driver.FamilySystem, driver.FamilyRounded:
-			names = append(names, defaultFontName)
-		default:
-			names = append(names, f.Name)
-		}
-	}
+	names := fallbackNames(list)
 	if len(names) == 0 {
 		return defaultFontName
 	}
@@ -277,6 +346,14 @@ func textFormat(font driver.Font) *comObject {
 		fontWeight(font.Weight), fontStyle(font.Italic), dwStretchNormal, f32(max(float32(font.Size), 0.1)),
 		uintptr(unsafe.Pointer(wide(font.Language))), uintptr(unsafe.Pointer(&format)))) {
 		return nil
+	}
+	if fallback := fontFallback(font.Family); fallback != nil {
+		// The format holds the fallback itself.
+		if format1 := format.query(&iidDWriteTextFormat1); format1 != nil {
+			format1.call(formatSetFontFallback, fallback.ptr())
+			format1.release()
+		}
+		fallback.release()
 	}
 	return format
 }

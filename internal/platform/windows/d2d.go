@@ -27,6 +27,8 @@ var (
 	iidD3D11Multithread  = parseGUID("9b7e4e00-342c-4106-a19f-4f2704f689f0")
 	iidD2D1Factory1      = parseGUID("bb12d362-daee-4b9a-aa1d-14ba401cfa1f")
 	iidDWriteFactory     = parseGUID("b859ee5a-d838-4b5b-a2e8-1adc7d93db48")
+	iidDWriteFactory2    = parseGUID("0439fc60-ca44-4994-8dee-3a9af7b732ec")
+	iidDWriteTextFormat1 = parseGUID("5f174b49-0d8b-4cfb-8bca-f1cce9d06c67")
 	iidDWriteTextLayout1 = parseGUID("9064d822-80a7-465c-a986-df65f78b8feb")
 	iidDWriteInline      = parseGUID("8339fde3-106f-47ab-8373-1c6295eb10b3")
 	clsidGaussianBlur    = parseGUID("1feb6d69-2fe6-4ac9-8c58-1d7f93e7a6a5")
@@ -123,8 +125,20 @@ const (
 	dwCreateTextLayout           = 18
 	dwCreateEllipsisTrimmingSign = 20
 
+	// IDWriteFactory2
+	dw2GetSystemFontFallback     = 26
+	dw2CreateFontFallbackBuilder = 27
+
 	// IDWriteTypography
 	typographyAddFontFeature = 3
+
+	// IDWriteFontFallbackBuilder
+	fallbackAddMapping         = 3
+	fallbackAddMappings        = 4
+	fallbackCreateFontFallback = 5
+
+	// IDWriteTextFormat1
+	formatSetFontFallback = 34
 
 	// IDWriteFontCollection, IDWriteFontFamily, IDWriteFont
 	collectionGetFontFamily    = 4

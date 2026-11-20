@@ -64,10 +64,15 @@ func registerFonts(paths []string) {
 // with it, and the families looked up before look again.
 func (w *window) RegisterFont(data []byte) error { return addFonts(data) }
 
-// addFonts makes appFonts of the system's fonts, the app's so far and
-// data's, and has the families looked up before look again.
+// addFonts makes appFonts of the system's fonts, the app's so far and data's, and has the families looked up and the fallbacks made before made again.
 func addFonts(data ...[]byte) error {
 	err := buildFonts(data)
+	fallbacksMu.Lock()
+	for key, fallback := range fallbacks {
+		fallback.release()
+		delete(fallbacks, key)
+	}
+	fallbacksMu.Unlock()
 	// After fontsMu, which metricsOf takes under facesMu.
 	facesMu.Lock()
 	clear(faces)

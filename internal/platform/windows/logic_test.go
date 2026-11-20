@@ -732,6 +732,25 @@ func TestFallbackFontsDrawMissingGlyphs(t *testing.T) {
 	}
 }
 
+// TestFallbackFontsFollowTheFamilyList sets the Thai letters Courier New lacks in the next family of the list, Tahoma, where DirectWrite's own fallback would pick its Thai face, and still falls back to the system for what no family of the list has.
+func TestFallbackFontsFollowTheFamilyList(t *testing.T) {
+	w := testWindow()
+	width := func(text, family string) driver.Points {
+		p := w.Prepare(&driver.AttributedText{Text: text, Style: driver.TextStyle{Font: driver.Font{Family: family, Size: 32}, Color: driver.RGB(0)}})
+		defer p.Release()
+		return p.Measure(driver.Auto).Width
+	}
+	for _, c := range []struct{ text, list, family string }{
+		{"กกกก", "Courier New, Tahoma", "Tahoma"},
+		{"😀", "Courier New, Times New Roman", "Segoe UI Emoji"},
+	} {
+		got, want := width(c.text, c.list), width(c.text, c.family)
+		if got != want || got == 0 {
+			t.Errorf("%q in %q is %v wide, the %s glyphs are %v", c.text, c.list, got, c.family, want)
+		}
+	}
+}
+
 // TestSingleLineTextTruncatesInsteadOfWrapping checks MaxLines 1 keeps
 // the text on one line, trimmed to the box's width.
 func TestSingleLineTextTruncatesInsteadOfWrapping(t *testing.T) {
