@@ -669,11 +669,13 @@ final class WebNode {
         // The built-in zoom is the pinch; its on-screen buttons stay hidden.
         settings.setBuiltInZoomControls(pinchZoom);
         settings.setDisplayZoomControls(false);
-        String actualUserAgent = userAgent.isEmpty() ? settings.getUserAgentString() : userAgent;
-        if (!userAgentSuffix.isEmpty()) actualUserAgent += " " + userAgentSuffix;
-        if (!actualUserAgent.equals(this.userAgent)) {
-            this.userAgent = actualUserAgent;
-            settings.setUserAgentString(actualUserAgent); // null: the default
+        // The suffix goes after the system's default, not the string set before, which may already carry it.
+        if (!userAgentSuffix.isEmpty()) {
+            userAgent = (userAgent.isEmpty() ? WebSettings.getDefaultUserAgent(view.getContext()) : userAgent) + " " + userAgentSuffix;
+        }
+        if (!userAgent.equals(this.userAgent)) {
+            this.userAgent = userAgent;
+            settings.setUserAgentString(userAgent.isEmpty() ? null : userAgent); // null: the default
         }
         if (reload) load(src, html, baseURL);
     }

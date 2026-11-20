@@ -78,6 +78,7 @@ var (
 	webkitBackForwardListItemGetURI      func(uintptr) uintptr
 	webkitSettingsSetEnableJSMarkup      func(uintptr, int32)
 	webkitSettingsSetUserAgent           func(uintptr, *byte)
+	webkitSettingsGetUserAgent           func(uintptr) uintptr
 	webkitSettingsSetBackForwardGestures func(uintptr, int32)
 	webkitSettingsSetEnableMediaStream   func(uintptr, int32)
 	webkitUserMediaRequestGetType        func() uintptr
@@ -190,6 +191,7 @@ func bindWebKit(webkit, jsc, soup uintptr) {
 	reg(&webkitBackForwardListItemGetURI, "webkit_back_forward_list_item_get_uri")
 	reg(&webkitSettingsSetEnableJSMarkup, "webkit_settings_set_enable_javascript_markup")
 	reg(&webkitSettingsSetUserAgent, "webkit_settings_set_user_agent")
+	reg(&webkitSettingsGetUserAgent, "webkit_settings_get_user_agent")
 	reg(&webkitSettingsSetBackForwardGestures, "webkit_settings_set_enable_back_forward_navigation_gestures")
 	reg(&webkitSettingsSetEnableMediaStream, "webkit_settings_set_enable_media_stream")
 	reg(&webkitUserMediaRequestGetType, "webkit_user_media_permission_request_get_type")
@@ -385,10 +387,14 @@ func (w *window) configureWeb(v *view, c *driver.WebConfig) {
 	if ua == "" && c.Mobile {
 		ua = mobileUserAgent
 	}
-	ua = driver.WebUserAgent(ua, c.UserAgentSuffix)
 	if ua == "" {
+		// NULL sets WebKitGTK's default, which the suffix then follows.
 		webkitSettingsSetUserAgent(settings, nil)
-	} else {
+		if c.UserAgentSuffix != "" {
+			ua = goString(webkitSettingsGetUserAgent(settings))
+		}
+	}
+	if ua = driver.WebUserAgent(ua, c.UserAgentSuffix); ua != "" {
 		webkitSettingsSetUserAgent(settings, cstr(ua))
 	}
 	webkitSettingsSetBackForwardGestures(settings, boolInt(c.BackForwardGestures))

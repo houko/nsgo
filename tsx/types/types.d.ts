@@ -521,6 +521,8 @@ export interface WebViewHostProps {
   injectedJavaScript?: string;
   injectedJavaScriptBeforeContentLoaded?: string;
   userAgent?: string;
+  /** Appended after a space to `userAgent`, or to the platform's own user agent without it. */
+  userAgentSuffix?: string;
   scrollable?: boolean;
   javaScriptEnabled?: boolean;
   allowsBackForwardNavigationGestures?: boolean;

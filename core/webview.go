@@ -27,7 +27,7 @@ type WebView struct {
 	InjectedJavaScriptBeforeContentFunc func() string
 	// UserAgent replaces the platform's.
 	UserAgent string
-	// UserAgentSuffix is appended to UserAgent, or to the platform's own user agent when UserAgent is empty.
+	// UserAgentSuffix is appended after a space to UserAgent, or to the platform's own user agent when UserAgent is empty, such as Version/26.0 Safari/605.1.15 for sites that want Safari's in WKWebView. Apple platforms add it to their own user agent only as the native view is first made, so changing it afterwards takes effect there only with UserAgent set. HarmonyOS, the web and mini programs ignore it, as they do UserAgent.
 	UserAgentSuffix string
 	// Headers are sent with the initial URL request where the platform
 	// supports custom request headers. HTML sources do not make one.

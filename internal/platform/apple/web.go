@@ -380,11 +380,11 @@ func (w *Web) Configure(c *driver.WebConfig) {
 	if ua == "" && w.mobile() {
 		ua = driver.WebMobileUserAgentIPhone
 	}
-	ua = driver.WebUserAgent(ua, c.UserAgentSuffix)
 	if ua == "" {
+		// WebKit's own, which ends in the suffix make gave the configuration.
 		w.web.Send(sel("setCustomUserAgent:"), objc.ID(0))
 	} else {
-		w.web.Send(sel("setCustomUserAgent:"), NSString(ua))
+		w.web.Send(sel("setCustomUserAgent:"), NSString(driver.WebUserAgent(ua, c.UserAgentSuffix)))
 	}
 	w.web.Send(sel("setAllowsBackForwardNavigationGestures:"), c.BackForwardGestures)
 	if runtime.GOOS != "ios" {
@@ -403,6 +403,11 @@ func (w *Web) Configure(c *driver.WebConfig) {
 func (w *Web) make() {
 	loadWebKit()
 	config := objc.ID(Class("WKWebViewConfiguration")).Send(sel("new"))
+	// WebKit appends the application name to its default user agent after a space, and a view reads it only as it is made; iOS's default name, such as Mobile/15E148, stays before the suffix.
+	if suffix := w.config.UserAgentSuffix; suffix != "" {
+		name := GoString(config.Send(sel("applicationNameForUserAgent")))
+		config.Send(sel("setApplicationNameForUserAgent:"), NSString(driver.WebUserAgent(name, suffix)))
+	}
 	if w.config.Incognito {
 		store := objc.ID(Class("WKWebsiteDataStore")).Send(sel("nonPersistentDataStore"))
 		config.Send(sel("setWebsiteDataStore:"), store)

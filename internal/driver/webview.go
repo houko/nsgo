@@ -138,7 +138,7 @@ type WebConfig struct {
 	InjectedJavaScript              string
 	InjectedJavaScriptBeforeContent string
 	UserAgent                       string
-	UserAgentSuffix                string
+	UserAgentSuffix                 string
 	// Headers are sent with the initial URL request where the platform
 	// supports custom request headers. HTML sources do not make one.
 	Headers map[string]string

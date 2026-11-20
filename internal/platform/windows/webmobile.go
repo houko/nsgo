@@ -39,6 +39,7 @@ func (wv *webView) emulatePhone(c driver.WebConfig) {
 	if ua == "" {
 		ua = mobileUserAgent(wv.userAgent)
 	}
+	ua = driver.WebUserAgent(ua, c.UserAgentSuffix)
 	major := majorVersion(wv.userAgent)
 	brands := []cdpBrand{{"Chromium", major}, {"Not_A Brand", "24"}}
 	// An empty user agent ends the override, leaving the settings' own.

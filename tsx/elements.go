@@ -109,6 +109,7 @@ func webViewFace(p *props) core.Node {
 			return p.str("injectedJavaScriptBeforeContentLoaded")
 		},
 		UserAgent:           p.str("userAgent"),
+		UserAgentSuffix:     p.str("userAgentSuffix"),
 		NoScroll:            !p.boolOr("scrollable", true),
 		NoJavaScript:        !p.boolOr("javaScriptEnabled", true),
 		BackForwardGestures: p.bool("allowsBackForwardNavigationGestures"),
