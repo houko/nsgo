@@ -385,6 +385,7 @@ func (w *window) configureWeb(v *view, c *driver.WebConfig) {
 	if ua == "" && c.Mobile {
 		ua = mobileUserAgent
 	}
+	ua = driver.WebUserAgent(ua, c.UserAgentSuffix)
 	if ua == "" {
 		webkitSettingsSetUserAgent(settings, nil)
 	} else {

@@ -27,6 +27,15 @@ func TestWebOrigin(t *testing.T) {
 	}
 }
 
+func TestWebUserAgent(t *testing.T) {
+	if got := WebUserAgent("Mozilla/5.0", "Test/1"); got != "Mozilla/5.0 Test/1" {
+		t.Fatalf("WebUserAgent = %q", got)
+	}
+	if got := WebUserAgent("", "Test/1"); got != "Test/1" {
+		t.Fatalf("empty WebUserAgent = %q", got)
+	}
+}
+
 func TestWebSourceShows(t *testing.T) {
 	for _, c := range []struct {
 		source WebSource

@@ -625,7 +625,7 @@ final class WebNode {
     void configure(DataInputStream in) throws IOException {
         String src = Protocol.readString(in), html = Protocol.readString(in), baseURL = Protocol.readString(in);
         String injected = Protocol.readString(in), injectedBefore = Protocol.readString(in);
-        String userAgent = Protocol.readString(in);
+        String userAgent = Protocol.readString(in), userAgentSuffix = Protocol.readString(in);
         int flags = in.readUnsignedByte();
         boolean noScroll = Protocol.flag(flags, 0), noJavaScript = Protocol.flag(flags, 1);
         restricted = Protocol.flag(flags, 2);
@@ -669,9 +669,11 @@ final class WebNode {
         // The built-in zoom is the pinch; its on-screen buttons stay hidden.
         settings.setBuiltInZoomControls(pinchZoom);
         settings.setDisplayZoomControls(false);
-        if (!userAgent.equals(this.userAgent)) {
-            this.userAgent = userAgent;
-            settings.setUserAgentString(userAgent.isEmpty() ? null : userAgent); // null: the default
+        String actualUserAgent = userAgent.isEmpty() ? settings.getUserAgentString() : userAgent;
+        if (!userAgentSuffix.isEmpty()) actualUserAgent += " " + userAgentSuffix;
+        if (!actualUserAgent.equals(this.userAgent)) {
+            this.userAgent = actualUserAgent;
+            settings.setUserAgentString(actualUserAgent); // null: the default
         }
         if (reload) load(src, html, baseURL);
     }

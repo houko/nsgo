@@ -709,6 +709,7 @@ func (wv *webView) apply() {
 		if ua == "" {
 			ua = wv.userAgent
 		}
+		ua = driver.WebUserAgent(ua, c.UserAgentSuffix)
 		if s2 := s.query(&iidSettings2); s2 != nil {
 			s2.call(settingsPutUserAgent, uintptr(unsafe.Pointer(wide(ua))))
 			s2.release()

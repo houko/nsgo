@@ -1491,6 +1491,7 @@ func encode(w *writer, b *driver.MountBatch, first bool, requests []uint32, nati
 			// WebNode runs its bridge first, so the app's script can post.
 			w.str(c.InjectedJavaScriptBeforeContent)
 			w.str(c.UserAgent)
+			w.str(c.UserAgentSuffix)
 			// Android has no back and forward swipes.
 			w.flags(c.NoScroll, c.NoJavaScript, c.Restricted, c.Incognito, c.Media&driver.WebMicrophone != 0, c.Media&driver.WebCamera != 0, c.PinchZoom)
 			w.str(c.Hosts)

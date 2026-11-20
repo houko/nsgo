@@ -27,6 +27,8 @@ type WebView struct {
 	InjectedJavaScriptBeforeContentFunc func() string
 	// UserAgent replaces the platform's.
 	UserAgent string
+	// UserAgentSuffix is appended to UserAgent, or to the platform's own user agent when UserAgent is empty.
+	UserAgentSuffix string
 	// Headers are sent with the initial URL request where the platform
 	// supports custom request headers. HTML sources do not make one.
 	Headers map[string]string
@@ -144,7 +146,7 @@ func (t *Tree) mountWebView(cx *Scope, parent *node, w WebView) {
 	n.props = driver.ViewProps{Label: w.Label, TestID: w.TestID}
 	n.web = &webNode{
 		config: driver.WebConfig{Source: w.Source, InjectedJavaScript: w.InjectedJavaScript,
-			InjectedJavaScriptBeforeContent: w.InjectedJavaScriptBeforeContent, UserAgent: w.UserAgent,
+			InjectedJavaScriptBeforeContent: w.InjectedJavaScriptBeforeContent, UserAgent: w.UserAgent, UserAgentSuffix: w.UserAgentSuffix,
 			Headers: cloneWebHeaders(w.Headers), Incognito: w.Incognito,
 			SchemeHandlers: webSchemesOf(cx),
 			NoScroll:       w.NoScroll, NoJavaScript: w.NoJavaScript, PinchZoom: w.PinchZoom, BackForwardGestures: w.BackForwardGestures,

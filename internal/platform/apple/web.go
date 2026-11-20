@@ -380,6 +380,7 @@ func (w *Web) Configure(c *driver.WebConfig) {
 	if ua == "" && w.mobile() {
 		ua = driver.WebMobileUserAgentIPhone
 	}
+	ua = driver.WebUserAgent(ua, c.UserAgentSuffix)
 	if ua == "" {
 		w.web.Send(sel("setCustomUserAgent:"), objc.ID(0))
 	} else {

@@ -138,6 +138,7 @@ type WebConfig struct {
 	InjectedJavaScript              string
 	InjectedJavaScriptBeforeContent string
 	UserAgent                       string
+	UserAgentSuffix                string
 	// Headers are sent with the initial URL request where the platform
 	// supports custom request headers. HTML sources do not make one.
 	Headers map[string]string
@@ -168,6 +169,17 @@ type WebConfig struct {
 	// Media is what the pages may capture through getUserMedia; the
 	// platform refuses the rest as the page asks.
 	Media WebMedia
+}
+
+// WebUserAgent appends suffix to base with one separating space.
+func WebUserAgent(base, suffix string) string {
+	if suffix == "" {
+		return base
+	}
+	if base == "" {
+		return suffix
+	}
+	return base + " " + suffix
 }
 
 // WebMedia is a set of the devices a web view's pages may capture.
