@@ -99,9 +99,10 @@ type window struct {
 	batch   uint64  // batches applied
 	win     uintptr // GtkWindow, 0 for an embedded surface
 	surface uintptr // the NsgoView holding the root view
-	// primary is the backend's own surface. Opened surfaces share the GTK main
-	// loop, but closing one must not end the app.
-	primary    bool
+	// primary is the backend's own surface. Opened surfaces share the GTK main loop, but closing one must not end the app.
+	primary bool
+	// opener is the app's own window for a surface the app opened, which goes when that window stops (stop).
+	opener     *window
 	kind       driver.SurfaceKind
 	hideOnBlur bool
 	visible    bool
@@ -451,6 +452,10 @@ func (w *window) openSurface(cfg driver.SurfaceConfig) {
 		opts.Hidden = true
 	}
 	child := newWindow(opts, false)
+	child.opener = w
+	if w.opener != nil {
+		child.opener = w.opener
+	}
 	child.kind, child.hideOnBlur, child.noActivate, child.opts = cfg.Kind, cfg.HideOnBlur, cfg.NoActivate, opts
 	// Applied as the window maps (windowMappedCallback).
 	child.workspaces = cfg.Workspaces
@@ -600,6 +605,13 @@ func (w *window) stop() {
 	w.engine.Close()
 	w.closeNatives()
 	w.closeEditors()
+	// The windows the app opened that are still open go with it as WindowDestroy takes them, which a stopped engine no longer sends: left, their editors' CSS providers stay on the whole display.
+	windowHandles.Range(func(_, value any) bool {
+		if o := value.(*window); o.opener == w {
+			o.destroy()
+		}
+		return true
+	})
 	engine.SyncStorage()
 	w.releaseTextContexts()
 	if w.loop != 0 {

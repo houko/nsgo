@@ -282,6 +282,35 @@ func TestWindowCloseReleasesEditorProviders(t *testing.T) {
 	waitFor("both opened windows closed", before)
 	w.onLoop(t, w.close)
 	waitFor("the app closed", before)
+	// A window the app opened that is still open when the app's own window stops goes with it, and its providers too.
+	app = core.AppRoot(func(cx *core.Scope) {
+		cx.SetShutdownMode(core.ShutdownOnExplicit)
+		cx.OpenWindow(core.WindowOptions{Title: "nsgo-editors-left", Width: 200, Height: 120}, func(*core.Scope) core.Node { return inputs() })
+	})
+	w = startTestWindow(t, app, Options{Title: "nsgo-app-left", Width: 120, Height: 80, Hidden: true})
+	waitFor("the window left open open", before+2)
+	var left *window
+	w.onLoop(t, func() {
+		windowHandles.Range(func(_, v any) bool {
+			if o := v.(*window); !o.primary && o.win != 0 && goString(gtkWindowGetTitle(o.win)) == "nsgo-editors-left" {
+				left = o
+			}
+			return true
+		})
+	})
+	if left == nil {
+		t.Fatal("the opened window was not found")
+	}
+	w.onLoop(t, w.close)
+	waitFor("the app closed with a window left open", before)
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if _, ok := windowHandles.Load(left.handle); !ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the window left open outlived the app")
+		}
+	}
 }
 
 // pixels is the surface as GTK draws it, premultiplied ARGB32.
