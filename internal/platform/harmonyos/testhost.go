@@ -143,7 +143,10 @@ func (t *testSurface) Type(text string) error {
 	if v == nil || v.kind != driver.KindInput {
 		return errors.New("no text field has the keyboard focus")
 	}
-	t.s.m.edited(id, v.value+text)
+	value := v.value + text
+	t.s.m.edited(id, value)
+	// Type is a test-host shortcut for keyboard input. The engine receives the edit above, but ArkUI's TextInput has not emitted onChange, so update the native field through the page bridge as a real keyboard would show it.
+	t.s.bridge.Call("typeInput", int(id), value)
 	return nil
 }
 

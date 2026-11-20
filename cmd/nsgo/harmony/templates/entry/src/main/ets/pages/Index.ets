@@ -834,6 +834,21 @@ class Bridge {
     }
   }
 
+  typeInput(id: number, value: string): void {
+    const host = this.host;
+    if (host === undefined) {
+      return;
+    }
+    const v = host.tree.at(id);
+    const node = host.renderer.nodes.get(id);
+    if (v === undefined || node === undefined) {
+      return;
+    }
+    v.value = value;
+    host.renderer.shown.delete(id);
+    host.renderer.input(v, node);
+  }
+
   device(): string {
     const host = this.host;
     if (host === undefined) {
@@ -2026,7 +2041,7 @@ struct Index {
         .javaScriptProxy({
           object: this.bridge,
           name: 'nsgoHarmony',
-          methodList: ['ready', 'submit', 'tick', 'idle', 'device', 'measure', 'perf', 'snapshot', 'scrollBy', 'launch', 'alert', 'backunhandled', 'clipread', 'clipset', 'clipimage', 'dismisskeyboard', 'announce', 'title', 'updatewidget', 'listdir', 'readfile', 'pickdirectories', 'imageinfo', 'openurl', 'pickimages', 'pickfiles', 'savefile', 'saved', 'openfile', 'takephoto', 'keepawake', 'releaseawake', 'bioavail', 'bioauth', 'permission'],
+          methodList: ['ready', 'submit', 'tick', 'idle', 'device', 'measure', 'perf', 'snapshot', 'scrollBy', 'typeInput', 'launch', 'alert', 'backunhandled', 'clipread', 'clipset', 'clipimage', 'dismisskeyboard', 'announce', 'title', 'updatewidget', 'listdir', 'readfile', 'pickdirectories', 'imageinfo', 'openurl', 'pickimages', 'pickfiles', 'savefile', 'saved', 'openfile', 'takephoto', 'keepawake', 'releaseawake', 'bioavail', 'bioauth', 'permission'],
           controller: this.controller
         })
         .onInterceptRequest((event) => {
@@ -3243,6 +3258,10 @@ class Renderer {
         }
       })
       .onChange((t: string) => {
+        // Text the field already shows is not an edit: it is the value the engine or a test's typeInput just set, which must not reach the engine a second time.
+        if (this.shown.get(v.id) === t) {
+          return;
+        }
         this.shown.set(v.id, t);
         const host = this.host;
         if (host !== undefined) {
