@@ -29,7 +29,7 @@ ui.Button{Text: "继续", Size: ui.SizeLarge,
     Style: core.Style{Width: core.Pct(100), Height: core.Pt(50)}, OnPress: next}
 ```
 
-只有图标的按钮用 `ui.IconButton`，`Variant` 为 `IconButtonGhost` 或 `IconButtonRaised`，`Size` 以点为单位，`Label` 供辅助技术读取。在桌面上，指针停在按钮上时这段文字也会作为提示显示；`Tooltip` 可以换成别的文字，返回 `""` 时不显示提示。设置了 `Icon` 而没有 `Text` 的 `ui.Button` 也是方形的，同样需要 `Label`。
+只有图标的按钮用 `ui.IconButton`，`Variant` 为 `IconButtonGhost`、`IconButtonRaised` 或 `IconButtonFilled`（主题内嵌色或 `Fill` 的扁平圆形），`Size` 以点为单位，`Label` 供辅助技术读取。在桌面上，指针停在按钮上时这段文字也会作为提示显示；`Tooltip` 可以换成别的文字，返回 `""` 时不显示提示。设置了 `Icon` 而没有 `Text` 的 `ui.Button` 也是方形的，同样需要 `Label`。
 
 ```go preview=button/icon
 ui.IconButton{Icon: lucide.Trash, Label: "删除", Variant: ui.IconButtonGhost, OnPress: remove}

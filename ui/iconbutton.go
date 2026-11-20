@@ -18,6 +18,8 @@ const (
 	IconButtonPrimary
 	// IconButtonRaised is a circle on a raised toolbar face.
 	IconButtonRaised
+	// IconButtonFilled is a flat filled circle without a rim or shadow.
+	IconButtonFilled
 )
 
 // IconButton is a button of an icon alone, Size points across, faded while Disabled. Icon follows what it reads, and LabelFunc replaces Label, what assistive technology reads. The label is also the tooltip that shows as the pointer rests on it, unless Tooltip says otherwise.
@@ -34,6 +36,8 @@ type IconButton struct {
 	// a circle when 0, and Tint its color, the look's when nil.
 	IconSize core.Points
 	Tint     func() core.Color
+	// Fill colors the face of IconButtonFilled; the theme's inset color when nil.
+	Fill     func() core.Color
 	Selected func() bool
 	Disabled func() bool
 	OnPress  func()
@@ -72,6 +76,7 @@ func (b IconButton) circle(cx *core.Scope) core.Node {
 		size = 32
 	}
 	primary := b.Variant == IconButtonPrimary
+	filled := b.Variant == IconButtonFilled
 	tint := b.Tint
 	if tint == nil {
 		tint = colors.Text
@@ -85,6 +90,14 @@ func (b IconButton) circle(cx *core.Scope) core.Node {
 			p := cx.Palette()
 			s.Background = p.Accent
 			s.GroupStyle = &core.GroupStyle{Hover: &core.Style{Background: p.AccentHover}, Active: &core.Style{Background: p.AccentPressed}}
+		} else if filled {
+			fill := colors.Inset
+			if b.Fill != nil {
+				fill = b.Fill
+			}
+			base := fill()
+			s.Background = base
+			s.GroupStyle = &core.GroupStyle{Hover: &core.Style{Background: Mix(base, colors.Text(), 0.08)}, Active: &core.Style{Background: Mix(base, colors.Text(), 0.14)}}
 		} else {
 			s = FinOf(cx).Raised().Over(s)
 			s.Background, s.BorderWidth, s.BorderColor = colors.Raised(), 1, colors.Border()

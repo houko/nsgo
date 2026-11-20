@@ -138,7 +138,7 @@ var enums = []tsx.Option{
 		"ghost": ui.ButtonGhost}),
 	tsx.Enum(map[string]ui.CollapsibleVariant{"arrowRight": ui.CollapsibleArrowRight, "arrowLeft": ui.CollapsibleArrowLeft}),
 	tsx.Enum(map[string]ui.HoldVariant{"accent": ui.HoldAccent, "danger": ui.HoldDanger, "neutral": ui.HoldNeutral}),
-	tsx.Enum(map[string]ui.IconButtonVariant{"ghost": ui.IconButtonGhost, "primary": ui.IconButtonPrimary, "raised": ui.IconButtonRaised}),
+	tsx.Enum(map[string]ui.IconButtonVariant{"ghost": ui.IconButtonGhost, "primary": ui.IconButtonPrimary, "raised": ui.IconButtonRaised, "filled": ui.IconButtonFilled}),
 	tsx.Enum(map[string]ui.MeterVariant{"neutral": ui.MeterNeutral, "accent": ui.MeterAccent, "info": ui.MeterInfo, "warn": ui.MeterWarn,
 		"danger": ui.MeterDanger, "up": ui.MeterUp, "down": ui.MeterDown}),
 	tsx.Enum(map[string]ui.MenuItemVariant{"default": ui.MenuItemDefault, "danger": ui.MenuItemDanger}),

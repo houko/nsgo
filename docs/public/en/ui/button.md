@@ -29,7 +29,7 @@ ui.Button{Text: "Continue", Size: ui.SizeLarge,
     Style: core.Style{Width: core.Pct(100), Height: core.Pt(50)}, OnPress: next}
 ```
 
-A button of an icon alone is `ui.IconButton`, with `Variant` `IconButtonGhost` or `IconButtonRaised`, a `Size` in points and a `Label` for assistive technology. On desktops the label also shows as a tooltip once the pointer rests on the button; `Tooltip` says something else there, and one that returns `""` shows none. A `ui.Button` with `Icon` and no `Text` is a square too, and needs `Label`.
+A button of an icon alone is `ui.IconButton`, with `Variant` `IconButtonGhost`, `IconButtonRaised` or `IconButtonFilled`, a flat circle in the theme's inset color or `Fill`, a `Size` in points and a `Label` for assistive technology. On desktops the label also shows as a tooltip once the pointer rests on the button; `Tooltip` says something else there, and one that returns `""` shows none. A `ui.Button` with `Icon` and no `Text` is a square too, and needs `Label`.
 
 ```go preview=button/icon
 ui.IconButton{Icon: lucide.Trash, Label: "Delete", Variant: ui.IconButtonGhost, OnPress: remove}

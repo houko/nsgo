@@ -60,11 +60,13 @@ func TestSizedControls(t *testing.T) {
 // TestIconButtonVariants gives each look its default size.
 func TestIconButtonVariants(t *testing.T) {
 	each(t, func(t *testing.T, e core.Environment) {
-		app, _ := start(t, e, func(*core.Scope) core.Node {
+		app, p := start(t, e, func(*core.Scope) core.Node {
 			return core.View{Children: []core.Node{
 				IconButton{Icon: lucide.Plus, Label: "Plain", TestID: "plain"},
 				IconButton{Variant: IconButtonPrimary, Icon: lucide.Plus, Label: "Primary", TestID: "primary"},
 				IconButton{Variant: IconButtonRaised, Icon: lucide.Plus, Label: "Raised", Size: 40, TestID: "raised"},
+				IconButton{Variant: IconButtonFilled, Icon: lucide.Plus, Label: "Filled", TestID: "filled"},
+				IconButton{Variant: IconButtonFilled, Icon: lucide.Plus, Fill: func() core.Color { return core.RGB(0x123456) }, Label: "Custom", TestID: "custom"},
 			}}
 		})
 		if f := app.Find("plain").Frame.Size; f.Width != 28 {
@@ -75,6 +77,31 @@ func TestIconButtonVariants(t *testing.T) {
 		}
 		if f := app.Find("raised").Children[0].Frame.Size; f.Width != 40 {
 			t.Fatalf("raised = %v, want 40 points across", f)
+		}
+		if face := app.Find("filled").Children[0]; face.Style.Background != p.Inset || face.Style.BorderWidth != 0 || face.Style.ShadowColor != 0 || face.Style.ShadowRadius != 0 {
+			t.Fatalf("filled = background %x, border %v, shadow %x/%v; want inset with no rim or shadow", face.Style.Background, face.Style.BorderWidth, face.Style.ShadowColor, face.Style.ShadowRadius)
+		}
+		if face := app.Find("custom").Children[0]; face.Style.Background != core.RGB(0x123456) {
+			t.Fatalf("custom fill = %x, want 123456", face.Style.Background)
+		}
+	})
+}
+
+// TestIconButtonFilledFillFollowsSignal keeps a custom face color in sync with its source.
+func TestIconButtonFilledFillFollowsSignal(t *testing.T) {
+	each(t, func(t *testing.T, e core.Environment) {
+		var fill *core.Signal[core.Color]
+		app, _ := start(t, e, func(cx *core.Scope) core.Node {
+			fill = core.NewSignal(cx, core.RGB(0x123456))
+			return IconButton{Variant: IconButtonFilled, Fill: fill.Get, Icon: lucide.Plus, Label: "Filled", TestID: "filled"}
+		})
+		if got := app.Find("filled").Children[0].Style.Background; got != core.RGB(0x123456) {
+			t.Fatalf("initial fill = %x, want 123456", got)
+		}
+		app.Post(func() { fill.Set(core.RGB(0x654321)) })
+		app.Settle()
+		if got := app.Find("filled").Children[0].Style.Background; got != core.RGB(0x654321) {
+			t.Fatalf("updated fill = %x, want 654321", got)
 		}
 	})
 }
