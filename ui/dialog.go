@@ -23,6 +23,9 @@ type Dialog struct {
 	TitleFunc       func() string
 	Description     string
 	DescriptionFunc func() string
+	// Leading and Trailing sit at the start and end of the title row, such as a sheet's Cancel and Done. While either is set, the title is centered between two sides of one width, where it wraps rather than run under them.
+	Leading  []core.Node
+	Trailing []core.Node
 	// TitleStyle overrides the title's typography on every presentation.
 	TitleStyle     core.Style
 	TitleStyleFunc func() core.Style
@@ -72,13 +75,25 @@ func (d Dialog) Render(cx *core.Scope) core.Node {
 	if d.Title != "" || d.TitleFunc != nil || d.Description != "" || d.DescriptionFunc != nil {
 		var head []core.Node
 		if d.Title != "" || d.TitleFunc != nil {
-			head = append(head, core.Text{Content: d.Title, ContentFunc: d.TitleFunc, Role: core.RoleHeader, Style: TypeTitle.Merge(d.TitleStyle), StyleFunc: func() core.Style {
+			title := core.Text{Content: d.Title, ContentFunc: d.TitleFunc, Role: core.RoleHeader, Style: TypeTitle.Merge(d.TitleStyle), StyleFunc: func() core.Style {
 				s := Colored(colors.Text)()
 				if d.TitleStyleFunc != nil {
 					s = s.Merge(d.TitleStyleFunc())
 				}
 				return s
-			}})
+			}}
+			if d.Leading != nil || d.Trailing != nil {
+				// Two sides that grow alike keep the title in the middle; the title shrinks and wraps between them.
+				side := func(id string, justify core.Justify, children []core.Node) core.Node {
+					return core.View{TestID: id, Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: justify, FlexGrow: 1, FlexBasis: core.Pt(0), MinWidth: core.AutoMinimum, Gap: 8}, Children: children}
+				}
+				title.Style = core.Style{FlexShrink: 1, TextAlign: core.TextAlignCenter}.Merge(title.Style)
+				head = append(head, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, MinHeight: core.Pt(32), Gap: 8}, Children: []core.Node{
+					side("dialog-title-leading", core.JustifyStart, d.Leading), title, side("dialog-title-trailing", core.JustifyEnd, d.Trailing),
+				}})
+			} else {
+				head = append(head, title)
+			}
 		}
 		if d.Description != "" || d.DescriptionFunc != nil {
 			head = append(head, core.Text{Content: d.Description, ContentFunc: d.DescriptionFunc, Style: TypeBody, StyleFunc: Colored(colors.Muted)})

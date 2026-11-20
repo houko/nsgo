@@ -66,6 +66,46 @@ func TestDialog(t *testing.T) {
 	})
 }
 
+func TestDialogTitleActions(t *testing.T) {
+	for _, e := range []core.Environment{desktopEnv, phoneEnv} {
+		t.Run(string(e.OS), func(t *testing.T) {
+			app, _ := start(t, e, func(*core.Scope) core.Node {
+				return Dialog{Open: func() bool { return true }, Title: "Edit", TestID: "dialog",
+					Leading:  []core.Node{Button{Text: "Cancel", TestID: "cancel"}},
+					Trailing: []core.Node{Button{Text: "Done", TestID: "done"}},
+					Children: []core.Node{core.Text{Content: "Form"}}}
+			})
+			title := app.Find("role:header")
+			leading, trailing := app.Find("dialog-title-leading"), app.Find("dialog-title-trailing")
+			center := func(v *nsgotest.View) core.Points { return v.Frame.Origin.X + v.Frame.Size.Width/2 }
+			if got, want := center(title), center(title.Parent); got != want {
+				t.Fatalf("title center = %v, title row center = %v", got, want)
+			}
+			if leading.Frame.Origin.X >= trailing.Frame.Origin.X {
+				t.Fatalf("title actions are reversed: leading %v, trailing %v", leading.Frame, trailing.Frame)
+			}
+			if title.Props.Role != core.RoleHeader {
+				t.Fatalf("title role = %v, want header", title.Props.Role)
+			}
+		})
+	}
+	// A long title wraps between the actions instead of running under them.
+	app, _ := start(t, desktopEnv, func(*core.Scope) core.Node {
+		return Dialog{Open: func() bool { return true }, Title: "A title long enough to need more than the room between the actions of this dialog", TestID: "dialog",
+			Leading:  []core.Node{Button{Text: "Cancel", TestID: "cancel"}},
+			Trailing: []core.Node{Button{Text: "Done", TestID: "done"}},
+			Children: []core.Node{core.Text{Content: "Form"}}}
+	})
+	title, leading, trailing := app.Find("role:header").Frame, app.Find("dialog-title-leading").Frame, app.Find("dialog-title-trailing").Frame
+	cancel, done := app.Find("cancel").Frame, app.Find("done").Frame
+	if title.Origin.X < leading.Origin.X+leading.Size.Width || title.Origin.X+title.Size.Width > trailing.Origin.X {
+		t.Fatalf("title %v overlaps the actions' sides %v and %v", title, leading, trailing)
+	}
+	if leading.Size.Width < cancel.Size.Width || trailing.Size.Width < done.Size.Width || cancel.Origin.X < 0 || done.Origin.X < 0 {
+		t.Fatalf("the actions %v and %v do not fit their sides %v and %v", cancel, done, leading, trailing)
+	}
+}
+
 // TestBareDialogClipFollowsTheSurface checks that a bare dialog clips its body to the inside of the surface's rim, whatever corners and rim the app's Style and StyleFunc give it, and follows them while it is open.
 func TestBareDialogClipFollowsTheSurface(t *testing.T) {
 	type corners = core.Corners

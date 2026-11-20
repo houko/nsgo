@@ -12,6 +12,7 @@
 - Keep the borders of `ui/chat`'s glass composer, `GlassPanel` and popovers on watchOS, which draws no Liquid Glass rim (#896 by @houko).
 - Close the windows a Linux app opened, and release their input editors' display-wide styles, when the app's own window stops (#901 by @houko).
 - Apply `Overflow: Hidden` on HarmonyOS, clipping a view's children to its bounds and rounded corners (#808 by @houko).
+- Add `Leading` and `Trailing` to `ui.Dialog` to put actions at the ends of its title row, with the title centered between them (#957 by @houko).
 - Add `ToastContent.NoClose`, `Trailing` and `OnPress`, plus `Toasts.NoClose`, so apps can customize toast dismissal, trailing content and whole-toast presses while preserving child actions (#934 by @houko).
 - Register `url_schemes` in the iOS app and hand their links to `mobile.OnOpenLinks`, at a cold launch and while the app runs, through `scene:openURLContexts:` (#909 by @houko).
 - Let Android's system tab bar follow the app theme's surface, inactive text, active text and accent-container colors (#936 by @houko).
