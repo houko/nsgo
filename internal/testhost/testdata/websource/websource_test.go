@@ -2,6 +2,7 @@ package websource_test
 
 import (
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -140,5 +141,58 @@ func TestEmptyWebSourceClearsAPage(t *testing.T) {
 	for range 2 {
 		page.scope.Post(func() { page.ref.Load(core.WebSource{}) })
 		page.loaded(t, a, `""`, true)
+	}
+}
+
+// A web view with UserAgentSuffix alone sends the platform's own user agent followed by the suffix, which on Apple platforms the configuration carries from the view's start.
+func TestUserAgentSuffixFollowsThePlatformsOwn(t *testing.T) {
+	switch nsgotest.Target() {
+	case "macos", "ios_simulator", "ios", "linux", "windows", "android":
+	default:
+		t.Skip("checks a native web view's user agent")
+	}
+	const suffix = "Version/26.0 Safari/605.1.15"
+	var mu sync.Mutex
+	var scope *core.Scope
+	var ref core.Ref
+	loaded := false
+	a := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		scope = cx
+		return core.WebView{
+			Source: core.WebHTML("<p>agent</p>", ""), UserAgentSuffix: suffix, Ref: &ref, TestID: "page",
+			Style: core.Style{Width: core.Pt(240), Height: core.Pt(140)},
+			OnLoad: func(core.WebNavigation) {
+				mu.Lock()
+				defer mu.Unlock()
+				loaded = true
+			},
+		}
+	}, nsgotest.Size(260, 160))
+	a.WaitUntil(15*time.Second, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return loaded
+	})
+	var agent string
+	var evalErr error
+	var answered bool
+	scope.Post(func() {
+		ref.Evaluate("navigator.userAgent", func(result string, err error) {
+			mu.Lock()
+			defer mu.Unlock()
+			agent, evalErr, answered = result, err, true
+		})
+	})
+	a.WaitUntil(10*time.Second, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return answered
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	t.Logf("navigator.userAgent = %s", agent)
+	// Evaluate answers in JSON: a quoted string.
+	if evalErr != nil || !strings.HasPrefix(agent, `"Mozilla/5.0 (`) || !strings.Contains(agent, "AppleWebKit/") || !strings.HasSuffix(agent, " "+suffix+`"`) {
+		t.Fatalf("navigator.userAgent = %s, %v; want the platform's own followed by %q", agent, evalErr, suffix)
 	}
 }
