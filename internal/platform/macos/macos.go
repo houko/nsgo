@@ -246,9 +246,13 @@ type surface struct {
 	movers           map[*view]struct{} // views following mouse moves
 	inside           map[*view]struct{} // views whose tracking areas hold the mouse
 	root             driver.NodeID      // the root view's, which the batches name
-	// mouse is finger 0 of the views' touches; touched is the last
-	// NSEvent reported, which AppKit passes up the views.
-	mouse   finger.Mouse
+	// mouse is finger 0 of the views' touches; touched is the last NSEvent reported, which AppKit passes up the views.
+	mouse finger.Mouse
+	// clicks is restartClicks': the view the window's last left mouse down hit, and how many of the window server's count of that click came before it.
+	clicks struct {
+		view    objc.ID
+		skipped int
+	}
 	touched struct {
 		event objc.ID
 		kind  int
@@ -466,6 +470,9 @@ func loadAppKit() {
 		Cmd: sel("sendEvent:"),
 		Fn: func(self objc.ID, cmd objc.SEL, event objc.ID) {
 			if inputAllowed(event) {
+				if s := windowSurface(self); s != nil {
+					event = s.restartClicks(event)
+				}
 				apple.Super(self, cmd, event)
 			}
 		},
@@ -2587,6 +2594,35 @@ func mouseDown(self objc.ID, cmd objc.SEL, event objc.ID) {
 			}
 		})
 	}
+}
+
+// restartClicks makes a left mouse down on another view than the one the window's last left mouse down hit a first click, and counts that view's quick clicks after it from there (#900). The window server counts clicks by place and time alone, so a quick click where a pushed page has replaced the view that took the previous one comes with clickCount 2, and AppKit hands that down to no view at all; native apps never show a click on a new view as a double click either.
+func (s *surface) restartClicks(event objc.ID) objc.ID {
+	const leftMouseDown = 1
+	if objc.Send[uint](event, sel("type")) != leftMouseDown {
+		return event
+	}
+	frame := s.window.Send(sel("contentView")).Send(selSuperview)
+	if frame == 0 {
+		return event
+	}
+	at := objc.Send[apple.CGPoint](event, selLocationInWindow)
+	hit := frame.Send(sel("hitTest:"), objc.Send[apple.CGPoint](frame, selConvertPoint, at, objc.ID(0)))
+	n := objc.Send[int](event, sel("clickCount"))
+	switch {
+	case n < 2:
+		s.clicks.skipped = 0
+	case hit != s.clicks.view:
+		s.clicks.skipped = n - 1
+	}
+	s.clicks.view = hit
+	if s.clicks.skipped == 0 {
+		return event
+	}
+	return objc.ID(apple.Class("NSEvent")).Send(
+		sel("mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:"),
+		uint(leftMouseDown), at, objc.Send[uint](event, sel("modifierFlags")), objc.Send[float64](event, sel("timestamp")),
+		objc.Send[int](event, sel("windowNumber")), objc.ID(0), objc.Send[int](event, sel("eventNumber")), n-s.clicks.skipped, objc.Send[float32](event, sel("pressure")))
 }
 
 func mouseUp(self objc.ID, cmd objc.SEL, event objc.ID) {
