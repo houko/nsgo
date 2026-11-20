@@ -91,6 +91,24 @@ func TestALimitedTextIsAsTallAsItsLinesUncut(t *testing.T) {
 	}
 }
 
+func TestLimitedTextMeasuresAndAlignsItsTruncatedLine(t *testing.T) {
+	for _, align := range []driver.TextAlign{driver.TextAlignStart, driver.TextAlignCenter, driver.TextAlignEnd} {
+		p := TextEngine{}.Prepare(&driver.AttributedText{Text: "Earth Science Weekly", MaxLines: 1,
+			Style: driver.TextStyle{Font: driver.Font{Size: 13, Weight: 400}, Align: align}})
+		got := p.Measure(72)
+		if got.Width < 70 || got.Width > 72 {
+			t.Errorf("align %v: measured width %v, want the offered width", align, got.Width)
+		}
+		l := p.Layout(driver.Size{Width: 72, Height: got.Height}).(*Layout)
+		lines := l.TextLines()
+		if len(lines) != 1 || lines[0].Bounds.Origin.X < 0 || lines[0].Bounds.Origin.X+lines[0].Bounds.Size.Width > 72.5 {
+			t.Errorf("align %v: line bounds %+v, want one line inside 72 points", align, lines)
+		}
+		l.Release()
+		p.Release()
+	}
+}
+
 // TestOneLineWithLeadingMatchesTheFramesetter checks texts in fonts with typographic leading, which a frame leaves out of its last line where CTLineGetTypographicBounds counts it: named fonts, so the test does not depend on the fallback a machine picks for Menlo. The ASCII texts are the ones that could take the one-line shortcut.
 func TestOneLineWithLeadingMatchesTheFramesetter(t *testing.T) {
 	defer func() { oneLineFast = true }()

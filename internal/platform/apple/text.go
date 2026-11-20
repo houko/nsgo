@@ -646,9 +646,10 @@ func (TextEngine) Prepare(t *driver.AttributedText) driver.PreparedText {
 	p := &prepared{str: str, maxLines: t.MaxLines, ellipsize: t.Ellipsize,
 		shadow: t.Shadow, text: t.Text, toUTF8: toUTF8,
 		toUTF16: toUTF16, decos: decorations(t, toUTF16), atts: t.Attachments, fonts: fonts}
+	p.flush = flushOf(t.Style)
 	if oneLineFast && isASCIILine(t.Text) && len(t.Attachments) == 0 && len(p.decos) == 0 && t.Style.LineHeight == 0 &&
 		!strings.ContainsAny(t.Text, "\n\r\t\v\f\u0085\u2028\u2029") {
-		p.oneLine, p.flush = true, flushOf(t.Style)
+		p.oneLine = true
 	}
 	if cfAttributedStringLength(str) == 0 {
 		f := Font(t.Style.Font)
@@ -805,11 +806,44 @@ func (p *prepared) measure(maxWidth driver.Points) driver.Size {
 		defer Release(frame)
 		if lines := ctFrameGetLines(frame); cfArrayGetCount(lines) > p.maxLines {
 			size := firstLines(frame, lines, p.maxLines, tall)
+			r := ctLineGetStringRange(cfArrayGetValueAtIndex(lines, p.maxLines-1))
+			rest := cfAttributedStringSubstr(0, p.str, r.Location, cfAttributedStringLength(p.str)-r.Location)
+			size.Width = max(size.Width, p.truncatedWidth(rest, w))
+			Release(rest)
 			return driver.Size{Width: driver.Points(size.Width), Height: driver.Points(framedHeight(size.Height))}
 		}
 	}
 	size := ctFramesetterSuggestSize(p.framesetter(), 0, 0, 0, w, unbounded, 0)
 	return driver.Size{Width: driver.Points(size.Width), Height: driver.Points(size.Height)}
+}
+
+// truncatedWidth reports the width of the line drawn for the last visible
+// line when a text is cut by MaxLines. CoreText's wrapped line can be much
+// narrower than the line that replaces it, especially for a one-line label.
+func (p *prepared) truncatedWidth(rest uintptr, width float64) float64 {
+	line := ctLineCreateWithAttrString(rest)
+	defer Release(line)
+	if p.ellipsize == driver.EllipsizeClip {
+		var ascent, descent, leading float64
+		return min(ctLineGetTypographicBounds(line, &ascent, &descent, &leading), width)
+	}
+	kind := uint32(truncateEnd)
+	switch p.ellipsize {
+	case driver.EllipsizeHead:
+		kind = truncateStart
+	case driver.EllipsizeMiddle:
+		kind = truncateMiddle
+	}
+	token := ellipsisToken(rest)
+	truncated := ctLineCreateTruncatedLine(line, width, kind, token)
+	Release(token)
+	if truncated == 0 {
+		var ascent, descent, leading float64
+		return ctLineGetTypographicBounds(line, &ascent, &descent, &leading)
+	}
+	defer Release(truncated)
+	var ascent, descent, leading float64
+	return ctLineGetTypographicBounds(truncated, &ascent, &descent, &leading)
 }
 
 // framedHeight rounds a height measured outside a framesetter up to a whole point, as a framesetter sizes a frame: CoreText puts lines on whole points, so its heights are whole points while its widths keep their fractions, which the core rounds up to a device pixel. A text cut to its line limit is then as tall as its lines uncut.
@@ -922,6 +956,7 @@ func (p *prepared) layout(size driver.Size) *Layout {
 	for i, o := range origins {
 		l.origins[i] = CGPoint{X: o.X, Y: tall - o.Y}
 	}
+	l.origins[p.maxLines-1].X = ctLinePenOffsetForFlush(l.truncated, p.flush, float64(size.Width)+0.5)
 	l.lines = make([]uintptr, p.maxLines-1)
 	for i := range l.lines {
 		l.lines[i] = cfRetain(cfArrayGetValueAtIndex(lines, i))
