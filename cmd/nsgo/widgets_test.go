@@ -100,6 +100,15 @@ func TestWidgetLocalizations(t *testing.T) {
 			t.Errorf("%s localization = %q, want %q, error %v", lang, data, want, err)
 		}
 	}
+	data, err := os.ReadFile(filepath.Join(resources, "zh-Hans.lproj", "Localizable.strings"))
+	if err != nil || !strings.Contains(string(data), `"widgetDescription" = "What is playing";`) {
+		t.Errorf("zh-Hans missing source fallback = %q, error %v", data, err)
+	}
+	writeFiles(t, locales, map[string]string{"en.yaml": "widgetName: Now playing\nwithArgs:\n  message: '{n}'\n  placeholders:\n    n: {type: int}\n"})
+	p.Widgets = []widgetKind{{Kind: "bad", Name: "withArgs"}}
+	if _, err := kindsSwift(p, false); err == nil || !strings.Contains(err.Error(), "takes no arguments") {
+		t.Fatalf("parameterized widget key error = %v", err)
+	}
 }
 
 func TestLiveActivitiesConfig(t *testing.T) {
