@@ -267,6 +267,8 @@ func TestBuildSigningProfileFlags(t *testing.T) {
 		"-profile", "profiles/app.mobileprovision",
 		"-widgets-profile", "profiles/widgets.mobileprovision",
 		"-clip-profile", "profiles/clip.mobileprovision",
+		"-macos-profile", "profiles/macos.provisionprofile",
+		"-installer", "Mac Installer Distribution: Example (TEAM123)",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -274,6 +276,8 @@ func TestBuildSigningProfileFlags(t *testing.T) {
 		Profile:        "from-yaml.mobileprovision",
 		WidgetsProfile: "from-yaml-widgets.mobileprovision",
 		ClipProfile:    "from-yaml-clip.mobileprovision",
+		MacOSProfile:   "from-yaml-macos.provisionprofile",
+		Installer:      "from-yaml-installer",
 	}}
 
 	f.apply(p)
@@ -286,6 +290,12 @@ func TestBuildSigningProfileFlags(t *testing.T) {
 	}
 	if got, want := p.Sign.ClipProfile, filepath.Join(p.Dir, "profiles/clip.mobileprovision"); got != want {
 		t.Errorf("sign.clip_profile: got %q, want %q", got, want)
+	}
+	if got, want := p.Sign.MacOSProfile, filepath.Join(p.Dir, "profiles/macos.provisionprofile"); got != want {
+		t.Errorf("sign.macos_profile: got %q, want %q", got, want)
+	}
+	if got, want := p.Sign.Installer, "Mac Installer Distribution: Example (TEAM123)"; got != want {
+		t.Errorf("sign.installer: got %q, want %q", got, want)
 	}
 }
 

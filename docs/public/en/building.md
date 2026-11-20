@@ -302,7 +302,7 @@ sign:
   # clip_profile: assets/Clip.mobileprovision        # signs the IPA's App Clip
 ```
 
-The keystore's passwords come from `NSGO_KEYSTORE_PASSWORD` and `NSGO_KEY_PASSWORD`. `-team` signs the iPhone's package. `-profile`, `-widgets-profile` and `-clip-profile` replace the app's, the widget extension's and the App Clip's provisioning profiles from the command line.
+The keystore's passwords come from `NSGO_KEYSTORE_PASSWORD` and `NSGO_KEY_PASSWORD`. `-team` signs the iPhone's package. `-profile`, `-widgets-profile`, `-clip-profile` and `-macos-profile` replace the app's, the widget extension's, the App Clip's and the Mac App Store's provisioning profiles from the command line. `-installer` replaces the Mac Installer Distribution identity.
 
 ### Sign Windows packages
 

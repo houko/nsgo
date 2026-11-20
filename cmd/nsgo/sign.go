@@ -74,9 +74,10 @@ type signing struct {
 
 // signFlags are nsgo build's flags that replace nsgo.yaml's sign values.
 type signFlags struct {
-	identity, profile, widgetsProfile, clipProfile *override[string]
-	keystore, alias, notarize                      *override[string]
-	certificate, signCommand, timestamp            *override[string]
+	identity, profile, widgetsProfile, clipProfile, macOSProfile *override[string]
+	installer                                                    *override[string]
+	keystore, alias, notarize                                    *override[string]
+	certificate, signCommand, timestamp                          *override[string]
 }
 
 func (f *signFlags) bind(fs *flag.FlagSet) {
@@ -84,6 +85,8 @@ func (f *signFlags) bind(fs *flag.FlagSet) {
 	f.profile = stringFlag(fs, "profile", "the iOS provisioning `profile` (default: nsgo.yaml's sign.profile)")
 	f.widgetsProfile = stringFlag(fs, "widgets-profile", "the iOS widget extension's provisioning `profile` (default: nsgo.yaml's sign.widgets_profile)")
 	f.clipProfile = stringFlag(fs, "clip-profile", "the iOS App Clip's provisioning `profile` (default: nsgo.yaml's sign.clip_profile)")
+	f.macOSProfile = stringFlag(fs, "macos-profile", "the Mac App Store provisioning `profile` (default: nsgo.yaml's sign.macos_profile)")
+	f.installer = stringFlag(fs, "installer", "the Mac Installer Distribution `identity` (default: nsgo.yaml's sign.installer)")
 	f.keystore = stringFlag(fs, "keystore", "the Android `keystore`, PKCS#12 or JKS; NSGO_KEYSTORE_PASSWORD and NSGO_KEY_PASSWORD give its passwords (default: nsgo.yaml's sign.keystore)")
 	f.alias = stringFlag(fs, "key-alias", "the `alias` of the keystore's key (default: nsgo.yaml's sign.key_alias, else its only key)")
 	f.notarize = stringFlag(fs, "notarize", "the notarytool keychain `profile` the macOS package is notarized with (default: nsgo.yaml's sign.notarize)")
@@ -103,6 +106,10 @@ func (f *signFlags) apply(p *project) {
 	if f.clipProfile.set {
 		p.Sign.ClipProfile = p.resolve(f.clipProfile.value)
 	}
+	if f.macOSProfile.set {
+		p.Sign.MacOSProfile = p.resolve(f.macOSProfile.value)
+	}
+	f.installer.replace(&p.Sign.Installer)
 	if f.keystore.set {
 		p.Sign.Keystore = p.resolve(f.keystore.value)
 	}
