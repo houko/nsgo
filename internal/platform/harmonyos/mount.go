@@ -570,7 +570,7 @@ func (m *mounter) style(id driver.NodeID, s *driver.ViewStyle) {
 		borderColor = s.BorderColors.Top
 	}
 	opacity := float64(s.Opacity)
-	if !animated && opacity == 0 && s.Background == 0 && radius == 0 && border == 0 && !s.Hidden {
+	if !animated && opacity == 0 && s.Background == 0 && radius == 0 && border == 0 && !s.Hidden && !s.Clip {
 		return
 	}
 	t := s.Transform
@@ -589,6 +589,7 @@ func (m *mounter) style(id driver.NodeID, s *driver.ViewStyle) {
 	}
 	m.o.op("s", id).str(webstyle.Color(s.Background)).num(radius).num(border).
 		str(webstyle.Color(borderColor)).num(opacity).boolean(s.Hidden).
+		boolean(s.Clip).
 		num(float64(t.TranslateX)).num(float64(t.TranslateY)).
 		num(float64(sx)).num(float64(sy)).num(float64(t.Rotate))
 }

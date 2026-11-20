@@ -238,6 +238,7 @@ class VNode {
   bc: string = '';
   op: number = 1;
   hidden: boolean = false;
+  clip: boolean = false;
   // needFocus and needBlur ask the renderer to move or take the field's
   // keyboard focus once, as ItemFocus and ItemBlur say.
   needFocus: boolean = false;
@@ -641,11 +642,12 @@ class Tree {
           v.bc = o[5] as string;
           v.op = o[6] as number;
           v.hidden = o[7] as boolean;
-          v.tx = o[8] as number;
-          v.ty = o[9] as number;
-          v.scx = o[10] as number;
-          v.scy = o[11] as number;
-          v.rot = o[12] as number;
+          v.clip = o[8] as boolean;
+          v.tx = o[9] as number;
+          v.ty = o[10] as number;
+          v.scx = o[11] as number;
+          v.scy = o[12] as number;
+          v.rot = o[13] as number;
         } else if (code === 't') {
           v.text = o[2] as string;
           v.fs = o[3] as number;
@@ -3130,6 +3132,10 @@ class Renderer {
       c.visibility(v.hidden ? Visibility.Hidden : Visibility.Visible);
       a.hidden = v.hidden;
     }
+    if (a.clip !== v.clip) {
+      c.clip(v.clip);
+      a.clip = v.clip;
+    }
     const acc = v.accLabel !== '' ? v.accLabel : v.label;
     if (acc !== '' && a.acc !== acc) {
       c.accessibilityText(acc);
@@ -3580,6 +3586,7 @@ class Styled {
   scy: number = NaN;
   rot: number = NaN;
   hidden: boolean | undefined = undefined;
+  clip: boolean | undefined = undefined;
   acc: string | undefined = undefined;
   key: string | undefined = undefined;
   pointer: number = NaN;
@@ -3603,6 +3610,7 @@ class Styled {
     a.scy = 1;
     a.rot = 0;
     a.hidden = false;
+    a.clip = false;
     a.pointer = 0;
     return a;
   }
