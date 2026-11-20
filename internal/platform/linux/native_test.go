@@ -333,21 +333,25 @@ func (p pixels) at(x, y int) []byte {
 func (w *window) surfacePixels(t *testing.T) pixels {
 	t.Helper()
 	var p pixels
-	w.onLoop(t, func() {
-		width, height := int(gtkWidgetGetWidth(w.surface)), int(gtkWidgetGetHeight(w.surface))
-		if width <= 0 || height <= 0 {
-			return
-		}
-		surface := cairoImageSurfaceCreate(0, int32(width), int32(height))
-		cr := cairoCreate(surface)
-		w.paint(cr)
-		cairoSurfaceFlush(surface)
-		stride := int(cairoImageSurfaceGetStride(surface))
-		data := (*[1 << 30]byte)(cPointer(cairoImageSurfaceGetData(surface)))[: stride*height : stride*height]
-		p = pixels{data: append([]byte(nil), data...), stride: stride, width: width, height: height}
-		cairoDestroy(cr)
-		cairoSurfaceDestroy(surface)
-	})
+	w.onLoop(t, func() { p = w.drawnPixels() })
+	return p
+}
+
+// drawnPixels draws the surface into an image on the loop, from the state the window holds at that moment; it is empty while the surface has no size.
+func (w *window) drawnPixels() pixels {
+	width, height := int(gtkWidgetGetWidth(w.surface)), int(gtkWidgetGetHeight(w.surface))
+	if width <= 0 || height <= 0 {
+		return pixels{}
+	}
+	surface := cairoImageSurfaceCreate(0, int32(width), int32(height))
+	cr := cairoCreate(surface)
+	w.paint(cr)
+	cairoSurfaceFlush(surface)
+	stride := int(cairoImageSurfaceGetStride(surface))
+	data := (*[1 << 30]byte)(cPointer(cairoImageSurfaceGetData(surface)))[: stride*height : stride*height]
+	p := pixels{data: append([]byte(nil), data...), stride: stride, width: width, height: height}
+	cairoDestroy(cr)
+	cairoSurfaceDestroy(surface)
 	return p
 }
 

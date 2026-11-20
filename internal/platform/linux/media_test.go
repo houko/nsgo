@@ -449,42 +449,69 @@ func TestLayoutAnimationMovesShowsAndRetiresViews(t *testing.T) {
 	})
 
 	w.pressView(t, "move")
-	waitPixels(t, w, "the box half way", func(p pixels) bool {
+	waitMidLayout(t, w, "the box half way", func(v *view) bool {
+		x := v.shownFrame().Origin.X
+		return v.props.TestID == "box" && v.layout.move != nil && x > 20 && x < 60
+	}, func(p pixels) bool {
 		x := firstX(p, 10, 0xff0000)
 		return x > 15 && x < 65
 	})
 	waitPixels(t, w, "the box at its new frame", func(p pixels) bool { return firstX(p, 10, 0xff0000) == 80 })
 
 	w.pressView(t, "remove")
-	deadline := time.Now().Add(time.Second)
-	for retired := false; !retired; {
-		if time.Now().After(deadline) {
-			t.Fatal("the removed view does not leave animated")
-		}
-		w.onLoop(t, func() {
-			for _, v := range w.layouts {
-				retired = retired || v.dying
-			}
-		})
-	}
-	waitPixels(t, w, "the removed view fading", func(p pixels) bool {
+	waitMidLayout(t, w, "the removed view fading", func(v *view) bool {
+		o := v.layoutOpacity()
+		return v.dying && o > 0.2 && o < 0.8
+	}, func(p pixels) bool {
 		c := p.at(10, 50)
 		return c[0] == 0xff && c[2] > 0x30 && c[2] < 0xd0
 	})
 	waitPixels(t, w, "the removed view gone", func(p pixels) bool { return isColor(p.at(10, 50), 0xffffff) })
 
 	w.pressView(t, "add")
-	waitPixels(t, w, "the new view growing from its center", func(p pixels) bool {
+	waitMidLayout(t, w, "the new view growing from its center", func(v *view) bool {
+		s := v.layoutScale()
+		return !v.dying && s > 0.2 && s < 0.8
+	}, func(p pixels) bool {
 		return isColor(p.at(100, 60), 0x00ff00) && isColor(p.at(83, 43), 0xffffff)
 	})
 	waitPixels(t, w, "the new view at its size", func(p pixels) bool { return isColor(p.at(83, 43), 0x00ff00) })
-	deadline = time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(2 * time.Second)
 	for ticking := true; ticking; {
 		if time.Now().After(deadline) {
 			t.Fatal("the frame clock ticks on after the layout animations ended")
 		}
 		time.Sleep(20 * time.Millisecond)
 		w.onLoop(t, func() { ticking = len(w.layouts) > 0 || w.ticking })
+	}
+}
+
+// waitMidLayout waits for one turn of the window's loop in which a view's layout animation is part way (mid) and the surface painted from that same state shows it (drawn). A loaded runner's frames may come too far apart for separate pixel snapshots to land in the middle of an animation, while reading the state and the pixels together still proves the transition runs and is drawn.
+func waitMidLayout(t *testing.T, w *window, what string, mid func(*view) bool, drawn func(pixels) bool) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	seen := false
+	for {
+		done := false
+		w.onLoop(t, func() {
+			for _, v := range w.layouts {
+				if v.layout != nil && mid(v) {
+					seen = true
+					done = drawn(w.drawnPixels())
+					return
+				}
+			}
+		})
+		if done {
+			return
+		}
+		if time.Now().After(deadline) {
+			if seen {
+				t.Fatalf("%s: the animation ran but was not drawn part way", what)
+			}
+			t.Fatalf("%s: the animation never reached its middle", what)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
