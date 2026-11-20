@@ -54,9 +54,10 @@ import (
 type Options struct {
 	Title         string
 	Width, Height driver.Points
-	// Hidden keeps the backend's root window out of the screen while it
-	// hosts app-level services such as tray icons.
+	// Hidden keeps the backend's root window out of the screen while it hosts app-level services such as tray icons.
 	Hidden bool
+	// MainHidden opens the main window the app's function opens without showing it (nsgo.StartHidden).
+	MainHidden bool
 	// ID names the app's directories and storage (engine.AppDirs).
 	ID string
 	// Name is the app's name, nsgo.yaml's (core.App().Name), "" where the tool set none; unlike Title, a surface's windows keep it.
@@ -415,7 +416,7 @@ func (w *window) startEngine(app engine.App, opts Options, size driver.Size) {
 	}
 	if opts.Hidden {
 		eopts.Windows = &engine.WindowOptions{Title: opts.Title, Width: opts.Width, Height: opts.Height,
-			Constraints: opts.Constraints, Transparent: opts.Transparent, NoShadow: opts.NoShadow, SkipTaskbar: opts.SkipTaskbar}
+			Constraints: opts.Constraints, Transparent: opts.Transparent, NoShadow: opts.NoShadow, SkipTaskbar: opts.SkipTaskbar, Hidden: opts.MainHidden}
 	}
 	eopts.SetDirs(engine.AppDirs(opts.ID))
 	if opts.test != nil {

@@ -40,6 +40,8 @@ func init() {
 type Options struct {
 	Title         string
 	Width, Height driver.Points
+	// Hidden opens the main window without showing it (nsgo.StartHidden).
+	Hidden bool
 	// ID names the app's directories and storage (engine.AppDirs).
 	ID string
 	// Components are the native components Native elements name.

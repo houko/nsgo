@@ -113,6 +113,11 @@ func WindowFrame(f core.WindowFrame) Option {
 	return func(o *options) { o.platform.Frame = f }
 }
 
+// StartHidden opens the main window on macOS, Windows and Linux without showing it, as a tray app or one launched at login (desktop.LaunchedAtLogin) does: the app shows it with core.Scope.MainWindow's Show. Phones and the web show the app as they launch it.
+func StartHidden() Option {
+	return func(o *options) { o.platform.Hidden = true }
+}
+
 // WindowConstraints limits the main window's content size and what the
 // user may do to it: desktop.SetWindowConstraints says how, and changes
 // them later. desktop.OpenWindow's windows take their own from

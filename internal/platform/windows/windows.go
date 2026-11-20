@@ -58,10 +58,10 @@ func init() {
 type Options struct {
 	Title         string
 	Width, Height driver.Points
-	// Hidden keeps the backend's root window off the screen as the app's
-	// own surface (nsgo.Run(App)), which opens the windows the app shows
-	// and shows only as an alert's window.
+	// Hidden keeps the backend's root window off the screen as the app's own surface (nsgo.Run(App)), which opens the windows the app shows and shows only as an alert's window.
 	Hidden bool
+	// MainHidden opens the main window the app's function opens without showing it (nsgo.StartHidden).
+	MainHidden bool
 	// Frame is where the window opens (nsgo.WindowFrame).
 	Frame driver.WindowFrame
 	// ID names the app's directories and storage (engine.AppDirs).
@@ -871,7 +871,7 @@ func (w *window) startEngine(app engine.App, opts Options, size driver.Size) {
 	if opts.Hidden {
 		eopts.Windows = &engine.WindowOptions{Title: opts.Title, Width: opts.Width, Height: opts.Height,
 			Frame: opts.Frame, Material: opts.Material, Constraints: opts.Constraints, Transparent: opts.Transparent,
-			NoShadow: opts.NoShadow, SkipTaskbar: opts.SkipTaskbar}
+			NoShadow: opts.NoShadow, SkipTaskbar: opts.SkipTaskbar, Hidden: opts.MainHidden}
 	}
 	data, cache, logs := engine.AppDirs(opts.ID)
 	eopts.SetDirs(data, cache, logs)

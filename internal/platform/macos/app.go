@@ -44,7 +44,7 @@ func startOwn(app engine.App, opts Options) *surface {
 		Appearance: opts.Appearance, Host: opts.Host, Secrets: apple.Keychain{},
 		Windows: &engine.WindowOptions{Title: opts.Title, Width: opts.Width, Height: opts.Height, Frame: opts.Frame,
 			Material: opts.Material, Constraints: opts.Constraints, Transparent: opts.Transparent, NoShadow: opts.NoShadow,
-			SkipTaskbar: opts.SkipTaskbar}}
+			SkipTaskbar: opts.SkipTaskbar, Hidden: opts.Hidden}}
 	eopts.SetDirs(engine.AppDirs(opts.ID))
 	imageload.UseDiskCache(eopts.CacheDir)
 	s.engine = engine.Start(s, app, eopts)

@@ -44,6 +44,8 @@ type Options struct {
 	HideDock bool
 	// Transparent, NoShadow and SkipTaskbar are the main window's (core.WindowOptions).
 	Transparent, NoShadow, SkipTaskbar bool
+	// Hidden opens the main window without showing it (nsgo.StartHidden).
+	Hidden bool
 	// Parent is the window NewView's view is made in (Windows).
 	Parent uintptr
 }
@@ -94,11 +96,18 @@ func appOf(root engine.App, app func(*core.Scope)) func(*core.Scope) {
 	return func(cx *core.Scope) { cx.SetMainView(root) }
 }
 
-// rootOf returns the root view of what Run runs on a platform that
-// opens no windows: root, or app's main view.
+// rootOf returns the root view of what Run runs on a platform that opens no windows: root, or app's main view.
 func rootOf(root engine.App, app func(*core.Scope)) engine.App {
 	if app != nil {
 		return core.AppRoot(app)
 	}
 	return root
+}
+
+// hiddenMain returns what Run runs with o.Hidden on Windows and Linux, which open a hidden main window only from the app's function: root as the app's main view.
+func hiddenMain(root engine.App, app func(*core.Scope), o Options) (engine.App, func(*core.Scope)) {
+	if o.Hidden && app == nil {
+		return nil, appOf(root, nil)
+	}
+	return root, app
 }
