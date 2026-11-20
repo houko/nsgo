@@ -20,7 +20,8 @@ import (
 
 // iosTestRunner installs the test build in sys's simulator (-device's, else the booted one, else the newest iPhone or Apple TV) and launches it for each test, its output streamed back. A package whose TestMain starts the native test host runs as the app, its result read between the host's marks; any other package, a library's among them, runs as a plain process through simctl spawn.
 func iosTestRunner(ctx context.Context, p *project, sys *appleOS, dir string, opts testOptions) (targetRunner, error) {
-	app, err := buildIOSApp(ctx, p, sys, dir, true)
+	test := testProject(p)
+	app, err := buildIOSApp(ctx, test, sys, dir, true)
 	if err != nil {
 		return targetRunner{}, err
 	}
@@ -31,7 +32,7 @@ func iosTestRunner(ctx context.Context, p *project, sys *appleOS, dir string, op
 	if err := run(ctx, "xcrun", "simctl", "install", udid, app); err != nil {
 		return targetRunner{}, err
 	}
-	simulator := simulatorTest{udid: udid, id: p.ID, timeout: opts.timeout, launchTimeout: simulatorLaunchTimeout}
+	simulator := simulatorTest{udid: udid, id: test.ID, timeout: opts.timeout, launchTimeout: simulatorLaunchTimeout}
 	target := sys.target + "_simulator"
 	hosted, err := linksPlatform(ctx, p, target)
 	if err != nil {
@@ -49,7 +50,7 @@ func iosTestRunner(ctx context.Context, p *project, sys *appleOS, dir string, op
 		simulator.binary = filepath.Join(app, p.Name)
 	}
 	// The test host's start mark starts a hosted test's deadline, so the app's launch, which a busy machine can stretch to minutes, does not count against it. A plain process has no mark and keeps the run's deadline.
-	return targetRunner{run: simulator.run, close: simulator.stop, timesFromStart: hosted}, nil
+	return targetRunner{run: simulator.run, close: simulator.close, timesFromStart: hosted}, nil
 }
 
 // simulatorLaunchTimeout bounds how long a simulator app may take to start the test host, which -timeout does not cover.
@@ -81,6 +82,14 @@ func (s simulatorTest) stop() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	exec.CommandContext(ctx, "xcrun", "simctl", "terminate", s.udid, s.id).Run()
+}
+
+// close ends the run: it stops the app and uninstalls the test build, whose ID is the test's own (testProject), so the app's installed build and its data stay as they were. A test that timed out stops the app alone, as later tests launch it again.
+func (s simulatorTest) close() {
+	s.stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	exec.CommandContext(ctx, "xcrun", "simctl", "uninstall", s.udid, s.id).Run()
 }
 
 func (s simulatorTest) run(ctx context.Context, args, env []string, out io.Writer) (int, error) {

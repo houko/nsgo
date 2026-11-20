@@ -20,3 +20,15 @@ func TestTestBundleID(t *testing.T) {
 		t.Fatalf("fallback bundle = %q: %v", long, err)
 	}
 }
+
+// iOS installs an App Clip only under its app's ID, so the test build's clip moves under the test's ID and leaves the app's own alone (#898).
+func TestTestProjectMovesTheAppClip(t *testing.T) {
+	p := &project{ID: "dev.example.app", AppClip: &appClip{ID: "dev.example.app.Clip"}}
+	test := testProject(p)
+	if test.ID != "dev.example.app.nsgotest" || test.AppClip.ID != "dev.example.app.nsgotest.Clip" {
+		t.Fatalf("test project = %q with clip %q", test.ID, test.AppClip.ID)
+	}
+	if p.AppClip.ID != "dev.example.app.Clip" {
+		t.Fatalf("the app's clip became %q", p.AppClip.ID)
+	}
+}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -193,5 +195,22 @@ func TestSimulatorStopIsBounded(t *testing.T) {
 	(simulatorTest{udid: "simulator", id: "dev.nsgo.test"}).stop()
 	if elapsed := time.Since(start); elapsed > 7*time.Second {
 		t.Fatalf("simulator cleanup took %v after its deadline", elapsed)
+	}
+}
+
+// A timed-out test stops the app, which later tests launch again; only the run's end uninstalls the test build (#898).
+func TestSimulatorCloseUninstallsTheTestBuild(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "calls")
+	checkXcrun(t, "echo \"$*\" >> '"+log+"'\n")
+	s := simulatorTest{udid: "simulator", id: "dev.example.app.nsgotest"}
+	s.stop()
+	s.close()
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "simctl terminate simulator dev.example.app.nsgotest\nsimctl terminate simulator dev.example.app.nsgotest\nsimctl uninstall simulator dev.example.app.nsgotest\n"
+	if string(data) != want {
+		t.Fatalf("xcrun calls:\n%s\nwant:\n%s", data, want)
 	}
 }
