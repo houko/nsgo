@@ -41,7 +41,11 @@ type Tabs[T comparable] struct {
 	// Label names the list for assistive technology.
 	Label  string
 	TestID string
-	Style  core.Style
+	// TabStyle merges over each tab's style; its Selected merges over the selected tab's.
+	TabStyle core.Style
+	// IndicatorStyle merges over the indicator's style, after its position and size.
+	IndicatorStyle core.Style
+	Style          core.Style
 }
 
 // Render implements core.Node.
@@ -121,11 +125,11 @@ func (t Tabs[T]) Render(cx *core.Scope) core.Node {
 			const inset, height = 6, 2
 			s.Left, s.Top, s.Width, s.Height = core.Pt(left+inset), core.Pt(f.Origin.Y+f.Size.Height-height), core.Pt(max(0, f.Size.Width-2*inset)), core.Pt(height)
 			s.CornerRadius, s.Background = height/2, colors.Accent()
-			return s
+			return s.Merge(t.IndicatorStyle)
 		}
 		s.Left, s.Top, s.Width, s.Height = core.Pt(left), core.Pt(f.Origin.Y), core.Pt(f.Size.Width), core.Pt(f.Size.Height)
 		s.CornerRadius = f.Size.Height / 2
-		return FinOf(cx).Pill().Over(s)
+		return FinOf(cx).Pill().Over(s).Merge(t.IndicatorStyle)
 	}}
 	tabLook := func() core.Style {
 		// Selection keeps the weight, so it never moves the labels.
@@ -150,7 +154,15 @@ func (t Tabs[T]) Render(cx *core.Scope) core.Node {
 					t.OnChange(item().Value)
 				}
 			},
-			OnLayout: f.Set, Style: tab, StyleFunc: tabLook, Children: children, LabelFunc: func() string { return item().Label }, TestID: o.TestID}
+			OnLayout: f.Set, Style: tab.Merge(t.TabStyle), StyleFunc: func() core.Style {
+				look := tabLook()
+				s := look.Merge(t.TabStyle)
+				if t.TabStyle.Selected != nil {
+					chosen := look.Selected.Merge(*t.TabStyle.Selected)
+					s.Selected = &chosen
+				}
+				return s
+			}, Children: children, LabelFunc: func() string { return item().Label }, TestID: o.TestID}
 	})}
 	return base.Tabs{Style: list, StyleFunc: func() core.Style {
 		style := core.Style{}

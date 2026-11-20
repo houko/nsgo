@@ -105,6 +105,37 @@ func TestTabsSlide(t *testing.T) {
 	checkIndicator(t, app, "segmented", "segmented-0")
 }
 
+// TestTabsStyles lets an app restyle the tabs, the selected one and the indicator of either variant without changing the layout or selection behavior.
+func TestTabsStyles(t *testing.T) {
+	headless(t)
+	for _, variant := range []TabsVariant{TabsSegmented, TabsUnderline} {
+		app, _ := start(t, desktopEnv, func(cx *core.Scope) core.Node {
+			value := core.NewSignal(cx, 0)
+			return Tabs[int]{Variant: variant, TestID: "tabs", Value: value.Get, OnChange: value.Set,
+				TabStyle:       core.Style{Color: core.RGB(0x654321), Selected: &core.Style{FontWeight: core.FontWeightBold}},
+				IndicatorStyle: core.Style{CornerRadius: 1, Background: core.RGB(0x123456)},
+				Options:        []Option[int]{{Value: 0, Label: "One", TestID: "one"}, {Value: 1, Label: "Two", TestID: "two"}}}
+		})
+		indicator := app.Find("tabs").Children[0].Style
+		if indicator.CornerRadius != 1 || indicator.Background != core.RGB(0x123456) {
+			t.Fatalf("variant %v: indicator radius %v, background %x; want 1, 123456", variant, indicator.CornerRadius, indicator.Background)
+		}
+		if got := app.Find("two").Children[0].TextStyle.Color; got != core.RGB(0x654321) {
+			t.Fatalf("variant %v: unselected tab color = %x, want 654321", variant, got)
+		}
+		if got := app.Find("one").Children[0].TextStyle.Font.Weight; got != core.FontWeightBold {
+			t.Fatalf("variant %v: selected tab weight = %v, want bold", variant, got)
+		}
+		if got := app.Find("two").Children[0].TextStyle.Font.Weight; got == core.FontWeightBold {
+			t.Fatalf("variant %v: unselected tab is bold", variant)
+		}
+		app.Press("two")
+		if got := app.Find("two").Children[0].TextStyle.Font.Weight; got != core.FontWeightBold {
+			t.Fatalf("variant %v: newly selected tab weight = %v, want bold", variant, got)
+		}
+	}
+}
+
 // TestTabsRTL keeps the indicator on the selected tab right to left.
 func TestTabsRTL(t *testing.T) {
 	e := desktopEnv
