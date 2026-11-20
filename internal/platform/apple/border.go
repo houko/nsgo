@@ -200,6 +200,11 @@ func animate(layer objc.ID, key string, tr *driver.Transition, fresh bool, set f
 		shown = layer
 	}
 	from := shown.Send(selValueForKey, NSString(key))
+	if from != 0 {
+		// Hold the value across set, which replaces and releases the layer's own (#995).
+		from = from.Send(sel("retain"))
+		defer from.Send(selRelease)
+	}
 	set()
 	if from == 0 {
 		return

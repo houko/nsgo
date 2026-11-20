@@ -51,8 +51,19 @@ func StyleLayer(layer objc.ID, was, vs *driver.ViewStyle, view objc.ID) {
 		}
 		keys = transitionKeys(tr.Properties)
 		for _, k := range keys {
-			from = append(from, shown.Send(selValueForKey, NSString(k)))
+			value := shown.Send(selValueForKey, NSString(k))
+			if value != 0 {
+				value = value.Send(sel("retain"))
+			}
+			from = append(from, value)
 		}
+		defer func() {
+			for _, value := range from {
+				if value != 0 {
+					value.Send(selRelease)
+				}
+			}
+		}()
 	}
 	color := func(sel objc.SEL, c driver.Color) {
 		if c == 0 {

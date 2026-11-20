@@ -4,11 +4,40 @@ package apple
 
 import (
 	"testing"
+	"time"
 
+	"github.com/ebitengine/purego"
 	"github.com/ebitengine/purego/objc"
 
 	"github.com/nsgo-dev/nsgo/internal/driver"
 )
+
+// The from value must outlive the set that replaces and releases the layer's own (#995).
+func TestAnimateKeepsTheFromValueAliveAcrossSet(t *testing.T) {
+	var retainCount func(uintptr) int
+	purego.RegisterLibFunc(&retainCount, load("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"), "CFGetRetainCount")
+	layer := objc.ID(objc.GetClass("CAShapeLayer")).Send(selNew)
+	defer layer.Send(selRelease)
+	path := cgPath(driver.RoundedRect(nil, 0, 0, 10, 10, driver.Corners{}, false, false))
+	layer.Send(sel("setPath:"), path)
+	Release(path)
+	old := uintptr(layer.Send(sel("path")))
+	next := cgPath(driver.RoundedRect(nil, 0, 0, 20, 20, driver.Corners{}, false, false))
+	defer Release(next)
+	tr := driver.Transition{Duration: time.Second}
+	var held int
+	animate(layer, "path", &tr, false, func() {
+		held = retainCount(old)
+		layer.Send(sel("setPath:"), next)
+	})
+	if held < 2 {
+		t.Fatalf("the from path had %d references before set replaced it, so set freed it", held)
+	}
+	anim := layer.Send(sel("animationForKey:"), NSString("nsgo.path"))
+	if anim == 0 || anim.Send(sel("fromValue")) != objc.ID(old) {
+		t.Fatal("the path animation does not start from the old path")
+	}
+}
 
 func TestMoveBordersAboveBackdropLayer(t *testing.T) {
 	layer := objc.ID(objc.GetClass("CALayer")).Send(selNew)

@@ -6,6 +6,7 @@
 - Keep partial borders above Apple backdrop, material and glass layers while leaving app children above the border (#935 by @houko).
 - Add `nsgo build -macos-profile` and `-installer`, which replace `sign.macos_profile` and `sign.installer` for the Mac App Store package from the command line (#899 by @houko).
 - Install `nsgo test`'s builds on the iOS, tvOS and watchOS simulators under the app's ID followed by `.nsgotest` and uninstall them when the run ends, leaving an installed build of the app and its data as they were (#898 by @houko).
+- Hold the starting value of macOS and iOS style and border animations across the update that replaces it, which could crash an app showing a `ui.Select` (#995 by @houko).
 - Keep macOS target test windows at the requested `nsgotest.Size` and `Resize` content size instead of silently constraining them to the screen (#697 by @houko).
 - Add `nsgo publish -extra`, which signs a file's bytes into the package as `pkg.Contents.Extra` (#924 by @houko).
 - Add `core.Scroll.NoShrink`, and `noShrink` on TSX scroll views, to keep a scroll view at its requested size when its parent is short (#967 by @houko).
