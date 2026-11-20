@@ -157,11 +157,11 @@ func chatGlass(tint core.Color) core.Style {
 	return core.Style{Background: tint, BackdropFilters: []core.Filter{core.Blur(24)}, GlassEffect: core.GlassRegular}
 }
 
-// chatGlassEdge is the border of a glass surface: none where the system's glass draws its own rim, keeping the surface's size, else rim, as in a web build that runs as such a system.
+// chatGlassEdge is the border of a glass surface: none where the system's glass draws its own rim, keeping the surface's size, else rim, as on the watch, which draws no glass, and in a web build that runs as such a system.
 func chatGlassEdge(cx *core.Scope, rim core.Color) core.Color {
 	switch cx.Env().OS() {
 	case core.OSMacOS, core.OSIOS, core.OSWindows:
-		if !cx.Env().Simulated() {
+		if !cx.Env().Simulated() && cx.Env().Idiom() != core.IdiomWatch {
 			return core.Transparent
 		}
 	}
