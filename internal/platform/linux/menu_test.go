@@ -96,6 +96,7 @@ func TestMenuYieldFollowsNativeTextFocus(t *testing.T) {
 			}
 		}
 	})
+	waitForFocusOrSkip(t, w, "the input focused", func() bool { return w.focusedEntry() != nil })
 	waitForTitle(t, w, title+"|1|0|true")
 	press()
 	waitForTitle(t, w, title+"|1|1|true")
@@ -144,6 +145,7 @@ func TestMenuYieldReachesTheBindingTheMenuLeaves(t *testing.T) {
 			}
 		}
 	})
+	waitForFocusOrSkip(t, w, "the input focused", func() bool { return w.focusedEntry() != nil })
 	waitForTitle(t, w, title+"|000|00|true")
 	press('r', 27, gdkControl)
 	waitForTitle(t, w, title+"|000|10|true")
@@ -201,21 +203,10 @@ func TestMenuYieldFollowsNativeWebFocus(t *testing.T) {
 			}
 			t.Error("no web view")
 		})
-		deadline := time.Now().Add(5 * time.Second)
-		for {
-			ready := false
-			w.onLoop(t, func() {
-				bound := slices.ContainsFunc(w.keys, func(k driver.KeyBinding) bool { return k.Key == "mod+r" })
-				ready = bound == focused && (w.focusedWeb() != nil) == focused
-			})
-			if ready {
-				return
-			}
-			if time.Now().After(deadline) {
-				t.Fatalf("keymap did not follow web focus %v", focused)
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
+		waitForFocusOrSkip(t, w, fmt.Sprintf("keymap following web focus %v", focused), func() bool {
+			bound := slices.ContainsFunc(w.keys, func(k driver.KeyBinding) bool { return k.Key == "mod+r" })
+			return bound == focused && (w.focusedWeb() != nil) == focused
+		})
 	}
 	press := func() {
 		w.onLoop(t, func() {
@@ -232,6 +223,26 @@ func TestMenuYieldFollowsNativeWebFocus(t *testing.T) {
 	setFocus(false)
 	press()
 	waitForTitle(t, w, title+"|2|1|true")
+}
+
+// waitForFocusOrSkip waits for ready, which reads the window on its loop, to hold. When it does not in time the test skips if the window manager never activated the window, as GNOME may refuse a window opened without a recent user interaction where Xvfb has no window manager to refuse it, and fails if the window was active.
+func waitForFocusOrSkip(t *testing.T, w *window, what string, ready func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		ok, active := false, false
+		w.onLoop(t, func() { ok, active = ready(), gtkWindowIsActive(w.win) != 0 })
+		if ok {
+			return
+		}
+		if time.Now().After(deadline) {
+			if !active {
+				t.Skipf("the window manager did not activate the window, so %s cannot be tested", what)
+			}
+			t.Fatalf("want %s", what)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // TestRadioMenuItemsActivate builds radio items, whose actions GTK activates with the item's target, so each takes a string parameter and is string-stated, the checked one's state its target; choosing the other runs it. The roles only macOS has, and the Help holder with no items, are left out.
