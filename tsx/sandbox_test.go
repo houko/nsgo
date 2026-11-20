@@ -1016,6 +1016,100 @@ func TestPluginInterruptFailsAWaitingCall(t *testing.T) {
 	app.Post(plugin.Close)
 }
 
+func TestPluginCloseFailsAWaitingCall(t *testing.T) {
+	p := verified(t, `export async function wait() {
+	await new Promise(() => {});
+}`, pkg.Capabilities{})
+	var plugin *tsx.Plugin
+	var loadErr error
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		plugin, loadErr = tsx.Load(cx, p, tsx.Sandbox{WebUnisolated: true})
+		return core.View{}
+	})
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	called := 0
+	var callErr error
+	app.Post(func() {
+		plugin.Call("wait", nil, func(_ any, err error) { called++; callErr = err })
+	})
+	app.Settle()
+	app.Post(plugin.Close)
+	app.WaitUntil(time.Second, func() bool { return called == 1 })
+	if callErr == nil || callErr.Error() != "tsx: the plugin was closed" {
+		t.Fatalf("call error = %v, want plugin closed", callErr)
+	}
+	if called != 1 {
+		t.Fatalf("done called %d times, want once", called)
+	}
+}
+
+// Closing a plugin runs its cleanups before it fails the calls still waiting.
+func TestPluginCloseRunsCleanups(t *testing.T) {
+	p := verified(t, `import { cleanup, host } from "nsgo";
+cleanup(() => { host.call("bye"); });
+export async function wait() {
+	await new Promise(() => {});
+}`, pkg.Capabilities{Host: []string{"bye"}})
+	h := core.NewHost()
+	byes := 0
+	h.Handle("bye", func(c *core.HostCall) { byes++; c.Resolve(nil) })
+	var plugin *tsx.Plugin
+	var loadErr error
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		plugin, loadErr = tsx.Load(cx, p, tsx.Sandbox{WebUnisolated: true, Host: h})
+		return core.View{}
+	})
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	var callErr error
+	app.Post(func() {
+		plugin.Call("wait", nil, func(_ any, err error) { callErr = err })
+	})
+	app.Settle()
+	app.Post(plugin.Close)
+	app.Settle()
+	if byes != 1 {
+		t.Fatalf("the cleanup ran %d times, want once", byes)
+	}
+	if callErr == nil {
+		t.Fatal("the waiting call did not fail")
+	}
+}
+
+// A plugin closed before its interrupt fails the waiting calls still fails them, with the interrupt's error.
+func TestPluginCloseAfterInterrupt(t *testing.T) {
+	p := verified(t, `export async function wait() {
+	await new Promise(() => {});
+}`, pkg.Capabilities{})
+	var plugin *tsx.Plugin
+	var loadErr error
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		plugin, loadErr = tsx.Load(cx, p, tsx.Sandbox{WebUnisolated: true})
+		return core.View{}
+	})
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	called := 0
+	var callErr error
+	app.Post(func() {
+		plugin.Call("wait", nil, func(_ any, err error) { called++; callErr = err })
+	})
+	app.Settle()
+	stop := errors.New("watchdog")
+	app.Post(func() {
+		plugin.Interrupt(stop)
+		plugin.Close()
+	})
+	app.Settle()
+	if called != 1 || callErr != stop {
+		t.Fatalf("done called %d times with %v, want once with the interrupt's error", called, callErr)
+	}
+}
+
 func TestPluginInterruptStopsCall(t *testing.T) {
 	p := verified(t, `export async function loop() {
 	for (;;) await new Promise(resolve => setTimeout(resolve, 0));

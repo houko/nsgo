@@ -97,7 +97,7 @@ trust.Accept(p) // 运行之后，更旧的构建会被拒绝
 在原生沙箱中，`JSON.stringify`、带 reviver 的 `JSON.parse`、`Array.prototype.join`、`toString`、`toLocaleString` 和 `flat`，以及数组的 `String()`，深入超过 1,000 层时会抛出可捕获的 `RangeError`；一个在另一个内部调用时层数累计，数组的 `toString` 和它调用的 `join` 各算一层。更深的数据会让调用卡住或让应用退出。Web 使用浏览器的内置函数。
 
 
-原生沙箱中的回溯正则表达式使用加载和调用预算中较短的值作为匹配超时。未处理的超时会变成 `tsx.ErrBudget`，因此有问题的表达式不会无限期占用引擎。插件可以设置 `Limits.CallTotal`，作为每次调用及其启动的工作的截止时间：调用启动的定时器、interval、动画帧、Promise continuation 和宿主请求的应答，以及它们再启动的工作，从调用开始起最多运行 `CallTotal`，即使调用已经完成也是如此，到期后全部丢弃，interval 会被清除；仍在等待的调用以 `tsx.ErrBudget` 失败。入口模块加载时启动的工作使用加载的截止时间 `Limits.Load`，宿主主动送达的内容（例如事件）从送达时起有自己的截止时间。截止时间内的短暂延迟照常工作，一次调用的工作既不会缩短也不会延长另一次调用的截止时间。宿主也可以由任意 goroutine 上的 watchdog 调用 `Plugin.Interrupt`，它会停止插件、丢弃待处理的定时器，并让进行中和之后的调用失败。
+原生沙箱中的回溯正则表达式使用加载和调用预算中较短的值作为匹配超时。未处理的超时会变成 `tsx.ErrBudget`，因此有问题的表达式不会无限期占用引擎。插件可以设置 `Limits.CallTotal`，作为每次调用及其启动的工作的截止时间：调用启动的定时器、interval、动画帧、Promise continuation 和宿主请求的应答，以及它们再启动的工作，从调用开始起最多运行 `CallTotal`，即使调用已经完成也是如此，到期后全部丢弃，interval 会被清除；仍在等待的调用以 `tsx.ErrBudget` 失败。入口模块加载时启动的工作使用加载的截止时间 `Limits.Load`，宿主主动送达的内容（例如事件）从送达时起有自己的截止时间。截止时间内的短暂延迟照常工作，一次调用的工作既不会缩短也不会延长另一次调用的截止时间。宿主也可以由任意 goroutine 上的 watchdog 调用 `Plugin.Interrupt`，它会停止插件、丢弃待处理的定时器，并让进行中和之后的调用失败。`Plugin.Close` 会运行插件的清理函数并释放插件，仍在等待的调用以“插件已关闭”的错误结束。
 
 Web 上暂时无法把包与页面隔离：包的代码能绕过它的权限，直接访问页面自己的网络、剪贴板和存储，信任库所在的存储也包括在内。因此在 Web 上 `tsx.View` 和 `tsx.Load` 会以 `tsx.ErrUnisolated` 拒绝运行包，除非设置 `Sandbox.WebUnisolated`，让它以页面的权限运行；这只适合你愿意像对待应用自身代码一样信任的包。
 

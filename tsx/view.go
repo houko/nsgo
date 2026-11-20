@@ -1,6 +1,7 @@
 package tsx
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 
@@ -127,14 +128,11 @@ func (p *Plugin) Exports() []string {
 	return out
 }
 
-// Call calls the plugin's export name with args, values JSON encodes, and has done hear what it returns, or what its promise resolves with, as JSON decodes it, on the engine's goroutine; err is what it threw or rejected with, a *core.Error when that carries a code, ErrNoExport, or why the plugin stopped. Call it on the engine's goroutine.
+// Call calls the plugin's export name with args, values JSON encodes, and has done hear what it returns, or what its promise resolves with, as JSON decodes it, on the engine's goroutine; err is what it threw or rejected with, a *core.Error when that carries a code, ErrNoExport, or why the plugin stopped or that it was closed, which a call still waiting on a promise hears too. Call it on the engine's goroutine.
 func (p *Plugin) Call(name string, args []any, done func(result any, err error)) {
 	r := p.r
 	if err := r.stoppedErr(); err != nil || p.cx.Disposed() {
-		if err == nil {
-			err = errors.New("tsx: the plugin was closed")
-		}
-		done(nil, err)
+		done(nil, cmp.Or(err, errClosed))
 		return
 	}
 	var fn js.Value
@@ -225,8 +223,18 @@ func (p *Plugin) Interrupt(err error) {
 	p.r.interrupt(err)
 }
 
-// Close stops the plugin and frees what it holds.
-func (p *Plugin) Close() { p.cx.Dispose() }
+// Close stops the plugin and frees what it holds, running its cleanups; the calls still waiting then fail with an error saying it was closed, or with why it stopped when it was interrupted first. Call it on the engine's goroutine.
+func (p *Plugin) Close() {
+	if p == nil || p.r == nil {
+		return
+	}
+	p.cx.Dispose()
+	// What stop and interrupt post to fail the calls dies with the scope, so they are failed here.
+	p.r.failCalls(cmp.Or(p.r.stoppedErr(), errClosed))
+}
+
+// errClosed is how a call fails once its plugin is closed.
+var errClosed = errors.New("tsx: the plugin was closed")
 
 // rejection is what JS threw as a Go error: its message, with its code.
 func (r *runtime) rejection(v js.Value) error {
