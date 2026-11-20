@@ -239,8 +239,9 @@ func families(_ names: [String]) -> [WidgetFamily] {
 
 struct NSGoEntryView: View {
     let entry: NSGoEntry
-    let name: String
-    let description: String
+    let name: Text
+    let description: Text
+    let hasDescription: Bool
     @Environment(\.widgetFamily) var family
     @Environment(\.colorScheme) var scheme
 
@@ -256,9 +257,9 @@ struct NSGoEntryView: View {
         } else {
             // The placeholder, until the app writes a timeline.
             VStack(alignment: .leading, spacing: 4) {
-                Text(name).font(.headline)
-                if !description.isEmpty {
-                    Text(description).font(.caption).foregroundColor(.secondary)
+                name.font(.headline)
+                if hasDescription {
+                    description.font(.caption).foregroundColor(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

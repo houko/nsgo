@@ -38,7 +38,10 @@ func TestKindsSwift(t *testing.T) {
 		{Kind: "counter", Name: `The "count"`, Families: []string{"small", "circular"}},
 		{Kind: "agenda"},
 	}}
-	src := kindsSwift(p, false)
+	src, err := kindsSwift(p, false)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, want := range []string{
 		`StaticConfiguration(kind: "counter", provider: NSGoProvider(kind: "counter"))`,
 		`.configurationDisplayName(Text(verbatim: "The \"count\""))`,
@@ -61,6 +64,44 @@ func TestKindsSwift(t *testing.T) {
 	}
 }
 
+func TestWidgetLocalizations(t *testing.T) {
+	dir := t.TempDir()
+	locales := filepath.Join(dir, "locales")
+	writeFiles(t, locales, map[string]string{
+		"en.yaml":      "widgetName: Now playing\nwidgetDescription: What is playing\nplain: Plain\n",
+		"zh-Hans.yaml": "widgetName: 正在播放\n",
+	})
+	p := &project{Dir: dir}
+	p.I18n.Dir, p.I18n.Source = locales, "en"
+	p.Widgets = []widgetKind{{Kind: "now", Name: "widgetName", Description: "widgetDescription"}, {Kind: "plain", Name: "Plain"}}
+	src, err := kindsSwift(p, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Text(LocalizedStringKey(\"widgetName\"))",
+		"Text(LocalizedStringKey(\"widgetDescription\"))",
+		"Text(verbatim: \"Plain\")",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("Kinds.swift lacks %s:\n%s", want, src)
+		}
+	}
+	resources := filepath.Join(dir, "Resources")
+	if err := p.writeWidgetLocalizations(resources); err != nil {
+		t.Fatal(err)
+	}
+	for lang, want := range map[string]string{
+		"en":      `"widgetName" = "Now playing";`,
+		"zh-Hans": `"widgetName" = "正在播放";`,
+	} {
+		data, err := os.ReadFile(filepath.Join(resources, lang+".lproj", "Localizable.strings"))
+		if err != nil || !strings.Contains(string(data), want) {
+			t.Errorf("%s localization = %q, want %q, error %v", lang, data, want, err)
+		}
+	}
+}
+
 func TestLiveActivitiesConfig(t *testing.T) {
 	p := &project{ID: "dev.example.app", LiveActivities: liveActivities{Enabled: true, FrequentUpdates: true}}
 	p.Android.Permissions = []string{"android.permission.CAMERA", "android.permission.POST_NOTIFICATIONS"}
@@ -74,10 +115,10 @@ func TestLiveActivitiesConfig(t *testing.T) {
 	if got := p.widgetPlist(false); got != "" {
 		t.Errorf("macOS plist of an app without widgets = %s", got)
 	}
-	if src := kindsSwift(p, true); !strings.Contains(src, "NSGoActivityWidget()") {
+	if src, err := kindsSwift(p, true); err != nil || !strings.Contains(src, "NSGoActivityWidget()") {
 		t.Errorf("Kinds.swift lacks the activities:\n%s", src)
 	}
-	if src := kindsSwift(p, false); strings.Contains(src, "NSGoActivityWidget") {
+	if src, err := kindsSwift(p, false); err != nil || strings.Contains(src, "NSGoActivityWidget") {
 		t.Errorf("macOS's Kinds.swift has the activities:\n%s", src)
 	}
 	want := []string{"android.permission.CAMERA", "android.permission.POST_NOTIFICATIONS", "android.permission.POST_PROMOTED_NOTIFICATIONS"}

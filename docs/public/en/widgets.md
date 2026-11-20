@@ -20,6 +20,8 @@ widgets:
 
 A widget extension draws it, which `build` and `dev` compile into the app with Xcode's Swift compiler ([Building and shipping](building.md#widgets-and-live-activities)). It runs none of the app's code, so a widget shows what the app wrote last, until it writes again.
 
+`name` and `description` may name messages in the app's catalogs. When they do, the widget gallery and the placeholder use the user's language, falling back to the source catalog's text when a translation is missing. A value that is not a catalog key is shown verbatim.
+
 ## A timeline
 
 `widget.Update` writes what the widgets of a kind show from now on, as a timeline of entries: the system shows the entry whose date passed last, then each later one at its date, without the app. A zero `Date` is now. Without entries, the widgets show the kind's name and description. An app in the foreground updates its widgets as often as it likes, and one in the background a few dozen times a day.
