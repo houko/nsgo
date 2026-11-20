@@ -24,8 +24,8 @@ type memory struct {
 	limit int64
 	mu    sync.Mutex
 	used  int64
-	// held is what each charged allocation holds, by a weak pointer to it: the first byte of a buffer's or a string's memory, or an array's object. A cleanup on it releases what it holds.
-	held map[any]int64
+	// held is what each charged allocation holds, by a weak pointer to it: the first byte of a buffer's or a string's memory, or an array's object. A cleanup on it releases what it holds, or collect once the collector found it unreachable.
+	held map[any]holding
 	// joining are the arrays Array.prototype.join is joining, outermost first, as goja's own join keeps them, so that an array in itself joins as "".
 	joining []*js.Object
 	// pin, iterate and project are memoryProgram's, which the wrappers hand the originals in place of what the bundle gave them.
@@ -43,9 +43,15 @@ const (
 	heldMin = 1 << 10
 )
 
+// holding is what an allocation is charged, and whether the collector has yet to find it unreachable.
+type holding struct {
+	n    int64
+	live func() bool
+}
+
 // limitMemory holds the built-ins that allocate by size to limit bytes, before the bundle runs and hardening freezes them.
 func (r *runtime) limitMemory(limit int64) {
-	m := &memory{limit: limit, held: map[any]int64{}}
+	m := &memory{limit: limit, held: map[any]holding{}}
 	r.sandbox.memory = m
 	g := r.vm.GlobalObject()
 	helpers := r.run(memoryProgram).(*js.Object)
@@ -640,15 +646,33 @@ func isTyped(o *js.Object) bool {
 	return t != nil && t != arrayBufferType && t.Kind() == reflect.Slice && t.Elem().Kind() != reflect.Interface
 }
 
-// checkMemory stops the runtime when n more bytes would not fit its budget.
+// checkMemory stops the runtime when n more bytes would not fit its budget, even once what it no longer holds is collected.
 func (r *runtime) checkMemory(n int64) {
 	m := r.sandbox.memory
-	m.mu.Lock()
-	over := n > m.limit-m.used
-	m.mu.Unlock()
-	if over {
+	if n > m.room() && (n > m.limit || n > m.collect()) {
 		r.exceedMemory()
 	}
+}
+
+// room is how many more bytes the budget holds.
+func (m *memory) room() int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.limit - m.used
+}
+
+// collect runs the Go collector and releases what it found unreachable, returning the room left. The collector runs when the host's heap has grown by as much as it held after the last run, which in a host that holds a lot is long after a bundle's garbage alone filled its budget, and cleanups run after it on a goroutine of their own: without this, a bundle that only makes and drops buffers would stop at its budget.
+func (m *memory) collect() int64 {
+	goruntime.GC()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key, h := range m.held {
+		if !h.live() {
+			m.used -= h.n
+			delete(m.held, key)
+		}
+	}
+	return m.limit - m.used
 }
 
 // exceedMemory stops the runtime at its memory quota, unwinding the built-in that would go past it.
@@ -668,16 +692,16 @@ func hold[T any](r *runtime, p *T, n int64) {
 	key := weak.Make(p)
 	m.mu.Lock()
 	had, ok := m.held[key]
-	if n > had {
-		m.used += n - had
-		m.held[key] = n
+	if n > had.n {
+		m.used += n - had.n
+		m.held[key] = holding{n: n, live: func() bool { return key.Value() != nil }}
 	}
 	over := m.used > m.limit
 	m.mu.Unlock()
 	if !ok {
 		goruntime.AddCleanup(p, m.release, any(key))
 	}
-	if over {
+	if over && m.collect() < 0 {
 		r.exceedMemory()
 	}
 }
@@ -686,7 +710,7 @@ func hold[T any](r *runtime, p *T, n int64) {
 func (m *memory) release(key any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.used -= m.held[key]
+	m.used -= m.held[key].n
 	delete(m.held, key)
 }
 

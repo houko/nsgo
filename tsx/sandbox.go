@@ -46,15 +46,13 @@ type Limits struct {
 	// Storage is the most bytes its partition of the app's storage may
 	// hold (Sandbox.Storage).
 	Storage int
-	// Memory is the most bytes the built-ins that allocate by a size may hold for the bundle at once on goja, as ArrayBuffer, the typed arrays, String.prototype.repeat, Array.prototype.join and fill, and JSON.stringify do (memory_goja.go): each checks before it allocates, what it made is charged until it is collected, and past it the bundle stops. What the rest of the bundle's JS makes, its objects, closures and arrays and strings it builds, copies, concatenates or spreads, is not counted, nor anything on the web, whose page's engine keeps its own heap, so a bundle written to exhaust memory still can. Zero, the default, leaves it unlimited.
+	// Memory is the most bytes the built-ins that allocate by a size may hold for the bundle at once on goja, as ArrayBuffer, the typed arrays, String.prototype.repeat, Array.prototype.join and fill, and JSON.stringify do (memory_goja.go): each checks before it allocates, what it made is charged until it is collected, and past it, once the Go collector has run, the bundle stops. What the rest of the bundle's JS makes, its objects, closures and arrays and strings it builds, copies, concatenates or spreads, is not counted, nor anything on the web, whose page's engine keeps its own heap, so a bundle written to exhaust memory still can. Zero leaves it unlimited; DefaultLimits holds 64 MiB.
 	Memory int
 }
 
-// DefaultLimits are NSH's: 10 seconds to load, 2 per call, 1000 frames,
-// hardened, 200 000 nodes; and 10 000 timers, 32 requests, 64 MiB
-// bodies and 1 MiB of storage.
+// DefaultLimits are NSH's, 10 seconds to load, 2 per call, 1000 frames, hardened, 200 000 nodes, 10 000 timers, 32 requests, 64 MiB bodies and 1 MiB of storage, and NSGo's 64 MiB of memory.
 var DefaultLimits = Limits{Load: 10 * time.Second, Call: 2 * time.Second, Stack: 1000, Harden: true,
-	Nodes: 200_000, Timers: 10_000, Requests: 32, Body: 64 << 20, Storage: 1 << 20}
+	Nodes: 200_000, Timers: 10_000, Requests: 32, Body: 64 << 20, Memory: 64 << 20, Storage: 1 << 20}
 
 // ErrBudget is what a call cut at its time budget fails with.
 var ErrBudget = errors.New("tsx: the script ran past its time budget")

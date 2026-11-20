@@ -249,3 +249,17 @@ func TestMemoryReleasesWhatIsCollected(t *testing.T) {
 		}
 	}
 }
+
+// hostHeap is a heap the host holds, which a collection takes as long again to come after.
+var hostHeap []byte
+
+// TestMemoryCollectsBeforeStopping does not stop a bundle that only makes and drops buffers, whose garbage fills its budget long before the Go collector would run in a host that holds a lot.
+func TestMemoryCollectsBeforeStopping(t *testing.T) {
+	hostHeap = make([]byte, 256<<20)
+	defer func() { hostHeap = nil }()
+	goruntime.GC()
+	r := limited(32 << 20)
+	if _, err := r.vm.RunString(`for (let i = 0; i < 128; i++) new Uint8Array(1 << 20)[0] = i`); err != nil {
+		t.Fatalf("stopped with %v", err)
+	}
+}
