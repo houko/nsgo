@@ -1167,8 +1167,8 @@ func (s *surface) environment() driver.Environment {
 		CanSetWindowWorkspaces: !s.embedded && s.window != 0,
 		// The dictionary panel shows over the window the view is in.
 		CanLookUp: s.window != 0,
-		// The preview panel shows over the window too, where QuickLookUI loads.
-		CanQuickLook: s.window != 0 && quickLookAvailable(),
+		// The preview panel shows over the window too, where QuickLookUI loads; it takes its files from NSGo's app delegate (quickLookControl), which an embedding host's app does not have.
+		CanQuickLook: !s.embedded && s.window != 0 && quickLookAvailable(),
 
 		// A transparent window or panel draws nothing of its own wherever it is (look.go, newPanel).
 		WindowTransparent: s.transparent,

@@ -27,7 +27,12 @@ func registerQuickLook() {
 	if _, err := purego.Dlopen("/System/Library/Frameworks/Quartz.framework/Frameworks/QuickLookUI.framework/QuickLookUI", purego.RTLD_NOW|purego.RTLD_GLOBAL); err != nil || apple.Class("QLPreviewPanel") == 0 {
 		return
 	}
-	class := register("NsgoQuickLookSource", apple.Class("NSObject"), []*objc.Protocol{objc.GetProtocol("QLPreviewPanelDataSource")}, []objc.MethodDef{{
+	// RegisterClass fails, and register panics, on a protocol the runtime does not have, so a QuickLookUI without it leaves Quick Look unavailable rather than stopping the app.
+	protocol := objc.GetProtocol("QLPreviewPanelDataSource")
+	if protocol == nil {
+		return
+	}
+	class := register("NsgoQuickLookSource", apple.Class("NSObject"), []*objc.Protocol{protocol}, []objc.MethodDef{{
 		Cmd: sel("numberOfPreviewItemsInPreviewPanel:"),
 		Fn: func(objc.ID, objc.SEL, objc.ID) int {
 			if quickLookURLs == 0 {
@@ -74,6 +79,18 @@ func quickLook(r *driver.QuickLookRequest) {
 	if quickLookSource == 0 || r == nil || len(r.Paths) == 0 {
 		return
 	}
+	setQuickLookFiles(r)
+	panel := objc.ID(apple.Class("QLPreviewPanel")).Send(sel("sharedPreviewPanel"))
+	if objc.Send[bool](panel, sel("isVisible")) && panel.Send(sel("dataSource")) == quickLookSource {
+		panel.Send(sel("reloadData"))
+		panel.Send(sel("setCurrentPreviewItemIndex:"), quickLookIndex)
+		return
+	}
+	panel.Send(sel("makeKeyAndOrderFront:"), objc.ID(0))
+}
+
+// setQuickLookFiles makes r's files the ones quickLookSource answers, releasing the last request's.
+func setQuickLookFiles(r *driver.QuickLookRequest) {
 	urls := objc.ID(apple.Class("NSMutableArray")).Send(selNew)
 	for _, path := range r.Paths {
 		urls.Send(sel("addObject:"), objc.ID(apple.Class("NSURL")).Send(sel("fileURLWithPath:"), apple.NSString(path)))
@@ -82,11 +99,4 @@ func quickLook(r *driver.QuickLookRequest) {
 		quickLookURLs.Send(selRelease)
 	}
 	quickLookURLs, quickLookIndex = urls, min(max(r.Index, 0), len(r.Paths)-1)
-	panel := objc.ID(apple.Class("QLPreviewPanel")).Send(sel("sharedPreviewPanel"))
-	if objc.Send[bool](panel, sel("isVisible")) && panel.Send(sel("dataSource")) == quickLookSource {
-		panel.Send(sel("reloadData"))
-		panel.Send(sel("setCurrentPreviewItemIndex:"), quickLookIndex)
-		return
-	}
-	panel.Send(sel("makeKeyAndOrderFront:"), objc.ID(0))
 }

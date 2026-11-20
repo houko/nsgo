@@ -112,7 +112,7 @@ func LookUp(cx *core.Scope, text string, in *core.Ref, at core.Bounds) bool {
 	return cx.LookUp(text, in, at)
 }
 
-// CanQuickLook reports whether QuickLook shows the system's file preview panel: in a window on macOS. Windows, Linux and the web have no such panel, so it is false there, as for the app's own scope and a tray icon's, which show in no window.
+// CanQuickLook reports whether QuickLook shows the system's file preview panel: in a window on macOS. Windows, Linux and the web have no such panel, so it is false there, as for a view a host embeds, whose app the panel asks for its files, and for the app's own scope and a tray icon's, which show in no window.
 func CanQuickLook(cx *core.Scope) bool { return cx.Env().CanQuickLook() }
 
 // QuickLook shows the system's file preview panel on paths, starting at index, as Space does in the Finder; called again while the panel shows, it shows the new paths, as the Finder's panel follows its selection. The user closes it with Space or Escape. It reports whether the panel was asked for: false for no paths, a path that is not a regular file, where CanQuickLook is false, and for a confined view the user is not using (core.Scope.Confine). The panel reads the files while it shows them.
