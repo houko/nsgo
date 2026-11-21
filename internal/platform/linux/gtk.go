@@ -752,5 +752,6 @@ func bind() {
 	bindEditing()
 	bindAccess()
 	bindTouchScroll()
+	bindTouches()
 	bindWindowPointer()
 }

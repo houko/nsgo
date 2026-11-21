@@ -82,7 +82,8 @@ func (w *window) touchMove(at driver.Point) bool {
 		return false
 	}
 	if t.taken == nil {
-		if w.panning != nil && w.panning.active {
+		if w.panning != nil && w.panning.active || w.blockNative {
+			// A pan, or a touch responder that blocks them, keeps the scroll views from the touch.
 			w.touching = nil
 			return false
 		}
@@ -95,7 +96,8 @@ func (w *window) touchMove(at driver.Point) bool {
 		if t.taken == nil {
 			return false
 		}
-		// The touch is the view's: no press, long press or pan.
+		// The touch is the view's: no press, long press, pan or fingers.
+		w.cancelTouches()
 		w.cancelLongPress()
 		w.pressConsumed = true
 		w.panning = nil

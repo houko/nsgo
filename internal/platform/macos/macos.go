@@ -249,7 +249,7 @@ type surface struct {
 	inside           map[*view]struct{} // views whose tracking areas hold the mouse
 	root             driver.NodeID      // the root view's, which the batches name
 	// mouse is finger 0 of the views' touches; touched is the last NSEvent reported, which AppKit passes up the views.
-	mouse finger.Mouse
+	mouse finger.Fingers
 	// clicks is restartClicks': the view the window's last left mouse down hit, and how many of the window server's count of that click came before it.
 	clicks struct {
 		view    objc.ID

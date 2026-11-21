@@ -278,7 +278,7 @@ func (w *window) movePointer(at driver.Point, state uint32) {
 	w.updatePointerCursor()
 	w.mouseMoved(state)
 	if state&gdkButton1 != 0 {
-		w.touch(w.mouse.Move(at))
+		w.touch(w.fingers.Move(at))
 	}
 }
 

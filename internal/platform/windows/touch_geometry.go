@@ -5,7 +5,7 @@ package windows
 import "github.com/nsgo-dev/nsgo/internal/driver"
 
 func (w *window) captureTouches(e *driver.Event) {
-	w.mouse.Capture(e, func(p driver.Point) driver.NodeID {
+	w.fingers.Capture(e, func(p driver.Point) driver.NodeID {
 		if root := w.view(w.root); root != nil {
 			if v := hit(root, p, func(*view) bool { return true }); v != nil {
 				return v.id

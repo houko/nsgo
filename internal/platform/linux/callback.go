@@ -62,6 +62,7 @@ var (
 	cbWebScheme              uintptr
 
 	cbShield           uintptr
+	cbTouch            uintptr
 	cbViewClassInit    uintptr
 	cbViewDispose      uintptr
 	cbViewSizeAllocate uintptr
@@ -151,6 +152,7 @@ func init() {
 	cbWebScheme = newCallback(webSchemeCallback)
 
 	cbShield = newCallback(shieldCallback)
+	cbTouch = newCallback(touchCallback)
 	cbViewClassInit = newCallback(viewClassInitCallback)
 	cbViewDispose = newCallback(viewDisposeCallback)
 	cbViewSizeAllocate = newCallback(viewSizeAllocateCallback)

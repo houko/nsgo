@@ -125,8 +125,9 @@ func (w *window) pointerDown(at driver.Point, button uint32, device uintptr, sta
 	} else {
 		w.touching = nil
 	}
-	if button == 1 {
-		w.touch(w.mouse.Down(w.listensTouches(), at))
+	if button == 1 && !touch {
+		// A touchscreen's fingers are reported by their sequences (touch.go).
+		w.touch(w.fingers.Down(w.listensTouches(), at))
 	}
 	// A press on the surface leaves the focused field or page, but not a press on the focused field itself, which the test host's presses bring here after giving it the focus. A focused control keeps the focus, as on the other desktops: a press does not move it, and a handler that wants it elsewhere focuses that view itself.
 	if f := w.focusedEntry(); f != nil && !w.onEntry(f, at) || w.focusedWeb() != nil {
@@ -194,7 +195,7 @@ func clickReleasedCallback(gesture uintptr, n int32, x, y float64, data uintptr)
 func (w *window) pointerUp(at driver.Point) {
 	w.windowMove = nil
 	w.selectUp()
-	w.touch(w.mouse.Up(at))
+	w.touch(w.fingers.Up(at))
 	w.cancelLongPress()
 	w.pressEdge(driver.EventPressUp, at)
 	if w.pressConsumed || w.panning != nil && w.panning.active {
@@ -577,6 +578,11 @@ func (w *window) setupInputs() {
 	gtkEventControllerSetPropagationPhase(shield, propagationPhaseCapture)
 	gSignalConnect(shield, "event", cbShield, w.handle)
 	gtkWidgetAddController(w.surface, shield)
+
+	touches := gtkEventControllerLegacyNew()
+	gtkEventControllerSetPropagationPhase(touches, propagationPhaseCapture)
+	gSignalConnect(touches, "event", cbTouch, w.handle)
+	gtkWidgetAddController(w.surface, touches)
 
 	click := gtkGestureClickNew()
 	gtkGestureSingleSetButton(click, 0)

@@ -94,7 +94,8 @@ func (w *window) touchDown(pointer uint32, at driver.Point) {
 func (w *window) touchMove(at driver.Point) bool {
 	t := w.touching
 	if t.taken == nil {
-		if w.pan != nil && w.pan.active {
+		if w.pan != nil && w.pan.active || w.blockNative {
+			// A pan, or a touch responder that blocks them, keeps the scroll views from the touch.
 			w.touching = nil
 			return false
 		}
@@ -107,10 +108,10 @@ func (w *window) touchMove(at driver.Point) bool {
 		if t.taken == nil {
 			return false
 		}
-		// The touch is the view's: no press, long press or pan.
+		// The touch is the view's: no press, long press, pan or fingers.
 		w.pressCancel()
 		w.panLost()
-		w.touch(w.mouse.Cancel(w.pointer))
+		w.cancelTouches()
 		releaseCapture.Call()
 		w.scrollEvent(t.taken, driver.EventScrollDragStart)
 	}

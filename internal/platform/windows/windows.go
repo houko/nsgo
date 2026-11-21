@@ -538,6 +538,8 @@ type window struct {
 	selected      []*view
 	// touching is the touch that may drag a scroll view (touchscroll.go).
 	touching *touchScroll
+	// blockNative is set while the touch responder keeps the scroll views from the touches (ItemBlockNative).
+	blockNative bool
 	// uia are the UI Automation elements made for the views (uia.go).
 	uia                map[uint64]*uiaElement
 	inactive, blinking bool
@@ -549,8 +551,8 @@ type window struct {
 		count int
 	}
 	down driver.Event // the left button's last press: modifiers and count
-	// mouse is finger 0 of the views' touches.
-	mouse finger.Mouse
+	// fingers are the views' touches: the mouse as finger 0, a touchscreen's from 1 (touch.go).
+	fingers finger.Fingers
 	// pressing is the left button's press on a view, as it happens.
 	pressing *pressing
 
@@ -1250,6 +1252,9 @@ func (w *window) apply(b *driver.MountBatch) {
 			continue
 		case driver.ItemDismissKeyboard:
 			focus = append(focus, focusChange{})
+			continue
+		case driver.ItemBlockNative:
+			w.blockNative = it.ID != 0
 			continue
 		case driver.ItemSetClipboard:
 			w.setClipboard(it.Value)
@@ -2261,9 +2266,15 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 			return 0
 		}
 	case wmPointerDown, wmPointerUpdate, wmPointerUp, wmPointerLeave:
-		if w.hostedPointer(message, wParam, lParam) || w.touchPointer(message, wParam, lParam) {
+		if w.hostedPointer(message, wParam, lParam) {
 			return 0
 		}
+		w.touchFinger(message, wParam, lParam)
+		if w.touchPointer(message, wParam, lParam) {
+			return 0
+		}
+	case wmPointerCaptureChanged:
+		w.touchFinger(message, wParam, lParam)
 	case wmMouseLeave:
 		w.mouseLeft()
 		return 0
@@ -2390,8 +2401,9 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 		if message == wmLButtonDown && w.pressBar(w.point(int32(x), int32(y))) {
 			return 0
 		}
-		if message == wmLButtonDown {
-			w.touch(w.mouse.Down(w.listensTouches(), w.point(int32(x), int32(y))))
+		if message == wmLButtonDown && !touchMouse() {
+			// A touchscreen's fingers are reported by their pointers (touch.go).
+			w.touch(w.fingers.Down(w.listensTouches(), w.point(int32(x), int32(y))))
 		}
 		w.pressOutside(int32(x), int32(y))
 		if message == wmLButtonDown {
@@ -2412,7 +2424,7 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 		w.setHover(0) // off the caption buttons
 		x, y := int16(lParam&0xffff), int16(lParam>>16&0xffff)
 		at := w.point(int32(x), int32(y))
-		w.touch(w.mouse.Move(at))
+		w.touch(w.fingers.Move(at))
 		if w.barDrag != nil {
 			w.dragBar(at)
 			return 0
@@ -2435,7 +2447,7 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 	case wmLButtonUp:
 		x, y := int16(lParam&0xffff), int16(lParam>>16&0xffff)
 		at := w.point(int32(x), int32(y))
-		w.touch(w.mouse.Up(at))
+		w.touch(w.fingers.Up(at))
 		if w.fieldUp() || w.selectUp() {
 			return 0
 		}
@@ -2466,7 +2478,7 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 			w.pressCancel()
 		}
 		if lParam != hwnd {
-			w.touch(w.mouse.Cancel(w.pointer))
+			w.touch(w.fingers.Cancel(w.pointer))
 		}
 		return 0
 	case wmGesture:

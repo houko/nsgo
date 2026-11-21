@@ -217,7 +217,6 @@ type window struct {
 	lastPointer  driver.Point
 	cursorText   *view         // the text whose widget shows a span's cursor
 	down         driver.Event  // the last press: modifiers and click count
-	mouse        finger.Mouse  // finger 0 of the views' touches
 	paste        *pasting      // the paste whose clipboard is being read
 	pointerIn    bool          // the pointer is over the surface, at lastPointer
 	hovered      hover.Tracker // the views under it that follow hovers
@@ -254,8 +253,12 @@ type window struct {
 	forced, scoped driver.Appearance
 	schemeProvider uintptr
 	surfaceName    string
+	// fingers are the views' touches: the mouse as finger 0, a touchscreen's from 1 (touch.go).
+	fingers finger.Fingers
 	// touching is the touch that may drag a scroll view (touchscroll.go).
 	touching *touchScroll
+	// blockNative is set while the touch responder keeps the scroll views from the touches (ItemBlockNative).
+	blockNative bool
 	// wheeled is the scroll view the last wheel turn moved, wheelMotion
 	// its glide after the touchpad's fingers lifted.
 	wheeled     *view
@@ -892,6 +895,9 @@ func (w *window) apply(b *driver.MountBatch) {
 			continue
 		case driver.ItemDismissKeyboard:
 			focus = append(focus, focusChange{})
+			continue
+		case driver.ItemBlockNative:
+			w.blockNative = it.ID != 0
 			continue
 		case driver.ItemSetClipboard:
 			w.setClipboard(it.Value)
