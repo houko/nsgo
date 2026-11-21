@@ -1,4 +1,4 @@
-//go:build ios && !nsgowatch
+//go:build ios
 
 package ios
 
