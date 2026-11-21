@@ -254,7 +254,7 @@ lookup := desktop.OpenPanel(cx, desktop.PanelOptions{Width: 380, Height: 520, Tr
 desktop.RegisterHotKey(cx, "alt+space", lookup.Toggle)
 ```
 
-A shortcut recorder lets the user choose such a key. A `Focusable` view's `OnKeyDown` hears each key that goes down while it has the focus, before the app's bindings, with the modifiers held, a modifier pressed alone included; returning `true` keeps the key from the bindings, so recording Command+S does not save. `KeyEvent.Shortcut` writes the press as `OnKey` and `RegisterHotKey` take it, each modifier by name ("ctrl+shift+k", "alt+space", "shift+meta+k" for Command+Shift+K), and "" for a modifier alone. It works on macOS, Windows, Linux and the web, where the browser keeps the shortcuts it gives no page, and in `nsgotest`; Android and iOS report no keys to it yet. A shortcut the app registered globally takes its key before the view, so a recorder unregisters it while it records.
+A shortcut recorder lets the user choose such a key. A `Focusable` view's `OnKeyDown` hears each key that goes down while it has the focus, before the app's bindings, with the modifiers held, a modifier pressed alone included; returning `true` keeps the key from the bindings, so recording Command+S does not save. `KeyEvent.Shortcut` writes the press as `OnKey` and `RegisterHotKey` take it, each modifier by name ("ctrl+shift+k", "alt+space", "shift+meta+k" for Command+Shift+K), and "" for a modifier alone. Its `OnKeyUp` hears each of those keys come up, even after `OnKeyDown` consumed it or the focus moved, with the modifiers still held. Both work on macOS, Windows, Linux, the web, where the browser keeps the shortcuts it gives no page, Apple TV and in `nsgotest`; Android, iPhone and iPad report no keys to a view. A shortcut the app registered globally takes its key before the view, so a recorder unregisters it while it records.
 
 ```go
 core.View{
@@ -265,8 +265,25 @@ core.View{
 		}
 		return true
 	},
+	OnKeyUp: func(core.KeyEvent) { recording.Set(false) },
 	Children: []core.Node{core.Text{ContentFunc: shortcut.Get}},
 }
+```
+
+A game or a canvas polls the keys instead. `core.KeysDown(cx)` lists the keys held on the window and `core.KeyHeld(cx, "left")` says whether one is: tracked reads, which a `RequestAnimationFrame` loop reads too. The first read has the platform report every key from then on, so a key already held stays unknown until it is pressed again; keys typed into a field or a web view, or while an input method composes, are never held, and a key still held as the window loses the focus comes up then. They work where `OnKeyUp` does and on iPhone and iPad with a hardware keyboard.
+
+```go
+var loop func(time.Time)
+loop = func(time.Time) {
+	if core.KeyHeld(cx, "left") {
+		x.Update(func(x float32) float32 { return x - 4 })
+	}
+	if core.KeyHeld(cx, "right") {
+		x.Update(func(x float32) float32 { return x + 4 })
+	}
+	cx.RequestAnimationFrame(loop)
+}
+cx.RequestAnimationFrame(loop)
 ```
 
 ## Speaking text

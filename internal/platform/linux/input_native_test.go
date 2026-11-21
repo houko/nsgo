@@ -278,3 +278,89 @@ func TestADoubleClickOnADragRegionIsTheTitleBars(t *testing.T) {
 		})
 	}
 }
+
+// TestKeysComeUpWhereTheyWentDown holds keys on a focused view that hears them and on none, for an app that reads the keys held. Each up reaches the view its down did, a modifier released alone comes up without its own modifier unless its other key stays down, the keys held come up as the window loses the keyboard and press anew after it, and a down no view hears is still held.
+func TestKeysComeUpWhereTheyWentDown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("opens a window")
+	}
+	title := "nsgo-keys-up"
+	app := func(cx *core.Scope) core.Node {
+		log := core.NewSignal(cx, "")
+		mark := func(prefix string, e core.KeyEvent) {
+			s := prefix + e.Key
+			if e.Modifiers.Shift {
+				s += "+S"
+			}
+			if e.Repeat {
+				s += "!"
+			}
+			log.Update(func(l string) string {
+				if l != "" {
+					l += ","
+				}
+				return l + s
+			})
+		}
+		cx.Effect(func() {
+			cx.SetTitle(fmt.Sprintf("%s|%s|%s", title, log.Get(), strings.Join(core.KeysDown(cx), " ")))
+		})
+		return core.View{Style: core.Style{Padding: driver.All(20)}, Children: []core.Node{
+			core.View{TestID: "pad", Focusable: func() bool { return true }, Style: core.Style{Width: driver.Pt(100), Height: driver.Pt(40)},
+				OnKeyDown: func(e core.KeyEvent) bool { mark("d:", e); return false },
+				OnKeyUp:   func(e core.KeyEvent) { mark("u:", e) }},
+		}}
+	}
+	w := startTestWindow(t, app, Options{Title: title, Width: 320, Height: 200})
+	waitForTitle(t, w, title+"||")
+	const shiftL, shiftR = 0xffe1, 0xffe2
+	w.onLoop(t, func() {
+		if !w.heldKeys {
+			t.Fatal("reading the keys held did not ask for every key")
+		}
+		for _, v := range w.views {
+			if v != nil && v.props.TestID == "pad" {
+				w.setControlFocus(v)
+			}
+		}
+		keyPressedCallback(0, shiftL, 50, 0, w.handle)
+		keyPressedCallback(0, shiftR, 62, gdkShift, w.handle)
+		keyPressedCallback(0, 'a', 38, gdkShift, w.handle)
+		keyReleasedCallback(0, 'a', 38, gdkShift, w.handle)
+		// GDK's state at a modifier's release still holds it: the left Shift comes up with the right one held, the right one alone.
+		keyReleasedCallback(0, shiftL, 50, gdkShift, w.handle)
+		keyReleasedCallback(0, shiftR, 62, gdkShift, w.handle)
+	})
+	ups := "d:shift+S,d:shift+S,d:a+S,u:a+S,u:shift+S,u:shift"
+	waitForTitle(t, w, title+"|"+ups+"|")
+	w.onLoop(t, func() {
+		keyPressedCallback(0, 'b', 56, 0, w.handle)
+		keyPressedCallback(0, 'b', 56, 0, w.handle)
+	})
+	ups += ",d:b,d:b!"
+	waitForTitle(t, w, title+"|"+ups+"|b")
+	w.onLoop(t, func() {
+		// A window under test is seldom active; where it is, the flush its deactivation runs is run directly.
+		if w.win != 0 && gtkWindowIsActive(w.win) != 0 {
+			w.releaseKeys()
+		} else {
+			activityCallback(0, 0, 0)
+		}
+		if len(w.held) != 0 {
+			t.Errorf("%d keys still held after the window lost the keyboard", len(w.held))
+		}
+		// Back, the key goes down anew rather than repeating, and its release elsewhere is not heard again.
+		keyReleasedCallback(0, 'b', 56, 0, w.handle)
+		keyPressedCallback(0, 'b', 56, 0, w.handle)
+		keyReleasedCallback(0, 'b', 56, 0, w.handle)
+	})
+	ups += ",u:b,d:b,u:b"
+	waitForTitle(t, w, title+"|"+ups+"|")
+	w.onLoop(t, func() {
+		w.setControlFocus(nil)
+		keyPressedCallback(0, 'c', 54, 0, w.handle)
+	})
+	waitForTitle(t, w, title+"|"+ups+"|c")
+	w.onLoop(t, func() { keyReleasedCallback(0, 'c', 54, 0, w.handle) })
+	waitForTitle(t, w, title+"|"+ups+"|")
+}

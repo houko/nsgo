@@ -94,6 +94,8 @@ type target struct {
 	windowed bool
 	main     uint32
 	ownMenu  []driver.MenuEntry
+	// held are the keys KeyDown holds on the surface, by the name keyName gives them, so a KeyUp of a key not held fails the step on every platform, as it does headless.
+	held map[string]bool
 }
 
 // targetUpdate is a batch or an event reported by the named surface.
@@ -791,6 +793,29 @@ func (t *target) clear(v *View) {
 }
 
 func (t *target) keys(v *View, key string) { t.check(t.surface.Key(key)) }
+
+// hold presses key and holds it, or lets it come up, where the surface can hold a key (testhost.KeyHoldSurface); elsewhere the test skips. A key not held fails its KeyUp.
+func (t *target) hold(key string, down bool) {
+	t.a.t.Helper()
+	s, ok := t.surface.(testhost.KeyHoldSurface)
+	if !ok {
+		t.a.t.Skipf("nsgotest: %s: the platform cannot hold a key", t.a.stepName)
+	}
+	name := t.a.keyName(driver.NormalizeKey(key))
+	if !down {
+		if !t.held[name] {
+			t.a.t.Fatalf("nsgotest: %s: %q is not held; KeyDown holds a key", t.a.stepName, key)
+		}
+		delete(t.held, name)
+		t.check(s.KeyUp(key))
+		return
+	}
+	if t.held == nil {
+		t.held = map[string]bool{}
+	}
+	t.held[name] = true
+	t.check(s.KeyDown(key))
+}
 
 func (t *target) drag(start driver.Point, path []driver.Point) {
 	t.check(t.surface.Drag(append([]driver.Point{start}, path...)))

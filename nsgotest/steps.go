@@ -6,6 +6,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/internal/driver"
 )
 
@@ -810,7 +811,7 @@ func (a *App) Commit(selector, text string) {
 	a.Compose(selector, "")
 }
 
-// Key presses a key on a hardware keyboard, as the app's keymap reads it ("mod+s", "Escape", "a", or a modifier alone, "shift"): the focused view's OnKeyDown hears it first, and a key it consumes goes no further; else a binding of the keymap fires, unless the focused view uses the key itself as on a device (core.KeyAuto), a field its editing keys, a pressable view Return and Space, a slider or a tab bar its arrows; else, in a desktop or web environment, Tab and Shift+Tab move the keyboard focus between fields and pressable views, and Return or Space press the pressable view it is on with the modifiers held, except with Alt on Windows, where they go to the window menu; else the focused field takes a character, Backspace or Enter, mod+a selects all its text, and mod+c, mod+x and mod+v copy, cut and paste with Clipboard when no application-menu item has the key as its shortcut; else, in a macOS, Windows or Linux environment, the enabled application-menu item with the key as its shortcut is chosen, unless it is NotInText and a field or web view has the focus; else Escape goes back. A key nothing takes does nothing, as on a device.
+// Key presses a key on a hardware keyboard, as the app's keymap reads it ("mod+s", "Escape", "a", or a modifier alone, "shift"), and lets it come up: the focused view's OnKeyDown hears it first, and a key it consumes goes no further; else a binding of the keymap fires, unless the focused view uses the key itself as on a device (core.KeyAuto), a field its editing keys, a pressable view Return and Space, a slider or a tab bar its arrows; else, in a desktop or web environment, Tab and Shift+Tab move the keyboard focus between fields and pressable views, and Return or Space press the pressable view it is on with the modifiers held, except with Alt on Windows, where they go to the window menu; else the focused field takes a character, Backspace or Enter, mod+a selects all its text, and mod+c, mod+x and mod+v copy, cut and paste with Clipboard when no application-menu item has the key as its shortcut; else, in a macOS, Windows or Linux environment, the enabled application-menu item with the key as its shortcut is chosen, unless it is NotInText and a field or web view has the focus; else Escape goes back. A key nothing takes does nothing, as on a device. Then the key comes up, which OnKeyUp of the view that heard it go down hears, with the key's modifiers still held. The modifiers KeyDown holds join the key, so KeyDown("shift") then Key("a") presses shift+a.
 func (a *App) Key(key string) {
 	a.t.Helper()
 	a.step("key(%s)", key)
@@ -819,27 +820,74 @@ func (a *App) Key(key string) {
 		a.done()
 		return
 	}
-	k := driver.NormalizeKey(key)
-	a.inputBy(driver.ModalityKeyboard)
-	names := a.keyNames(k)
-	if a.keyDown(k) {
+	parts := strings.Split(driver.NormalizeKey(key), "+")
+	a.press(key)
+	a.release(a.keyName(parts[len(parts)-1]), a.keyModifiers(parts[:len(parts)-1]))
+	a.done()
+}
+
+// KeyDown presses one key and holds it, as the keymap names it ("a", "left", "space", "shift", "mod"), never a chord, which fails the step: what Key does as a key goes down, OnKeyDown, the keymap, Tab, the focused field and the menu, without its coming up. A modifier it holds joins every later KeyDown, KeyUp and Key until KeyUp releases it, so KeyDown("shift") then Key("a") presses shift+a. A key already held goes down again as its auto-repeat, except on the iOS and tvOS simulators, where UIKit reports a held key's down once. Under nsgo test -target, a platform that cannot hold a key skips the test: Android, HarmonyOS and watchOS.
+func (a *App) KeyDown(key string) {
+	a.t.Helper()
+	a.step("keyDown(%s)", key)
+	a.oneKey(key)
+	if a.target != nil {
+		a.target.hold(key, true)
 		a.done()
 		return
 	}
-	if id, consumed := driver.FindKey(a.keyBindings, names, a.focusKeyUse(), false); consumed {
+	a.press(key)
+	a.done()
+}
+
+// KeyUp releases one key KeyDown holds, which OnKeyUp of the view that heard it go down hears, wherever the focus has gone since, with the modifiers still held; a key not held fails the step. Under nsgo test -target, a platform that cannot hold a key skips the test, as for KeyDown.
+func (a *App) KeyUp(key string) {
+	a.t.Helper()
+	a.step("keyUp(%s)", key)
+	a.oneKey(key)
+	if a.target != nil {
+		a.target.hold(key, false)
+		a.done()
+		return
+	}
+	name := a.keyName(driver.NormalizeKey(key))
+	if _, ok := a.held[name]; !ok {
+		a.t.Fatalf("nsgotest: %s: %q is not held; KeyDown holds a key", a.stepName, key)
+	}
+	a.release(name, driver.Modifiers{})
+	a.done()
+}
+
+// oneKey fails the step for a chord, which KeyDown and KeyUp do not take.
+func (a *App) oneKey(key string) {
+	a.t.Helper()
+	if strings.Contains(driver.NormalizeKey(key), "+") {
+		a.t.Fatalf("nsgotest: %s: KeyDown and KeyUp take one key, not the chord %q; hold each key", a.stepName, key)
+	}
+}
+
+// press does what Key does as key goes down, the modifiers KeyDown holds joining it.
+func (a *App) press(key string) {
+	key = a.withHeld(key)
+	k := driver.NormalizeKey(key)
+	a.inputBy(driver.ModalityKeyboard)
+	names := a.keyNames(k)
+	parts := strings.Split(k, "+")
+	_, repeat := a.held[a.keyName(parts[len(parts)-1])]
+	if a.keyDown(k, repeat) {
+		return
+	}
+	if id, consumed := driver.FindKey(a.keyBindings, names, a.focusKeyUse(), repeat); consumed {
 		if id != 0 {
 			a.dispatch(driver.Event{Kind: driver.EventKey, Count: id})
 		}
-		a.done()
 		return
 	}
 	if a.tabs() {
 		if k == "tab" || k == "shift+tab" {
 			a.moveFocus(k == "shift+tab")
-			a.done()
 			return
 		}
-		parts := strings.Split(k, "+")
 		name := parts[len(parts)-1]
 		// The keymap had the key first, including modified activations. Windows sends keys held with Alt as system keys, which go to the window menu rather than the focused view.
 		mods := a.keyModifiers(parts[:len(parts)-1])
@@ -850,7 +898,6 @@ func (a *App) Key(key string) {
 					for _, kind := range []driver.EventKind{driver.EventPressDown, driver.EventPressUp, driver.EventPress} {
 						a.send(v, driver.Event{Kind: kind, Modifiers: mods})
 					}
-					a.done()
 					return
 				}
 			}
@@ -871,7 +918,6 @@ func (a *App) Key(key string) {
 				break
 			}
 			a.moveSelection(v, driver.TextRange{Start: 0, End: driver.UTF16Len(v.Text)})
-			a.done()
 			return
 		}
 		// The field's own clipboard keys, which the platforms' fields take before the application menu's editing roles; an item the app gave one of them as its shortcut takes it first, as the platforms' menus do (chooseMenuEntry still hands an editing role to the field).
@@ -889,7 +935,6 @@ func (a *App) Key(key string) {
 				break
 			}
 			a.editField(v, role)
-			a.done()
 			return
 		}
 		if strings.Contains(name, "+") {
@@ -909,18 +954,15 @@ func (a *App) Key(key string) {
 			typed = shifted(typed)
 		}
 		a.typeKey(v, typed)
-		a.done()
 		return
 	}
 	if entry, consumed := a.menuShortcut(names); consumed {
 		a.chooseMenuEntry(entry)
-		a.done()
 		return
 	}
 	if k == "escape" {
 		a.dispatch(driver.Event{Kind: driver.EventBack, ID: a.rootID})
 	}
-	a.done()
 }
 
 // menuShortcut finds the item of the application menu a key that the keymap, the keyboard focus and the focused field left goes to, as macOS's key equivalents and Windows' and Linux's menu shortcuts take it (driver.MenuShortcut): the item, and whether one takes the key. Only macOS, Windows and Linux show the menu.
@@ -1044,46 +1086,124 @@ func (a *App) editField(v *View, role driver.MenuRole) {
 	}
 }
 
-// keyDown offers key k, normalized, to the focused view that hears keys go down (View.OnKeyDown), as the platforms do before the keymap, and reports whether it consumed the key. A modifier alone ("shift", "mod") is reported with its own modifier held and never consumed.
-func (a *App) keyDown(k string) bool {
+// heldKey is a key KeyDown holds: tree and id are the surface and the view its down went to, id 0 for none, and reported whether the platform would report its up, which it would not after a down while a field or web view had the focus, or with no view hearing keys while the surface did not ask for every key (driver.MountItem.HeldKeys).
+type heldKey struct {
+	tree     *core.Tree
+	id       driver.NodeID
+	reported bool
+}
+
+// keyDown offers key k, normalized, to the focused view that hears keys go down (View.OnKeyDown), as the platforms do before the keymap, and reports whether it consumed the key. A modifier alone ("shift", "mod") is reported with its own modifier held and never consumed. With no such view, the surface that asks for every key hears it with no view, unless a field or web view has the focus. A key not held yet is held from here, with where its up goes; repeat is whether it was held already, which neither changes.
+func (a *App) keyDown(k string, repeat bool) bool {
 	var focused *View
+	editing := false
 	for _, v := range a.shown() {
-		if v.Focused && v.Kind != driver.KindInput && v.Events.Has(driver.EventKeyDown) {
+		if !v.Focused {
+			continue
+		}
+		if v.Kind == driver.KindInput || v.Kind == driver.KindWeb {
+			editing = true
+		} else if v.Events.Has(driver.EventKeyDown) && focused == nil {
 			focused = v
-			break
 		}
 	}
-	if focused == nil {
-		return false
-	}
 	parts := strings.Split(k, "+")
-	name := parts[len(parts)-1]
+	name := a.keyName(parts[len(parts)-1])
 	held := parts[:len(parts)-1]
-	modifier := true
-	switch name {
-	case "shift", "ctrl", "alt", "meta", "mod":
-	case "control":
-		name = "ctrl"
-	case "option":
-		name = "alt"
-	case "cmd", "command", "super", "win":
-		name = "meta"
-	default:
-		modifier = false
-	}
+	modifier := modifierKey(name)
 	if modifier {
 		held = append(held, name)
 	}
-	mods := a.keyModifiers(held)
-	if name == "mod" {
-		name = "ctrl"
-		if mods.Platform {
-			name = "meta"
-		}
+	ev := driver.Event{Kind: driver.EventKeyDown, Text: name, Modifiers: a.keyModifiers(held), Repeat: repeat}
+	entry, consumed := heldKey{}, false
+	switch {
+	case editing:
+	case focused != nil:
+		ev.ID = focused.ID
+		entry = heldKey{tree: a.tree, id: focused.ID, reported: true}
+		consumed = a.tree.KeyDown(ev)
+	case a.heldKeys:
+		entry = heldKey{tree: a.tree, reported: true}
+		a.tree.Dispatch(ev)
 	}
-	consumed := a.tree.KeyDown(driver.Event{Kind: driver.EventKeyDown, ID: focused.ID, Text: name, Modifiers: mods})
+	if !repeat {
+		if a.held == nil {
+			a.held = map[string]heldKey{}
+		}
+		a.held[name] = entry
+	}
 	a.Settle()
 	return consumed && !modifier
+}
+
+// release lets key name, held, come up: the view its down went to hears it (EventKeyUp) with the modifiers still held and extra, those Key pressed with it.
+func (a *App) release(name string, extra driver.Modifiers) {
+	h, ok := a.held[name]
+	if !ok {
+		return
+	}
+	delete(a.held, name)
+	if !h.reported {
+		return
+	}
+	mods := a.heldModifiers()
+	mods.Control, mods.Alt, mods.Shift, mods.Platform = mods.Control || extra.Control, mods.Alt || extra.Alt, mods.Shift || extra.Shift, mods.Platform || extra.Platform
+	h.tree.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: h.id, Text: name, Modifiers: mods})
+	a.Settle()
+}
+
+// withHeld returns key with the modifiers KeyDown holds before it, its own aside.
+func (a *App) withHeld(key string) string {
+	parts := strings.Split(driver.NormalizeKey(key), "+")
+	own := a.keyName(parts[len(parts)-1])
+	var mods []string
+	for _, m := range []string{"ctrl", "alt", "shift", "meta"} {
+		if _, ok := a.held[m]; ok && m != own {
+			mods = append(mods, m)
+		}
+	}
+	if len(mods) == 0 {
+		return key
+	}
+	return strings.Join(append(mods, key), "+")
+}
+
+// heldModifiers are the modifiers KeyDown holds.
+func (a *App) heldModifiers() driver.Modifiers {
+	var names []string
+	for name := range a.held {
+		if modifierKey(name) {
+			names = append(names, name)
+		}
+	}
+	return a.keyModifiers(names)
+}
+
+// keyName names a key, normalized and without modifiers, as the platforms report it (core.KeyEvent.Key): a modifier by its own name, "mod" as "meta" on Apple platforms and "ctrl" elsewhere.
+func (a *App) keyName(name string) string {
+	switch name {
+	case "control":
+		return "ctrl"
+	case "option":
+		return "alt"
+	case "cmd", "command", "super", "win":
+		return "meta"
+	case "mod":
+		if a.keyModifiers([]string{"mod"}).Platform {
+			return "meta"
+		}
+		return "ctrl"
+	}
+	return name
+}
+
+// modifierKey reports whether the key keyName names is a modifier.
+func modifierKey(name string) bool {
+	switch name {
+	case "shift", "ctrl", "alt", "meta":
+		return true
+	}
+	return false
 }
 
 // keyModifiers reads normalized key prefixes; mod is Command on Apple platforms and Control elsewhere, while meta is Command or the system key.

@@ -136,6 +136,7 @@ const (
 	EventContextMenu           = driver.EventContextMenu
 	EventKey                   = driver.EventKey
 	EventKeyDown               = driver.EventKeyDown
+	EventKeyUp                 = driver.EventKeyUp
 	EventPan                   = driver.EventPan
 	EventPinch                 = driver.EventPinch
 	EventWheel                 = driver.EventWheel

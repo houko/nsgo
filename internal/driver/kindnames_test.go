@@ -12,6 +12,7 @@ func TestKindNames(t *testing.T) {
 		{ItemModal.String(), "ItemModal"},
 		{ItemCreate.String(), "ItemCreate"},
 		{EventPress.String(), "EventPress"},
+		{EventKeyUp.String(), "EventKeyUp"},
 		{KindCanvas.String(), "canvas"}, // trace.go names a view kind for traces
 		{DrawSave.String(), "DrawSave"},
 		{ItemKind(200).String(), "ItemKind(200)"},

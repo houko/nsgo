@@ -38,6 +38,10 @@ const (
 	vkMenu         = 0x12
 	vkLWin         = 0x5B
 	vkRWin         = 0x5C
+	vkLShift       = 0xA0
+	vkRShift       = 0xA1
+	scanLeftShift  = 0x2A
+	scanRightShift = 0x36
 	vkLButton      = 0x01
 	wmContextMenu  = 0x007B
 	contextFromKey = ^uintptr(0) // lParam -1: Shift+F10 or the menu key
@@ -105,33 +109,129 @@ func (w *window) editing() bool {
 	return false
 }
 
-// setKeymap replaces the keyboard shortcuts.
-func (w *window) setKeymap(keys []driver.KeyBinding) { w.keys = keys }
+// setKeymap replaces the keyboard shortcuts, and whether every key going down and up on the surface is reported (driver.MountItem.HeldKeys).
+func (w *window) setKeymap(keys []driver.KeyBinding, held bool) { w.keys, w.heldKeys = keys, held }
 
-// keyDown offers a key going down to the focused view that hears keys (View.OnKeyDown), before the keymap and the view's own keys, and reports whether it consumed the key. A modifier alone is reported but never consumed: no binding takes one, and the window follows the modifiers through its messages.
+// heldKey is a key the window reported going down, by its physical key (physicalKey), until it reports it coming up: the view the down went to, or 0, and the name the down had.
+type heldKey struct {
+	id   driver.NodeID
+	name string
+}
+
+// physicalKey identifies the key a key message's lParam names, so a key's up finds its down whatever the layout or the modifiers make of it since: the scan code and the extended bit (bits 16-24), which tell the left Shift from the right and the keypad's Enter from the main one. Input that carries no scan code is identified by its virtual key, outside the scan codes' range.
+func physicalKey(vk, lParam uintptr) uint32 {
+	if code := uint32(lParam>>16) & 0x1ff; code&0xff != 0 {
+		return code
+	}
+	return 0x10000 | uint32(vk&0xffff)
+}
+
+// heldName names a key as keyDown reports it, a modifier alone as "shift", "ctrl", "alt" or "meta", and says whether it is a modifier; "" for a key with no name, such as the IME's VK_PROCESSKEY while it composes.
+func heldName(vk uintptr) (name string, modifier bool) {
+	if name := keyName(vk); name != "" {
+		return name, false
+	}
+	switch vk {
+	case vkShift:
+		return "shift", true
+	case vkControl:
+		return "ctrl", true
+	case vkMenu:
+		return "alt", true
+	case vkLWin, vkRWin:
+		return "meta", true
+	}
+	return "", false
+}
+
+// keyDown offers a key going down to the focused view that hears keys (View.OnKeyDown), before the keymap and the view's own keys, and reports whether it consumed the key. A modifier alone is reported but never consumed: no binding takes one, and the window follows the modifiers through its messages. Where no view that hears keys has the focus and the surface asked for held keys, the down is reported asynchronously with ID 0 and consumes nothing. Either way the window records the key with the view and the name it reported, the first time the key is seen going down, even as an auto-repeat (a key held as the window got the keyboard), so its up reaches the same view (keyUp); a recorded key going down again without repeating lost its up, which it reports first. Keys typed while a text field or a page has the focus are neither reported nor recorded; an input method composing sends VK_PROCESSKEY, which has no name.
 func (w *window) keyDown(vk, lParam uintptr) bool {
-	v := w.focusedView()
-	if w.engine == nil || v == nil || v.deleted || v.field != nil || !v.events.Has(driver.EventKeyDown) {
+	if w.engine == nil {
 		return false
 	}
-	name, modifier := keyName(vk), false
+	w.releaseShifts()
+	if w.editing() {
+		return false
+	}
+	name, modifier := heldName(vk)
 	if name == "" {
-		modifier = true
-		switch vk {
-		case vkShift:
-			name = "shift"
-		case vkControl:
-			name = "ctrl"
-		case vkMenu:
-			name = "alt"
-		case vkLWin, vkRWin:
-			name = "meta"
+		return false
+	}
+	v := w.focusedView()
+	hears := v != nil && !v.deleted && v.field == nil && v.events.Has(driver.EventKeyDown)
+	if !hears && !w.heldKeys {
+		return false
+	}
+	ev := driver.Event{Kind: driver.EventKeyDown, Text: name, Modifiers: modifiers(), Repeat: repeated(lParam)}
+	if hears {
+		ev.ID = v.id
+	}
+	code := physicalKey(vk, lParam)
+	if held, recorded := w.keysHeld[code]; !recorded || !ev.Repeat {
+		if recorded {
+			// A key that goes down again without repeating lost its up, which is reported first, so the view hears one up for each down.
+			w.engine.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: held.id, Text: held.name, Modifiers: ev.Modifiers})
+		}
+		if w.keysHeld == nil {
+			w.keysHeld = map[uint32]heldKey{}
+		}
+		w.keysHeld[code] = heldKey{id: ev.ID, name: name}
+	}
+	if !hears {
+		// An auto-repeat changes nothing the app can read without a view to hear it.
+		if !ev.Repeat {
+			w.engine.Dispatch(ev)
+		}
+		return false
+	}
+	consumed := w.engine.DispatchKeyDown(ev)
+	return consumed && !modifier
+}
+
+// keyUp reports a key the window recorded going down coming up (driver.EventKeyUp), to the view its down went to wherever the focus is now, with the modifiers still held, which GetKeyState no longer counts the released key among. An up the window recorded no down for (a key pressed in a field, or before the window had the keyboard) is not reported.
+func (w *window) keyUp(vk, lParam uintptr) {
+	if w.engine == nil {
+		return
+	}
+	w.releaseShifts()
+	code := physicalKey(vk, lParam)
+	k, ok := w.keysHeld[code]
+	if !ok {
+		return
+	}
+	delete(w.keysHeld, code)
+	w.engine.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: k.id, Text: k.name, Modifiers: modifiers()})
+}
+
+// releaseShifts reports each Shift the window holds whose side GetKeyState shows up. With both Shifts down, Windows sends no WM_KEYUP for the first one released, so the window checks on every key message.
+func (w *window) releaseShifts() {
+	for code, k := range w.keysHeld {
+		var side uintptr
+		switch code {
+		case scanLeftShift:
+			side = vkLShift
+		case scanRightShift:
+			side = vkRShift
 		default:
-			return false
+			continue
+		}
+		if !keyDown(side) {
+			delete(w.keysHeld, code)
+			w.engine.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: k.id, Text: k.name, Modifiers: modifiers()})
 		}
 	}
-	consumed := w.engine.DispatchKeyDown(driver.Event{Kind: driver.EventKeyDown, ID: v.id, Text: name, Modifiers: modifiers(), Repeat: repeated(lParam)})
-	return consumed && !modifier
+}
+
+// releaseKeys reports every key the window holds coming up, with no modifiers, as the window loses the keyboard and with it the keys' ups.
+func (w *window) releaseKeys() {
+	if w.engine == nil {
+		clear(w.keysHeld)
+		return
+	}
+	for code, k := range w.keysHeld {
+		delete(w.keysHeld, code)
+		w.engine.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: k.id, Text: k.name})
+	}
 }
 
 // shortcut reports a key press matching a shortcut, by its name with

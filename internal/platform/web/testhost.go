@@ -148,6 +148,14 @@ func (t *testSurface) Type(text string) error {
 
 func (t *testSurface) Key(key string) error { return t.do(map[string]any{"op": "key", "key": key}) }
 
+// KeyDown implements testhost.KeyHoldSurface with the browser's key events: the tool holds the key, and a modifier's bit in the keys after it, until KeyUp.
+func (t *testSurface) KeyDown(key string) error {
+	return t.do(map[string]any{"op": "keyDown", "key": key})
+}
+
+// KeyUp implements testhost.KeyHoldSurface.
+func (t *testSurface) KeyUp(key string) error { return t.do(map[string]any{"op": "keyUp", "key": key}) }
+
 // Compose and Commit go through the browser's input method path.
 func (t *testSurface) Compose(text string) error {
 	return t.do(map[string]any{"op": "compose", "text": text})

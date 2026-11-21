@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -128,5 +129,53 @@ func TestDispatchKeyDownAnswersWhetherTheViewConsumedTheKey(t *testing.T) {
 	}
 	if len(keys) != 2 || keys[0] != "k" || keys[1] != "j" {
 		t.Fatalf("the handler heard %v, want [k j]", keys)
+	}
+}
+
+// TestAKeyUpFollowsItsSynchronousDown holds an asynchronous EventKeyUp dispatched after a key down the platform waited on to reach the view after it, as the platform's down and up arrive in that order (#1046).
+func TestAKeyUpFollowsItsSynchronousDown(t *testing.T) {
+	p := &recorder{}
+	var mu sync.Mutex
+	var heard []string
+	e := Start(p, func(cx *core.Scope) core.Node {
+		return core.View{Focusable: func() bool { return true },
+			OnKeyDown: func(k core.KeyEvent) bool {
+				mu.Lock()
+				heard = append(heard, "down "+k.Key)
+				mu.Unlock()
+				return true
+			},
+			OnKeyUp: func(k core.KeyEvent) {
+				mu.Lock()
+				heard = append(heard, "up "+k.Key)
+				mu.Unlock()
+			}}
+	}, Options{Size: driver.Size{Width: 100, Height: 100}})
+	t.Cleanup(e.Close)
+	e.Sync()
+	var id driver.NodeID
+	p.mu.Lock()
+	for _, b := range p.batches {
+		for _, it := range b.Items {
+			if it.Kind == driver.ItemEvents && it.Events.Has(driver.EventKeyDown) {
+				id = it.ID
+			}
+		}
+	}
+	p.mu.Unlock()
+	if id == 0 {
+		t.Fatal("no view hears keys")
+	}
+	for _, key := range []string{"a", "b"} {
+		if !e.DispatchKeyDown(driver.Event{Kind: driver.EventKeyDown, ID: id, Text: key}) {
+			t.Fatalf("the view did not consume %s", key)
+		}
+		e.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: id, Text: key})
+	}
+	e.Sync()
+	mu.Lock()
+	defer mu.Unlock()
+	if want := []string{"down a", "up a", "down b", "up b"}; !slices.Equal(heard, want) {
+		t.Fatalf("the view heard %v, want %v", heard, want)
 	}
 }

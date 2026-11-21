@@ -532,17 +532,18 @@ func keyPressedCallback(controller uintptr, keyval, keycode, state uint32, data 
 	if w == nil {
 		return 0
 	}
-	// GTK reports no auto-repeats: a key pressed again before it was
-	// released repeats.
-	repeat := w.held[keycode]
+	// GTK reports no auto-repeats: a key pressed again before it was released repeats.
+	_, repeat := w.held[keycode]
 	if w.held == nil {
-		w.held = map[uint32]bool{}
+		w.held = map[uint32]heldKey{}
 	}
-	w.held[keycode] = true
+	if !repeat {
+		w.held[keycode] = heldKey{keyval: keyval}
+	}
 	if keyval < gdkShiftL || keyval > gdkHyperR {
 		w.engine.InputModality(driver.ModalityKeyboard)
 	}
-	if w.keyDown(keyval, state, repeat) {
+	if w.keyDown(keycode, keyval, state, repeat) {
 		// Alt released after a key it took does not toggle the menu bar.
 		w.chrome.altAlone = false
 		return 1
@@ -628,6 +629,10 @@ func (w *window) setupInputs() {
 	// while the focus is in it.
 	if w.embedded {
 		gtkWidgetAddController(w.surface, keys)
+		// The keys held go up elsewhere once the focus leaves the surface for the host's widgets, which leaves the host's window active (activityCallback).
+		focus := gtkEventControllerFocusNew()
+		gSignalConnect(focus, "leave", cbKeysLeave, w.handle)
+		gtkWidgetAddController(w.surface, focus)
 	} else {
 		gtkWidgetAddController(w.win, keys)
 	}
@@ -888,23 +893,96 @@ var modifierKeyvals = map[uint32]struct {
 	0xffe7: {"meta", gdkMeta}, 0xffe8: {"meta", gdkMeta},
 }
 
-// keyDown offers a key going down to the focused view that hears keys (View.OnKeyDown), before the keymap and the view's own keys, and reports whether it consumed the key. A modifier alone is reported but never consumed, as no binding takes one.
-func (w *window) keyDown(keyval, state uint32, repeat bool) bool {
-	v := w.controlFocus
-	if v == nil || v.deleted || w.focus != nil || w.focusedWeb() != nil || !v.events.Has(driver.EventKeyDown) {
-		return false
-	}
-	name, modifier := keyName(keyval, state&gdkShift != 0), false
+// heldKey is a key down, by keycode (window.held): its keyval at the press, and once its down was reported (reported), the view that heard it, 0 for none, and its name, which its up reports. GTK reports a key's release with its keycode, and its keyval may differ from the press's as the modifiers changed in between.
+type heldKey struct {
+	keyval   uint32
+	id       driver.NodeID
+	name     string
+	reported bool
+}
+
+// keyEvent names a key going down or up as KeyEvent does, with the modifiers held in state, and says whether it is a modifier alone. GDK's state at a press holds the modifiers held before it, so a modifier going down adds its own bit, and at a release still holds the modifier going up, which takes its own bit out unless another key of the same modifier stays down (the two Shifts).
+func (w *window) keyEvent(keycode, keyval, state uint32, down bool) (name string, mods driver.Modifiers, modifier bool) {
+	name = keyName(keyval, state&gdkShift != 0)
 	if m, ok := modifierKeyvals[keyval]; ok {
 		name, modifier = m.name, true
-		state |= m.bit
+		if down {
+			state |= m.bit
+		} else {
+			state &^= m.bit
+			for code, k := range w.held {
+				if o, ok := modifierKeyvals[k.keyval]; ok && code != keycode && o.bit == m.bit {
+					state |= m.bit
+				}
+			}
+		}
 	}
+	return name, modifiers(state), modifier
+}
+
+// keyDown reports a key going down, before the keymap and the view's own keys: to the focused view that hears keys (View.OnKeyDown), reporting whether it consumed the key, or, when no focused view hears keys and the app follows every key held (heldKeys), to no view (ID 0), which consumes nothing. Keys pressed while a field or a web view has the focus, the only places an input method composes, are not reported. The first report of the key at keycode records the view and the name its up reports (keyUp), even for a repeat of a key pressed while a field had the focus. A modifier alone is reported but never consumed, as no binding takes one.
+func (w *window) keyDown(keycode, keyval, state uint32, repeat bool) bool {
+	if w.focus != nil || w.focusedWeb() != nil {
+		return false
+	}
+	v := w.controlFocus
+	hears := v != nil && !v.deleted && v.events.Has(driver.EventKeyDown)
+	if !hears && !w.heldKeys {
+		return false
+	}
+	name, mods, modifier := w.keyEvent(keycode, keyval, state, true)
 	if name == "" {
 		return false
 	}
-	mods := driver.Modifiers{Control: state&gdkControl != 0, Alt: state&gdkAlt != 0, Shift: state&gdkShift != 0, Platform: state&(gdkSuper|gdkMeta) != 0}
-	consumed := w.engine.DispatchKeyDown(driver.Event{Kind: driver.EventKeyDown, ID: v.id, Text: name, Modifiers: mods, Repeat: repeat})
+	var id driver.NodeID
+	if hears {
+		id = v.id
+	}
+	if k := w.held[keycode]; !k.reported {
+		k.id, k.name, k.reported = id, name, true
+		w.held[keycode] = k
+	}
+	ev := driver.Event{Kind: driver.EventKeyDown, ID: id, Text: name, Modifiers: mods, Repeat: repeat}
+	if !hears {
+		// A down no view hears is only followed, so it goes without holding up the main loop.
+		w.engine.Dispatch(ev)
+		return false
+	}
+	consumed := w.engine.DispatchKeyDown(ev)
 	return consumed && !modifier
+}
+
+// keyUp reports the key at keycode coming up, to the view that heard its down (View.OnKeyUp) or to none, with the name its down had, when its down was reported (keyDown), wherever the focus is now.
+func (w *window) keyUp(keycode, keyval, state uint32) {
+	k, ok := w.held[keycode]
+	if !ok {
+		return
+	}
+	delete(w.held, keycode)
+	if !k.reported {
+		return
+	}
+	_, mods, _ := w.keyEvent(keycode, keyval, state, false)
+	w.engine.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: k.id, Text: k.name, Modifiers: mods})
+}
+
+// releaseKeys reports every key held whose down was reported as coming up, with no modifiers, and forgets every key held, as the window loses the keyboard: their releases go to another window, and a key pressed again on return is a new press, not a repeat.
+func (w *window) releaseKeys() {
+	for _, k := range w.held {
+		if k.reported && w.engine != nil {
+			w.engine.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: k.id, Text: k.name})
+		}
+	}
+	clear(w.held)
+}
+
+// cbKeysLeave follows the focus leaving an embedded surface (setupInputs).
+var cbKeysLeave = newCallback(keysLeaveCallback)
+
+func keysLeaveCallback(controller, data uintptr) {
+	if w := windowOf(data); w != nil {
+		w.releaseKeys()
+	}
 }
 
 // shortcut reports a key press matching the app's keymap or the
@@ -959,7 +1037,7 @@ func (w *window) shortcut(keyval, state uint32, repeat bool) bool {
 
 func keyReleasedCallback(controller uintptr, keyval, keycode, state uint32, data uintptr) {
 	if w := windowOf(data); w != nil {
-		delete(w.held, keycode)
+		w.keyUp(keycode, keyval, state)
 		w.menuBarKey(keyval, state, false)
 	}
 }

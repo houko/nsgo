@@ -475,6 +475,26 @@ func (t *testSurface) Key(key string) error {
 	return nil
 }
 
+// KeyDown implements testhost.KeyHoldSurface: a hardware keyboard's key goes down and stays held, a modifier joining the keys after it, as UIKit tracks the keyboard's state, until its KeyUp.
+func (t *testSurface) KeyDown(key string) error { return holdKey(key, true) }
+
+// KeyUp implements testhost.KeyHoldSurface: the key KeyDown held comes up.
+func (t *testSurface) KeyUp(key string) error { return holdKey(key, false) }
+
+// holdKey sends one key of a hardware keyboard, not a chord, going down or coming up.
+func holdKey(key string, down bool) error {
+	name := strings.ToLower(key)
+	if strings.Contains(name, "+") {
+		return fmt.Errorf("%q is a chord: a key goes down or comes up alone", key)
+	}
+	u, ok := keyUsage(name)
+	if !ok {
+		return fmt.Errorf("unknown key %q", key)
+	}
+	hidKey(u, down)
+	return nil
+}
+
 // Back is the escape the screen reader's gesture makes: the core goes
 // back from the topmost overlay, modal or stack.
 func (t *testSurface) Back() error {

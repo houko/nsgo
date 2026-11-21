@@ -94,7 +94,11 @@ type Tree struct {
 	keys        []*keyBinding
 	keyID       uint32
 	keysChanged bool
-	backs       []*backHandler
+	// held counts the keys down on the surface by name, from EventKeyDown and EventKeyUp, so both Shifts read as one "shift" until both are up; heldRead is what KeysDown reads, made by the first read, which asks the platform for every key (heldKeys).
+	held     map[string]int
+	heldRead *Signal[[]string]
+	heldKeys bool
+	backs    []*backHandler
 	// regions are the live regions, which the views do not number: an owner may have no view but a region, as a Holder's content may (keyPlaces).
 	regions map[*node]struct{}
 	// peeking is the screen a back gesture may uncover (Tree.peek).
@@ -360,6 +364,7 @@ type handlers struct {
 	textSelection                        func(TextSelection)
 	focus, blur                          func()
 	keyDown                              func(KeyEvent) bool
+	keyUp                                func(KeyEvent)
 	touch, touchCapture                  func(TouchEvent)
 	contextMenu                          func(ContextMenuEvent)
 	change, submit                       func(string)
@@ -1798,7 +1803,7 @@ func (t *Tree) setViewParts(n *node, v View) {
 		layout:        v.OnLayout, contextMenu: v.OnContextMenu, touch: v.OnTouch, touchCapture: v.OnTouchCapture,
 		pan: v.OnPan, pinch: v.OnPinch, rotation: v.OnRotation, wheel: v.OnWheel,
 		fileEnter: v.OnFileDragEnter, fileLeave: v.OnFileDragLeave, fileDrop: v.OnFileDrop,
-		focus: v.OnFocus, blur: v.OnBlur, keyDown: v.OnKeyDown, transitionEnd: v.OnTransitionEnd}
+		focus: v.OnFocus, blur: v.OnBlur, keyDown: v.OnKeyDown, keyUp: v.OnKeyUp, transitionEnd: v.OnTransitionEnd}
 	n.h.action = v.OnAccessibilityAction
 	n.responder = v.Responder
 	n.match = v.MatchID
@@ -2249,9 +2254,13 @@ func (t *Tree) Dispatch(ev driver.Event) {
 		}
 		return
 	}
-	// A key down shares its kind with a binding's press, which names no view.
-	if ev.Kind == driver.EventKeyDown && ev.ID != 0 {
+	// A key down shares its kind with a binding's press, which has a Count: a key down has an ID, or neither when no view that hears keys has the focus.
+	if ev.Kind == driver.EventKeyDown && (ev.ID != 0 || ev.Count == 0) {
 		t.keyDown(ev)
+		return
+	}
+	if ev.Kind == driver.EventKeyUp {
+		t.keyUp(ev)
 		return
 	}
 	switch ev.Kind {
@@ -2685,12 +2694,26 @@ func (t *Tree) KeyDown(ev driver.Event) bool {
 }
 
 func (t *Tree) keyDown(ev driver.Event) bool {
+	if !ev.Repeat {
+		t.holdKey(ev.Text, 1)
+	}
 	n := t.node(ev.ID)
 	if n == nil || n.h.keyDown == nil {
 		return false
 	}
 	fn, e := n.h.keyDown, KeyEvent{Key: ev.Text, Modifiers: ev.Modifiers, Repeat: ev.Repeat}
 	return t.within2(n, func() bool { return fn(e) })
+}
+
+// keyUp counts EventKeyUp ev's key as up and runs OnKeyUp of the view its down went to, a view gone or ID 0 hearing nothing.
+func (t *Tree) keyUp(ev driver.Event) {
+	t.holdKey(ev.Text, -1)
+	n := t.node(ev.ID)
+	if n == nil || n.h.keyUp == nil {
+		return
+	}
+	fn, e := n.h.keyUp, KeyEvent{Key: ev.Text, Modifiers: ev.Modifiers}
+	t.within(n.owner, func() { fn(e) })
 }
 
 // PressAt dispatches ev as a press on the innermost pressable view at its
@@ -2872,7 +2895,8 @@ func (n *node) events() driver.EventMask {
 	focusStyled := s.Focus != nil || s.FocusVisible != nil || peer || watched&(classFocused|classFocusVisible|classFocusWithin) != 0
 	bit(driver.EventFocus, h.focus != nil || focusStyled || focusable)
 	bit(driver.EventBlur, h.blur != nil || focusStyled || focusable)
-	bit(driver.EventKeyDown, h.keyDown != nil)
+	// One bit says the view hears keys, going down and up: EventKeyUp has none.
+	bit(driver.EventKeyDown, h.keyDown != nil || h.keyUp != nil)
 	bit(driver.EventSubmitEditing, h.submit != nil)
 	bit(driver.EventScroll, h.scroll != nil)
 	bit(driver.EventPressOutside, h.pressOutside != nil)

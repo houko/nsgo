@@ -132,6 +132,12 @@ type CloseWindow interface {
 	RequestClose() error
 }
 
+// KeyHoldSurface is a surface that presses one key and holds it (KeyDown), or lets it come up (KeyUp), as Key's two halves: a modifier it holds stays held through the keys after it until its KeyUp.
+type KeyHoldSurface interface {
+	KeyDown(key string) error
+	KeyUp(key string) error
+}
+
 // KeyboardSurface is a surface whose window takes the keyboard only while its app is active, as macOS's does.
 type KeyboardSurface interface {
 	// PrepareKeyboard activates the app and waits for its window to take the keyboard when the run opted in to that (nsgo test -target macos -activate), and does nothing otherwise.

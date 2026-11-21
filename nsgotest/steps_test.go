@@ -69,6 +69,90 @@ func TestFocusedViewReceivesKeyDownBeforeTheKeymap(t *testing.T) {
 	}
 }
 
+// TestKeysGoDownAndComeUpSeparately holds KeyDown and KeyUp to hold a key and release it, the view its down went to hearing OnKeyUp with the modifiers still held, a modifier KeyDown holds joining the keys after it, Key to fire OnKeyUp as a full press does, and core.KeysDown to read what is held; a KeyUp of a key not held and a KeyDown of a chord fail (#1046).
+func TestKeysGoDownAndComeUpSeparately(t *testing.T) {
+	var downs, ups []core.KeyEvent
+	var held []string
+	var bindings int
+	app := Start(t, func(cx *core.Scope) core.Node {
+		cx.OnKeyWith("shift+a", core.KeyOptions{When: core.KeyAlways}, func() { bindings++ })
+		return core.View{Children: []core.Node{
+			core.View{
+				TestID: "pad", Focusable: func() bool { return true },
+				OnKeyDown: func(e core.KeyEvent) bool { downs = append(downs, e); return e.Key == "left" },
+				OnKeyUp:   func(e core.KeyEvent) { ups = append(ups, e) },
+				Style:     core.Style{Width: core.Pt(100), Height: core.Pt(30)},
+			},
+			core.Text{TestID: "held", ContentFunc: func() string { held = core.KeysDown(cx); return strings.Join(held, " ") }},
+		}}
+	}, Environment(core.Environment{OS: core.OSWindows, Idiom: core.IdiomDesktop}))
+	app.Focus("id:pad")
+	app.KeyDown("left")
+	app.KeyDown("space")
+	if !slices.Equal(held, []string{"left", "space"}) || len(ups) != 0 {
+		t.Fatalf("held %v, ups %+v", held, ups)
+	}
+	app.KeyUp("left")
+	app.KeyUp("space")
+	if want := []core.KeyEvent{{Key: "left"}, {Key: "space"}}; !slices.Equal(ups, want) || len(held) != 0 {
+		t.Fatalf("ups %+v, want %+v; held %v", ups, want, held)
+	}
+	downs, ups = nil, nil
+	app.KeyDown("shift")
+	app.Key("a")
+	if bindings != 1 {
+		t.Fatalf("a with shift held fired %d shift+a bindings, want 1", bindings)
+	}
+	if want := []core.KeyEvent{{Key: "shift", Modifiers: core.Modifiers{Shift: true}}, {Key: "a", Modifiers: core.Modifiers{Shift: true}}}; !slices.Equal(downs, want) {
+		t.Fatalf("downs %+v, want %+v", downs, want)
+	}
+	app.KeyDown("a")
+	app.KeyUp("shift")
+	app.KeyUp("a")
+	want := []core.KeyEvent{{Key: "a", Modifiers: core.Modifiers{Shift: true}}, {Key: "shift"}, {Key: "a"}}
+	if !slices.Equal(ups, want) {
+		t.Fatalf("ups %+v, want %+v", ups, want)
+	}
+	if msg := fails(t, func(tb testing.TB) {
+		a := Start(tb, func(cx *core.Scope) core.Node { return core.View{} })
+		a.KeyUp("a")
+	}); !strings.Contains(msg, "not held") {
+		t.Fatalf("a KeyUp of a key not held failed with %q", msg)
+	}
+	if msg := fails(t, func(tb testing.TB) {
+		a := Start(tb, func(cx *core.Scope) core.Node { return core.View{} })
+		a.KeyDown("shift+a")
+	}); !strings.Contains(msg, "one key") {
+		t.Fatalf("a KeyDown of a chord failed with %q", msg)
+	}
+}
+
+// TestKeysDownHearsKeysNoViewHears holds the keys a frame loop reads to follow KeyDown and KeyUp with no view that hears keys focused, once a read asked for every key, and to leave out those typed into a field (#1046).
+func TestKeysDownHearsKeysNoViewHears(t *testing.T) {
+	var held string
+	app := Start(t, func(cx *core.Scope) core.Node {
+		text := core.NewSignal(cx, "")
+		return core.View{Children: []core.Node{
+			core.Text{TestID: "held", ContentFunc: func() string { held = fmt.Sprint(core.KeysDown(cx), core.KeyHeld(cx, "right")); return held }},
+			core.Input{TestID: "field", Value: text.Get, OnChange: text.Set},
+		}}
+	})
+	app.KeyDown("right")
+	if held != "[right] true" {
+		t.Fatalf("held %q with right down", held)
+	}
+	app.KeyUp("right")
+	if held != "[] false" {
+		t.Fatalf("held %q with right up", held)
+	}
+	app.Focus("id:field")
+	app.KeyDown("b")
+	if held != "[] false" || app.Find("id:field").Text != "b" {
+		t.Fatalf("typing into a field: held %q, the field %q", held, app.Find("id:field").Text)
+	}
+	app.KeyUp("b")
+}
+
 // failing is a testing.TB whose fatal failures end only the goroutine
 // running the test body, so a test can check that a step fails.
 type failing struct {

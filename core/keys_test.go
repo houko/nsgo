@@ -1,8 +1,11 @@
 package core
 
 import (
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/nsgo-dev/nsgo/internal/driver"
 )
@@ -1057,5 +1060,158 @@ func TestAKeyDownReachesTheFocusedViewInItsOwner(t *testing.T) {
 	h.tree.Dispatch(driver.Event{Kind: driver.EventKey, Count: keymap[0].ID})
 	if bound != 1 || len(got) != 2 {
 		t.Fatalf("a binding's press: bound %d, key events %d", bound, len(got))
+	}
+}
+
+// TestAKeyUpReachesTheViewItsDownWentTo holds OnKeyUp to hear a key coming up at the view that heard it go down, whether OnKeyDown consumed it or not and wherever the focus went since, in the view's owner, with the modifiers the platform still holds; a view with only OnKeyUp hears keys but consumes none, and an up for a view gone, or for none, changes only the keys held (#1046).
+func TestAKeyUpReachesTheViewItsDownWentTo(t *testing.T) {
+	var ups []KeyEvent
+	h := newHost(t, Size{Width: 200, Height: 100}, func(cx *Scope) Node {
+		shown := NewSignal(cx, "")
+		return View{Children: []Node{
+			View{TestID: "recorder", Focusable: func() bool { return true },
+				OnKeyDown: func(e KeyEvent) bool { return e.Key == "k" },
+				OnKeyUp:   func(e KeyEvent) { ups = append(ups, e); shown.Set("up " + e.Key) }},
+			View{TestID: "upOnly", Focusable: func() bool { return true }, OnKeyUp: func(e KeyEvent) { ups = append(ups, e) }},
+			View{TestID: "plain", Focusable: func() bool { return true }},
+			Text{TestID: "shown", ContentFunc: shown.Get},
+		}}
+	})
+	b := h.commit()
+	recorder, upOnly, plain := h.find("recorder"), h.find("upOnly"), h.find("plain")
+	masks := map[driver.NodeID]driver.EventMask{}
+	for _, it := range b.Items {
+		if it.Kind == driver.ItemEvents {
+			masks[it.ID] = it.Events
+		}
+	}
+	if !masks[upOnly.id].Has(driver.EventKeyDown) || masks[plain.id].Has(driver.EventKeyDown) {
+		t.Fatalf("hears keys: up only %v, plain %v", masks[upOnly.id].Has(driver.EventKeyDown), masks[plain.id].Has(driver.EventKeyDown))
+	}
+	if h.tree.KeyDown(driver.Event{Kind: driver.EventKeyDown, ID: upOnly.id, Text: "k"}) {
+		t.Fatal("a view with only OnKeyUp consumed a key")
+	}
+	h.tree.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: upOnly.id, Text: "k"})
+	if !h.tree.KeyDown(driver.Event{Kind: driver.EventKeyDown, ID: recorder.id, Text: "k", Modifiers: Modifiers{Shift: true}}) {
+		t.Fatal("the recorder did not consume k")
+	}
+	h.tree.KeyDown(driver.Event{Kind: driver.EventKeyDown, ID: recorder.id, Text: "shift", Modifiers: Modifiers{Shift: true}})
+	h.tree.KeyDown(driver.Event{Kind: driver.EventKeyDown, ID: recorder.id, Text: "space", Modifiers: Modifiers{Shift: true}})
+	// The focus moved before the keys came up; their ups still go to the recorder.
+	for _, ev := range []driver.Event{
+		{Kind: driver.EventKeyUp, ID: recorder.id, Text: "k", Modifiers: Modifiers{Shift: true}},
+		{Kind: driver.EventKeyUp, ID: recorder.id, Text: "shift"},
+		{Kind: driver.EventKeyUp, ID: recorder.id, Text: "space"},
+	} {
+		h.tree.Dispatch(ev)
+	}
+	want := []KeyEvent{{Key: "k"}, {Key: "k", Modifiers: Modifiers{Shift: true}}, {Key: "shift"}, {Key: "space"}}
+	if !slices.Equal(ups, want) {
+		t.Fatalf("ups = %+v, want %+v", ups, want)
+	}
+	h.commit()
+	if s := h.find("shown").text.content; s != "up space" {
+		t.Fatalf("the recorder shows %q after the ups", s)
+	}
+	h.tree.KeyDown(driver.Event{Kind: driver.EventKeyDown, ID: plain.id, Text: "left"})
+	h.tree.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: plain.id, Text: "left"})
+	h.tree.KeyDown(driver.Event{Kind: driver.EventKeyDown, ID: 9999, Text: "x"})
+	h.tree.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: 9999, Text: "x"})
+	if len(ups) != len(want) {
+		t.Fatalf("a view without OnKeyUp, or none, heard ups: %+v", ups[len(want):])
+	}
+	if len(h.tree.held) != 0 {
+		t.Fatalf("keys held after every up: %v", h.tree.held)
+	}
+}
+
+// TestKeysDownFollowsTheKeysHeld holds KeysDown and KeyHeld to ask the platform for every key with the first read, rerender what read them as a key goes down or comes up but not as one repeats, read both Shifts as one until both are up, never count below none an up whose down was a repeat, and give a frame callback the same keys; a down that names no view runs no binding, and a binding's press, of the same kind, still runs its binding (#1046).
+func TestKeysDownFollowsTheKeysHeld(t *testing.T) {
+	var renders, bound int
+	var root *Scope
+	h := newHost(t, Size{Width: 200, Height: 100}, func(cx *Scope) Node {
+		root = cx
+		cx.OnKey("a", func() { bound++ })
+		return Text{TestID: "keys", ContentFunc: func() string {
+			renders++
+			return strings.Join(KeysDown(cx), " ") + fmt.Sprintf(" shift=%v mod+a=%v", KeyHeld(cx, "shift"), KeyHeld(cx, "mod+a"))
+		}}
+	})
+	b := h.commit()
+	var keymap []driver.KeyBinding
+	held := false
+	for _, it := range b.Items {
+		if it.Kind == driver.ItemKeymap {
+			keymap, held = it.Keys, it.HeldKeys
+		}
+	}
+	if !held || len(keymap) != 1 {
+		t.Fatalf("the first commit's keymap: HeldKeys %v, %d bindings", held, len(keymap))
+	}
+	shows := func(want string) {
+		t.Helper()
+		h.commit()
+		if s := h.find("keys").text.content; s != want {
+			t.Fatalf("shows %q, want %q", s, want)
+		}
+	}
+	down := func(key string, repeat bool) {
+		h.tree.Dispatch(driver.Event{Kind: driver.EventKeyDown, Text: key, Repeat: repeat})
+	}
+	up := func(key string) { h.tree.Dispatch(driver.Event{Kind: driver.EventKeyUp, Text: key}) }
+	down("shift", false)
+	shows("shift shift=true mod+a=false")
+	before := renders
+	down("shift", false)
+	down("shift", true)
+	up("shift")
+	shows("shift shift=true mod+a=false")
+	if renders != before {
+		t.Fatalf("a second Shift, a repeat and one Shift up rendered %d more times", renders-before)
+	}
+	up("shift")
+	shows(" shift=false mod+a=false")
+	// An up whose down came as a repeat was never counted.
+	up("left")
+	down("left", false)
+	shows("left shift=false mod+a=false")
+	up("left")
+	down("a", false)
+	down("ctrl", false)
+	shows("a ctrl shift=false mod+a=true")
+	if bound != 0 {
+		t.Fatalf("a key down with no view ran %d bindings", bound)
+	}
+	var framed []string
+	root.RequestAnimationFrame(func(time.Time) { framed = KeysDown(root) })
+	h.frame()
+	if !slices.Equal(framed, []string{"a", "ctrl"}) {
+		t.Fatalf("a frame callback read %v", framed)
+	}
+	up("a")
+	up("ctrl")
+	shows(" shift=false mod+a=false")
+	h.tree.Dispatch(driver.Event{Kind: driver.EventKey, Count: keymap[0].ID})
+	if bound != 1 {
+		t.Fatalf("a binding's press ran %d bindings", bound)
+	}
+}
+
+// TestKeysDownFromAFrameAsksThePlatform holds a frame loop's first read, with nothing else changed, to commit the keymap that asks the platform for every key (#1046).
+func TestKeysDownFromAFrameAsksThePlatform(t *testing.T) {
+	var root *Scope
+	h := newHost(t, Size{Width: 200, Height: 100}, func(cx *Scope) Node {
+		root = cx
+		return View{}
+	})
+	h.commit()
+	root.RequestAnimationFrame(func(time.Time) { KeysDown(root) })
+	h.frame()
+	held := false
+	for _, it := range h.commit().Items {
+		held = held || it.Kind == driver.ItemKeymap && it.HeldKeys
+	}
+	if !held {
+		t.Fatal("the frame's read committed no keymap asking for held keys")
 	}
 }

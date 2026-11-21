@@ -2,8 +2,11 @@ package keys_test
 
 import (
 	"slices"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	_ "github.com/nsgo-dev/nsgo"
 	"github.com/nsgo-dev/nsgo/core"
@@ -166,6 +169,115 @@ func TestAFocusedViewHearsItsKeysBeforeTheKeymap(t *testing.T) {
 	if len(got) != 1 || bindings.Load() != 1 {
 		t.Fatalf("a key the view left: heard %d times, %d bindings; want 1 and 1", len(got), bindings.Load())
 	}
+}
+
+// A focused view hears a key come up after it went down, a letter, an arrow, Space and a modifier alone, with the modifiers still held, a modifier held over a letter joins it, a key held again goes down as its auto-repeat and comes up once, and core.KeysDown reads the keys held meanwhile (#1046).
+func TestAFocusedViewHearsItsKeysComeUp(t *testing.T) {
+	target := nsgotest.Target()
+	switch target {
+	case "", "macos", "windows", "linux", "web", "tvos_simulator":
+	default:
+		t.Skip("iPhone, iPad and Android report no OnKeyUp; TestKeysDownFollowsAHardwareKeyboard covers iPhone and iPad")
+	}
+	var mu sync.Mutex
+	var downs, ups []core.KeyEvent
+	var recorder core.Ref
+	var focused atomic.Bool
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.View{Style: core.Style{Padding: core.All(20)}, Children: []core.Node{
+			core.View{
+				TestID: "recorder", Ref: &recorder, Focusable: func() bool { return true }, OnFocus: func() { focused.Store(true) },
+				OnKeyDown: func(e core.KeyEvent) bool { mu.Lock(); downs = append(downs, e); mu.Unlock(); return false },
+				OnKeyUp:   func(e core.KeyEvent) { mu.Lock(); ups = append(ups, e); mu.Unlock() },
+				Style:     core.Style{Width: core.Pt(200), Height: core.Pt(40)},
+			},
+			core.Text{TestID: "held", ContentFunc: func() string { return strings.Join(core.KeysDown(cx), " ") }},
+		}}
+	}, nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}), nsgotest.Size(300, 120))
+	if target == "tvos_simulator" {
+		// The Focus step taps only a text field there; the focus engine moves to a view the app focuses.
+		app.Post(recorder.Focus)
+		app.WaitUntil(5*time.Second, focused.Load)
+	} else {
+		app.Focus("id:recorder")
+	}
+	heard := func(want ...core.KeyEvent) {
+		t.Helper()
+		mu.Lock()
+		defer mu.Unlock()
+		if !slices.Equal(ups, want) {
+			t.Fatalf("the view heard %+v come up, want %+v", ups, want)
+		}
+		ups = nil
+	}
+	held := func(want string) {
+		t.Helper()
+		if got := app.Find("id:held").Text; got != want {
+			t.Fatalf("core.KeysDown reads %q, want %q", got, want)
+		}
+	}
+	for _, key := range []string{"a", "left", "space", "shift"} {
+		app.KeyDown(key)
+		heard()
+		held(key)
+		app.KeyUp(key)
+		heard(core.KeyEvent{Key: key})
+		held("")
+	}
+	app.KeyDown("shift")
+	app.KeyDown("a")
+	held("a shift")
+	app.KeyUp("a")
+	app.KeyUp("shift")
+	heard(core.KeyEvent{Key: "a", Modifiers: core.Modifiers{Shift: true}}, core.KeyEvent{Key: "shift"})
+	held("")
+	mu.Lock()
+	downs = nil
+	mu.Unlock()
+	app.KeyDown("b")
+	app.KeyDown("b")
+	held("b")
+	app.KeyUp("b")
+	heard(core.KeyEvent{Key: "b"})
+	held("")
+	want := []core.KeyEvent{{Key: "b"}, {Key: "b", Repeat: true}}
+	if target == "tvos_simulator" {
+		// UIKit reports a held key once and never as a repeat.
+		want = want[:1]
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Equal(downs, want) {
+		t.Fatalf("a key held again went down as %+v, want %+v", downs, want)
+	}
+}
+
+// core.KeysDown follows a hardware keyboard's keys on iPhone and iPad, where no view hears them go down, as on every platform that reports keys (#1046).
+func TestKeysDownFollowsAHardwareKeyboard(t *testing.T) {
+	switch nsgotest.Target() {
+	case "", "ios", "ios_simulator":
+	default:
+		t.Skip("TestAFocusedViewHearsItsKeysComeUp reads the keys held here")
+	}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.View{Style: core.Style{Padding: core.All(20)}, Children: []core.Node{
+			core.Text{TestID: "held", ContentFunc: func() string { return strings.Join(core.KeysDown(cx), " ") }},
+		}}
+	}, nsgotest.Size(300, 120))
+	held := func(want string) {
+		t.Helper()
+		if got := app.Find("id:held").Text; got != want {
+			t.Fatalf("core.KeysDown reads %q, want %q", got, want)
+		}
+	}
+	app.KeyDown("shift")
+	held("shift")
+	app.KeyDown("a")
+	held("a shift")
+	app.KeyUp("a")
+	held("shift")
+	app.KeyUp("shift")
+	held("")
 }
 
 // Select moves the native field's selection under a target, so the edit after it acts on the range the test named rather than at the field's own caret.

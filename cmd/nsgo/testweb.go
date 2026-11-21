@@ -224,6 +224,10 @@ func runWebTest(ctx context.Context, b *cdp, base string, args, env []string, ou
 type webPage struct {
 	b       *cdp
 	session string
+	// heldMu guards held, the modifiers bitmask of the modifier keys the keyDown op holds, which every key event after it carries, and down, the physical keys it holds, until the keyUp op.
+	heldMu sync.Mutex
+	held   int
+	down   map[string]bool
 }
 
 func (p *webPage) call(method string, params any) (json.RawMessage, error) {
@@ -360,6 +364,10 @@ func (p *webPage) do(op webOp, data *any) error {
 		return err
 	case "key":
 		return p.key(op.Key)
+	case "keyDown":
+		return p.keyDown(op.Key)
+	case "keyUp":
+		return p.keyUp(op.Key)
 	case "screenshot":
 		raw, err := p.call("Page.captureScreenshot", map[string]any{"format": "png"})
 		if err != nil {
@@ -373,13 +381,15 @@ func (p *webPage) do(op webOp, data *any) error {
 	return fmt.Errorf("unknown op %q", op.Op)
 }
 
-// cdpKeys are the DOM key, code and Windows key code of the keys tests
-// name.
-var cdpKeys = map[string]struct {
+// cdpKey is a key as the browser's key events name it: its DOM key and code, its Windows key code and the text it types.
+type cdpKey struct {
 	key, code string
 	vk        int
 	text      string
-}{
+}
+
+// cdpKeys are the DOM key, code and Windows key code of the keys tests name.
+var cdpKeys = map[string]cdpKey{
 	"enter": {"Enter", "Enter", 13, "\r"}, "return": {"Enter", "Enter", 13, "\r"}, "backspace": {"Backspace", "Backspace", 8, ""},
 	"escape": {"Escape", "Escape", 27, ""}, "tab": {"Tab", "Tab", 9, ""}, "space": {" ", "Space", 32, " "},
 	"delete": {"Delete", "Delete", 46, ""}, "left": {"ArrowLeft", "ArrowLeft", 37, ""}, "up": {"ArrowUp", "ArrowUp", 38, ""},
@@ -399,29 +409,93 @@ var macCommands = map[string]string{
 	"meta+a": "selectAll", "meta+c": "copy", "meta+x": "cut", "meta+v": "paste", "meta+z": "undo",
 }
 
-// key presses key ("Enter", "mod+a") with the browser's key events.
+// key presses key ("Enter", "mod+a") with the browser's key events, with the modifiers keyDown holds as well as its own.
 func (p *webPage) key(key string) error {
+	k, name, mods, err := parseWebKey(key)
+	if err != nil {
+		return err
+	}
+	p.heldMu.Lock()
+	mods |= p.held
+	p.heldMu.Unlock()
+	if err := p.sendKeyDown(k, name, mods|modifierBit(k.key), false); err != nil {
+		return err
+	}
+	return p.sendKeyUp(k, mods)
+}
+
+// keyDown holds key, one key without modifiers, down until keyUp: a modifier's bit joins every key event after it. A key it already holds goes down again as an auto-repeat.
+func (p *webPage) keyDown(key string) error {
+	k, name, mods, err := parseWebKey(key)
+	if err != nil {
+		return err
+	}
+	if mods != 0 {
+		return fmt.Errorf("%q is a chord: a key held is one key", key)
+	}
+	p.heldMu.Lock()
+	if p.down == nil {
+		p.down = map[string]bool{}
+	}
+	repeat := p.down[heldCode(k)]
+	p.down[heldCode(k)] = true
+	p.held |= modifierBit(k.key)
+	mods = p.held
+	p.heldMu.Unlock()
+	return p.sendKeyDown(k, name, mods, repeat)
+}
+
+// keyUp lets key, which keyDown holds, come up, its own modifier bit no longer among those its event and the ones after it carry.
+func (p *webPage) keyUp(key string) error {
+	k, _, mods, err := parseWebKey(key)
+	if err != nil {
+		return err
+	}
+	if mods != 0 {
+		return fmt.Errorf("%q is a chord: a key held is one key", key)
+	}
+	p.heldMu.Lock()
+	if !p.down[heldCode(k)] {
+		p.heldMu.Unlock()
+		return fmt.Errorf("%q is not held", key)
+	}
+	delete(p.down, heldCode(k))
+	p.held &^= modifierBit(k.key)
+	mods = p.held
+	p.heldMu.Unlock()
+	return p.sendKeyUp(k, mods)
+}
+
+// heldCode is the physical key k is held by, as the page pairs a key's up with its down.
+func heldCode(k cdpKey) string {
+	if k.code != "" {
+		return k.code
+	}
+	return k.key
+}
+
+// parseWebKey returns the key key ("Enter", "mod+a") names, its name without modifiers and the modifiers bitmask of its chord.
+func parseWebKey(key string) (k cdpKey, name string, mods int, err error) {
 	parts := strings.Split(strings.ToLower(key), "+")
-	name := parts[len(parts)-1]
-	mods, prefix := 0, ""
+	name = parts[len(parts)-1]
 	for _, m := range parts[:len(parts)-1] {
 		switch m {
 		case "mod":
 			if runtime.GOOS == "darwin" {
-				mods, prefix = mods|4, prefix+"meta+"
+				mods |= 4
 			} else {
-				mods, prefix = mods|2, prefix+"ctrl+"
+				mods |= 2
 			}
 		case "cmd", "meta", "command":
-			mods, prefix = mods|4, prefix+"meta+"
+			mods |= 4
 		case "ctrl", "control":
-			mods, prefix = mods|2, prefix+"ctrl+"
+			mods |= 2
 		case "alt", "option":
-			mods, prefix = mods|1, prefix+"alt+"
+			mods |= 1
 		case "shift":
-			mods, prefix = mods|8, prefix+"shift+"
+			mods |= 8
 		default:
-			return fmt.Errorf("unknown modifier %q in %q", m, key)
+			return k, "", 0, fmt.Errorf("unknown modifier %q in %q", m, key)
 		}
 	}
 	k, ok := cdpKeys[name]
@@ -442,31 +516,55 @@ func (p *webPage) key(key string) error {
 		k.key, k.code, k.vk, ok = f, f, 111+n, true
 	}
 	if !ok {
-		return fmt.Errorf("unknown key %q", key)
+		return k, "", 0, fmt.Errorf("unknown key %q", key)
 	}
-	// A modifier pressed alone is held as its own key goes down, as the browser reports it.
-	switch k.key {
+	return k, name, mods, nil
+}
+
+// modifierBit is the bit a modifier key, by its DOM key, sets in a key event's modifiers bitmask, or 0 for another key.
+func modifierBit(key string) int {
+	switch key {
 	case "Shift":
-		mods |= 8
+		return 8
 	case "Control":
-		mods |= 2
+		return 2
 	case "Alt":
-		mods |= 1
+		return 1
 	case "Meta":
-		mods |= 4
+		return 4
 	}
+	return 0
+}
+
+// sendKeyDown sends k going down with mods held, its own bit among them when it is a modifier, as the browser reports a modifier pressed alone.
+func (p *webPage) sendKeyDown(k cdpKey, name string, mods int, repeat bool) error {
 	down := map[string]any{"type": "rawKeyDown", "key": k.key, "code": k.code, "windowsVirtualKeyCode": k.vk, "modifiers": mods}
 	if k.text != "" && mods&^8 == 0 {
 		down["type"], down["text"], down["unmodifiedText"] = "keyDown", k.text, k.text
 	}
+	if repeat {
+		down["autoRepeat"] = true
+	}
 	if runtime.GOOS == "darwin" {
+		var prefix string
+		for _, m := range []struct {
+			bit  int
+			name string
+		}{{2, "ctrl+"}, {1, "alt+"}, {8, "shift+"}, {4, "meta+"}} {
+			if mods&^modifierBit(k.key)&m.bit != 0 {
+				prefix += m.name
+			}
+		}
 		if c := macCommands[prefix+name]; c != "" {
 			down["commands"] = []string{c}
 		}
 	}
-	if _, err := p.call("Input.dispatchKeyEvent", down); err != nil {
-		return err
-	}
+	_, err := p.call("Input.dispatchKeyEvent", down)
+	return err
+}
+
+// sendKeyUp sends k coming up with mods still held.
+func (p *webPage) sendKeyUp(k cdpKey, mods int) error {
 	_, err := p.call("Input.dispatchKeyEvent", map[string]any{"type": "keyUp", "key": k.key, "code": k.code,
 		"windowsVirtualKeyCode": k.vk, "modifiers": mods})
 	return err

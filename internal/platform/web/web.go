@@ -196,6 +196,9 @@ type surface struct {
 	// coordinates, while mouseIn.
 	mouse   driver.Point
 	mouseIn bool
+	// heldKeys is whether the app asked for every key held (MountItem.HeldKeys), and keysHeld the keys whose down focusKeyDown reported, by physical key, until they come up.
+	heldKeys bool
+	keysHeld map[string]heldKey
 }
 
 // view is the element of one NodeID.
@@ -1454,7 +1457,7 @@ func (s *surface) mount(b *driver.MountBatch) {
 			s.announce(it.Value)
 			continue
 		case driver.ItemKeymap:
-			s.setKeymap(it.Keys)
+			s.setKeymap(it.Keys, it.HeldKeys)
 			continue
 		case driver.ItemTitle:
 			if s.whole {
@@ -2476,6 +2479,11 @@ func (s *surface) listen() {
 				s.shortcut(args[0])
 			}
 		}
+		return nil
+	}), true)
+	// Captured too, and heard wherever the focus has gone since a key went down, which owns may no longer see: only the keys this surface recorded going down report.
+	s.doc.Call("addEventListener", "keyup", js.FuncOf(func(_ js.Value, args []js.Value) any {
+		s.focusKeyUp(args[0])
 		return nil
 	}), true)
 	// Captured, so it sees presses that views stop from bubbling.

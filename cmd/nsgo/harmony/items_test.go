@@ -56,7 +56,7 @@ var unsupportedEvents = map[string]string{
 	"pointers, gestures and drops": `EventMouseEnter EventMouseLeave EventMouseMove
 		EventPan EventPinch EventRotation EventWheel EventPressOutside
 		EventContextMenu EventFileDragEnter EventFileDragLeave EventFileDrop`,
-	"keyboard, text and selection": `EventKeyPress EventCompositionChange
+	"keyboard, text and selection": `EventKeyPress EventKeyUp EventCompositionChange
 		EventCaretMove EventPaste EventAccessibilityAction`,
 	"loading, media and animation": `EventLoadEnd EventDownload EventNative
 		EventNativeSize EventAnimation EventBuffer`,

@@ -350,7 +350,13 @@ func (a *App) closed(surface *core.Tree) {
 		a.PopupMenu, a.popupID, a.popupTree = nil, 0, nil
 	}
 	if surface == a.tree {
-		a.views, a.rootID, a.tree, a.main, a.Keymap, a.keyBindings = map[driver.NodeID]*View{}, 0, a.appTree, nil, nil, nil
+		a.views, a.rootID, a.tree, a.main, a.Keymap, a.keyBindings, a.heldKeys = map[driver.NodeID]*View{}, 0, a.appTree, nil, nil, nil, false
+	}
+	// A key held stays held, but its up has no window to go to.
+	for name, h := range a.held {
+		if h.tree == surface {
+			a.held[name] = heldKey{}
+		}
 	}
 	a.showMenu()
 }
@@ -815,6 +821,7 @@ func (a *App) apply(b *driver.MountBatch) {
 			a.post(ev)
 		case driver.ItemKeymap:
 			a.keyBindings = slices.Clone(it.Keys)
+			a.heldKeys = it.HeldKeys
 			a.Keymap = a.Keymap[:0]
 			for _, b := range it.Keys {
 				if !slices.Contains(a.Keymap, b.Key) {

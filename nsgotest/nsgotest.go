@@ -452,6 +452,10 @@ type App struct {
 	idiom *driver.Idiom
 	// keyBindings is the keymap as the platform matches it, which Key reads.
 	keyBindings []driver.KeyBinding
+	// heldKeys is whether the keymap asked for every key going down and up (driver.MountItem.HeldKeys).
+	heldKeys bool
+	// held are the keys KeyDown holds, by the name the platforms report (KeyEvent.Key).
+	held map[string]heldKey
 
 	// blocked is set while the touch responder keeps native drags from
 	// starting (ItemBlockNative).

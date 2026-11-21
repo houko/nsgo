@@ -298,7 +298,7 @@ func (t *Tree) commitRound() {
 	t.emitAnimation()
 	if t.keysChanged {
 		t.keysChanged = false
-		t.items = append(t.items, driver.MountItem{Kind: driver.ItemKeymap, Keys: t.keymap()})
+		t.items = append(t.items, driver.MountItem{Kind: driver.ItemKeymap, Keys: t.keymap(), HeldKeys: t.heldKeys})
 		t.followHome()
 	}
 	t.emitStatusBar()

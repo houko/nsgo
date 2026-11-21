@@ -3,6 +3,8 @@
 package web
 
 import (
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall/js"
@@ -30,7 +32,8 @@ var apple = func() bool {
 		strings.Contains(p, "iPad") || strings.Contains(p, "macOS")
 }()
 
-func (s *surface) setKeymap(keys []driver.KeyBinding) { s.keys = keys }
+// setKeymap takes the keymap's bindings and whether the app asked for every key held (MountItem.HeldKeys).
+func (s *surface) setKeymap(keys []driver.KeyBinding, held bool) { s.keys, s.heldKeys = keys, held }
 
 // focusKeyUse returns the keys the focused element uses itself, which the keymap's bindings that yield them leave it (driver.FindKey): a field's, a select's or an editable element's editing keys, a pressable view's Return and Space, a slider's or a tab bar's arrows.
 func (s *surface) focusKeyUse() driver.KeyUse {
@@ -73,10 +76,34 @@ func keyName(e js.Value) string {
 	return strings.ToLower(key)
 }
 
-// focusKeyDown offers a key going down to the focused view that hears keys (View.OnKeyDown), before the keymap and the view's own keys, and reports whether it consumed the key, which then goes no further in the page. A modifier alone is reported but never consumed, as no binding takes one.
+// heldKey is a key down that focusKeyDown reported: the view it went down on, or 0 for none, and the name its up reports again.
+type heldKey struct {
+	id   driver.NodeID
+	name string
+}
+
+// keyCode returns the physical key of e, which pairs a key's up with its down: its code, or its key where the browser gives no code.
+func keyCode(e js.Value) string {
+	if code := e.Get("code").String(); code != "" {
+		return code
+	}
+	return e.Get("key").String()
+}
+
+// keyModifiers returns the modifier keys e says are held.
+func keyModifiers(e js.Value) driver.Modifiers {
+	return driver.Modifiers{Control: e.Get("ctrlKey").Bool(), Alt: e.Get("altKey").Bool(), Shift: e.Get("shiftKey").Bool(), Platform: e.Get("metaKey").Bool()}
+}
+
+// focusKeyDown offers a key going down to the focused view that hears keys (View.OnKeyDown), before the keymap and the view's own keys, and reports whether it consumed the key, which then goes no further in the page. A modifier alone is reported but never consumed, as no binding takes one. Where no such view has the focus and the app asked for every key held (MountItem.HeldKeys), it reports the down with ID 0 and consumes nothing. Either way it records the physical key with the view and the name, which focusKeyUp reports when the key comes up, also for a down the browser calls a repeat, as a key held before the page heard it. It leaves out keys typed while a text input has the focus or an input method composes.
 func (s *surface) focusKeyDown(e js.Value) bool {
-	v := s.viewOf(s.doc.Get("activeElement"))
-	if v == nil || v.kind == driver.KindInput || !v.events.Has(driver.EventKeyDown) || e.Get("isComposing").Bool() {
+	el := s.doc.Get("activeElement")
+	v := s.viewOf(el)
+	if e.Get("isComposing").Bool() || editing(el) || v != nil && v.kind == driver.KindInput {
+		return false
+	}
+	hears := v != nil && v.events.Has(driver.EventKeyDown)
+	if !hears && !s.heldKeys {
 		return false
 	}
 	name, modifier := keyName(e), true
@@ -95,13 +122,69 @@ func (s *surface) focusKeyDown(e js.Value) bool {
 	if name == "" {
 		return false
 	}
-	mods := driver.Modifiers{Control: e.Get("ctrlKey").Bool(), Alt: e.Get("altKey").Bool(), Shift: e.Get("shiftKey").Bool(), Platform: e.Get("metaKey").Bool()}
-	if !s.engine.DispatchKeyDown(driver.Event{Kind: driver.EventKeyDown, ID: v.id, Text: name, Modifiers: mods, Repeat: e.Get("repeat").Bool()}) || modifier {
+	var id driver.NodeID
+	if hears {
+		id = v.id
+	}
+	mods, repeat, code := keyModifiers(e), e.Get("repeat").Bool(), keyCode(e)
+	if held, ok := s.keysHeld[code]; !ok || !repeat {
+		if ok {
+			// A key that goes down again without repeating lost its up, which is reported first.
+			s.engine.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: held.id, Text: held.name, Modifiers: mods})
+		}
+		if s.keysHeld == nil {
+			s.keysHeld = map[string]heldKey{}
+		}
+		s.keysHeld[code] = heldKey{id: id, name: name}
+	}
+	ev := driver.Event{Kind: driver.EventKeyDown, ID: id, Text: name, Modifiers: mods, Repeat: repeat}
+	if !hears {
+		// No view can consume it, so it goes without the engine's answer, as a binding's press does: with neither an ID nor a Count.
+		s.engine.Dispatch(ev)
+		return false
+	}
+	if !s.engine.DispatchKeyDown(ev) || modifier {
 		return false
 	}
 	e.Call("preventDefault")
 	e.Call("stopPropagation")
 	return true
+}
+
+// focusKeyUp reports a key coming up whose down focusKeyDown recorded, to the view it went down on wherever the focus has gone since, with the name its down reported. Downs and ups pair by the physical key, as Shift changes the character: "!" may go down and "1" come up. On a Mac, Meta coming up also reports every key other than a modifier still held, as the browser there sends no up for such a key that comes up while Command is held, while it still sends the up of Shift, Control, Option and the other Command.
+func (s *surface) focusKeyUp(e js.Value) {
+	mods, code := keyModifiers(e), keyCode(e)
+	if held, ok := s.keysHeld[code]; ok {
+		delete(s.keysHeld, code)
+		s.engine.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: held.id, Text: held.name, Modifiers: mods})
+	}
+	switch e.Get("key").String() {
+	case "Meta", "OS":
+		if apple {
+			s.releaseKeys(mods, false)
+		}
+	}
+}
+
+// releaseKeys reports the keys focusKeyDown recorded coming up, with mods held, and forgets them, as when the page loses the focus and hears no more ups. With modifiers false it leaves the modifier keys recorded, whose own ups the page still hears.
+func (s *surface) releaseKeys(mods driver.Modifiers, modifiers bool) {
+	for _, code := range slices.Sorted(maps.Keys(s.keysHeld)) {
+		held := s.keysHeld[code]
+		if !modifiers && modifierName(held.name) {
+			continue
+		}
+		delete(s.keysHeld, code)
+		s.engine.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: held.id, Text: held.name, Modifiers: mods})
+	}
+}
+
+// modifierName reports whether name is the one focusKeyDown gives a modifier key.
+func modifierName(name string) bool {
+	switch name {
+	case "shift", "ctrl", "alt", "meta":
+		return true
+	}
+	return false
 }
 
 // shortcut consumes a key press that a binding of the keymap names,

@@ -780,11 +780,12 @@ func revealAxis(offset, length, from, size driver.Points) driver.Points {
 	return offset
 }
 
-// windowFocus follows the window getting or losing the keyboard: the
-// focused field keeps the focus, without a caret while the window is
-// inactive.
+// windowFocus follows the window getting or losing the keyboard: the focused field keeps the focus, without a caret while the window is inactive, and the keys held come up, as their ups go elsewhere now (including into a page's WebView2, which takes the native focus from the window).
 func (w *window) windowFocus(focused bool) {
 	w.inactive = !focused
+	if !focused {
+		w.releaseKeys()
+	}
 	if focused {
 		w.focused = true
 	} else if w.kind == driver.SurfacePanel && w.hideOnBlur && w.visible && w.focused {

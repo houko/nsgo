@@ -54,7 +54,11 @@ func (host) Open(app func(cx *core.Scope) core.Node, o testhost.Options) (testho
 type testSurface struct {
 	w    *window
 	test *testOpen
+	// held are the keys KeyDown holds, by virtual key; the window's thread reads and writes it.
+	held map[uintptr]bool
 }
+
+var _ testhost.KeyHoldSurface = (*testSurface)(nil)
 
 var (
 	hostGetWindow         = user32.NewProc("GetWindow")
@@ -299,23 +303,29 @@ var virtualKeys = map[string]uintptr{
 	"meta": vkLWin, "super": vkLWin, "win": vkLWin,
 }
 
-// Key presses key with the modifiers held in the thread's keyboard state, in the order the message loop and the window procedure take a real key: the focused view's OnKeyDown, then a keymap binding or menu shortcut, then the focused field's editing, and else the window's own key handling.
-func (t *testSurface) Key(key string) error {
+// keyStroke is a key a test names: its virtual key and the modifiers its chord holds for it.
+type keyStroke struct {
+	vk                     uintptr
+	ctrl, shift, alt, meta bool
+}
+
+// parseKey reads a key a test names, a chord's modifiers before it ("mod+shift+k").
+func parseKey(key string) (keyStroke, error) {
+	var k keyStroke
 	parts := strings.Split(strings.ToLower(key), "+")
 	name := parts[len(parts)-1]
-	var ctrl, shift, alt, meta bool
 	for _, m := range parts[:len(parts)-1] {
 		switch m {
 		case "mod", "ctrl", "control":
-			ctrl = true
+			k.ctrl = true
 		case "shift":
-			shift = true
+			k.shift = true
 		case "alt", "option":
-			alt = true
+			k.alt = true
 		case "meta", "super", "win":
-			meta = true
+			k.meta = true
 		default:
-			return fmt.Errorf("unknown modifier %q in %q", m, key)
+			return k, fmt.Errorf("unknown modifier %q in %q", m, key)
 		}
 	}
 	vk, ok := virtualKeys[name]
@@ -329,44 +339,87 @@ func (t *testSurface) Key(key string) error {
 		vk, ok = uintptr(0x6F+n), true
 	}
 	if !ok {
-		return fmt.Errorf("unknown key %q", key)
+		return k, fmt.Errorf("unknown key %q", key)
 	}
-	// A modifier pressed alone is down as its own key goes down.
-	switch vk {
-	case vkShift:
-		shift = true
-	case vkControl:
-		ctrl = true
-	case vkMenu:
-		alt = true
-	case vkLWin:
-		meta = true
+	k.vk = vk
+	return k, nil
+}
+
+// sidedKeys are the left-hand virtual keys GetKeyState also reads for a modifier, which a held modifier holds too.
+var sidedKeys = map[uintptr]uintptr{vkShift: vkLShift, vkControl: 0xA2, vkMenu: 0xA4}
+
+// setKey holds vk in a keyboard state, or lets it up.
+func setKey(state *[256]byte, vk uintptr, down bool) {
+	for _, code := range []uintptr{vk, sidedKeys[vk]} {
+		if code == 0 {
+			continue
+		}
+		if down {
+			state[code] |= 0x80
+		} else {
+			state[code] &^= 0x80
+		}
+	}
+}
+
+// Key presses key with the modifiers held in the thread's keyboard state, in the order the message loop and the window procedure take a real key: the focused view's OnKeyDown, then a keymap binding or menu shortcut, then the focused field's editing, and else the window's own key handling. The key then comes up (WM_KEYUP) whoever took it, with the chord's modifiers still held, so a view that heard it go down hears it come up.
+func (t *testSurface) Key(key string) error { return t.stroke(key, true, true) }
+
+// KeyDown presses key and holds it, a modifier through the keys after it, until its KeyUp; a key KeyDown already holds goes down again as an auto-repeat.
+func (t *testSurface) KeyDown(key string) error { return t.stroke(key, true, false) }
+
+// KeyUp lets a key KeyDown holds come up.
+func (t *testSurface) KeyUp(key string) error { return t.stroke(key, false, true) }
+
+// stroke sends key going down, coming up, or both, keeping the keys KeyDown holds in the thread's keyboard state between calls, as GetKeyState reads a real keyboard's. A chord's modifiers are held for its key alone.
+func (t *testSurface) stroke(key string, down, up bool) error {
+	k, err := parseKey(key)
+	if err != nil {
+		return err
 	}
 	t.onMain(func() {
-		var saved, state [256]byte
-		hostGetKeyboardState.Call(uintptr(unsafe.Pointer(&saved)))
-		state = saved
-		hold := func(v uintptr, on bool) {
-			if on {
-				state[v] |= 0x80
+		if !down && !t.held[k.vk] {
+			err = fmt.Errorf("key %q is not held", key)
+			return
+		}
+		if t.held == nil {
+			t.held = map[uintptr]bool{}
+		}
+		var base [256]byte
+		hostGetKeyboardState.Call(uintptr(unsafe.Pointer(&base)))
+		state := base
+		setKey(&state, vkControl, k.ctrl || t.held[vkControl])
+		setKey(&state, vkShift, k.shift || t.held[vkShift])
+		setKey(&state, vkMenu, k.alt || t.held[vkMenu])
+		setKey(&state, vkLWin, k.meta || t.held[vkLWin])
+		if down {
+			// A modifier pressed alone is down as its own key goes down.
+			setKey(&state, k.vk, true)
+			hostSetKeyboardState.Call(uintptr(unsafe.Pointer(&state)))
+			lParam := uintptr(1)
+			if t.held[k.vk] {
+				lParam |= 1 << 30
+			}
+			t.held[k.vk] = true
+			w := t.w
+			if !w.keyDown(k.vk, lParam) && !w.shortcut(k.vk, lParam) && (w.focusedField() == nil || !w.editKey(k.vk, k.ctrl || t.held[vkControl], k.shift || t.held[vkShift], k.alt || t.held[vkMenu])) {
+				hostSendMessage.Call(w.hwnd, wmKeyDown, k.vk, lParam)
 			}
 		}
-		hold(vkControl, ctrl)
-		hold(vkShift, shift)
-		hold(vkMenu, alt)
-		hold(vkLWin, meta)
-		hostSetKeyboardState.Call(uintptr(unsafe.Pointer(&state)))
-		defer hostSetKeyboardState.Call(uintptr(unsafe.Pointer(&saved)))
-		if t.w.keyDown(vk, 1) || t.w.shortcut(vk, 1) {
-			return
+		if up {
+			setKey(&state, k.vk, false)
+			hostSetKeyboardState.Call(uintptr(unsafe.Pointer(&state)))
+			delete(t.held, k.vk)
+			hostSendMessage.Call(t.w.hwnd, hostKeyUp, k.vk, 1<<31|1<<30|1)
 		}
-		if w := t.w; w.focusedField() != nil && w.editKey(vk, ctrl, shift, alt) {
-			return
+		// The chord's modifiers come up with its key; the keys KeyDown holds stay down.
+		for _, vk := range []uintptr{vkControl, vkShift, vkMenu, vkLWin} {
+			setKey(&base, vk, t.held[vk])
 		}
-		hostSendMessage.Call(t.w.hwnd, wmKeyDown, vk, 1)
-		hostSendMessage.Call(t.w.hwnd, hostKeyUp, vk, 1<<31|1<<30|1)
+		setKey(&base, k.vk, t.held[k.vk])
+		hostSetKeyboardState.Call(uintptr(unsafe.Pointer(&base)))
 	})
-	return nil
+	return err
 }
 
 // Back is Escape, twice in a field, whose first only leaves it.

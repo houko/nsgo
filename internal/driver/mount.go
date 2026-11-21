@@ -114,8 +114,7 @@ const (
 	// with none goes back to the one it replaced, where the platform lets
 	// an app.
 	ItemInputSource
-	// ItemKeymap replaces the surface's keyboard shortcuts (Keys); the
-	// platform consumes matching key presses and reports EventKey.
+	// ItemKeymap replaces the surface's keyboard shortcuts (Keys), and whether it reports every key going down and up (HeldKeys); the platform consumes matching key presses and reports EventKey.
 	ItemKeymap
 	// ItemStatusBar sets the status bar (StatusBar): the layers of
 	// settings merged.
@@ -531,10 +530,12 @@ type MountItem struct {
 	Drawing   *Drawing
 	Shader    *Shader
 	// Keys are ItemKeymap's bindings, oldest first; see FindKey.
-	Keys   []KeyBinding
-	Window *WindowCommand
-	Menu   []MenuEntry
-	Web    *WebConfig
+	Keys []KeyBinding
+	// HeldKeys is ItemKeymap's ask for every key going down and up on the surface, not only those of a focused view that hears keys: the platform reports a down no such view hears with ID 0 (EventKeyDown) and its up (EventKeyUp), for core.KeysDown. It leaves out keys typed while a text input or a web view has the focus or an input method composes, as for a view's keys.
+	HeldKeys bool
+	Window   *WindowCommand
+	Menu     []MenuEntry
+	Web      *WebConfig
 	// WebCommand is ItemWebCommand's.
 	WebCommand       WebCommand
 	PictureInPicture *PictureInPictureConfig

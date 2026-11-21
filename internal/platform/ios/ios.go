@@ -203,6 +203,9 @@ type surface struct {
 	keyboardStart time.Duration
 
 	keys []driver.KeyBinding // the keymap's bindings
+	// keysHeld are the hardware keys whose down was reported, by UIKeyboardHIDUsage: the view the down went to, 0 for none, and the name it reported, which the key's up reports wherever the focus has gone since.
+	keysHeld map[int]heldKey
+	heldKeys bool // ItemKeymap's HeldKeys: report every hardware key going down and up, not only a focused view's
 	// held is the ID of the binding a held key fires again, on a timer of its own: UIKit reports a held key's press once.
 	held     uint32
 	heldStop chan struct{}
@@ -865,6 +868,10 @@ func (s *surface) observe() {
 	for name, state := range lifecycleNote {
 		on(apple.Global(uikitPath, name), func(objc.ID) {
 			lifecycleNow = state
+			if name == "UIApplicationWillResignActiveNotification" {
+				// The keys held come up for the app: UIKit may end their presses elsewhere, or not at all.
+				s.releaseKeys()
+			}
 			// Players pause as the app leaves the foreground, as NSH's do.
 			if state == driver.LifecycleBackground && s.audio != nil {
 				s.audio.PausePlayers()
@@ -1261,7 +1268,7 @@ func (s *surface) apply(b *driver.MountBatch) {
 			s.blockNative(v)
 			continue
 		case driver.ItemKeymap:
-			s.keys = it.Keys
+			s.keys, s.heldKeys = it.Keys, it.HeldKeys
 			continue
 		case driver.ItemStatusBar:
 			s.setStatusBar(it.StatusBar)
@@ -1907,6 +1914,10 @@ func pressesBegan(self objc.ID, cmd objc.SEL, presses, event objc.ID) {
 		app.menuHeld = true
 		return
 	}
+	if app != nil && app.engine != nil && app.pressKeys(presses) {
+		// The focused view consumed the key: the keymap and UIKit do not see it.
+		return
+	}
 	var id uint32
 	consumed := false
 	if app != nil && app.engine != nil && len(app.keys) > 0 {
@@ -1936,6 +1947,136 @@ func pressesBegan(self objc.ID, cmd objc.SEL, presses, event objc.ID) {
 	}
 }
 
+// modifierUsages are the UIKeyboardHIDUsage codes of the modifier keys, by the name core.NormalizeKey gives a modifier pressed alone. The keymap leaves them out, as no binding takes a modifier alone.
+var modifierUsages = map[int]string{
+	224: "ctrl", 228: "ctrl", 225: "shift", 229: "shift", 226: "alt", 230: "alt", 227: "meta", 231: "meta",
+}
+
+// heldKey is a hardware key whose down was reported: the view it went to, 0 for none, and the name it reported.
+type heldKey struct {
+	id   driver.NodeID
+	name string
+}
+
+// pressesKey names a UIKey as driver.NormalizeKey does, without modifiers, a modifier pressed alone included, or "" for none.
+func pressesKey(key objc.ID) string {
+	code := objc.Send[int](key, sel("keyCode"))
+	if name, ok := modifierUsages[code]; ok {
+		return name
+	}
+	if name, ok := keyNames[code]; ok {
+		return name
+	}
+	return strings.ToLower(apple.GoString(key.Send(sel("charactersIgnoringModifiers"))))
+}
+
+// withModifier returns m with the modifier a key named name is, if it is one, held or not.
+func withModifier(m driver.Modifiers, name string, held bool) driver.Modifiers {
+	switch name {
+	case "shift":
+		m.Shift = held
+	case "ctrl":
+		m.Control = held
+	case "alt":
+		m.Alt = held
+	case "meta":
+		m.Platform = held
+	}
+	return m
+}
+
+// pressKeys reports the hardware keys going down in presses, before the keymap: to the focused view that hears keys (View.OnKeyDown), which only an Apple TV has, or with ID 0 where none does and the surface asked for held keys. A press with no key, as the remote's buttons, and keys typed while a text input has the focus are left out. It records each key it reports, so its up reaches the same view, and reports whether the focused view consumed one. UIKit reports a held key once, so no down is a repeat.
+func (s *surface) pressKeys(presses objc.ID) bool {
+	if s.editing() {
+		return false
+	}
+	v := s.focused
+	if v != nil && (s.views[v.id] != v || !v.events.Has(driver.EventKeyDown)) {
+		v = nil
+	}
+	if v == nil && !s.heldKeys {
+		return false
+	}
+	consumed := false
+	apple.ForEach(presses, func(press objc.ID) {
+		key := press.Send(sel("key"))
+		if key == 0 {
+			return
+		}
+		name := pressesKey(key)
+		if name == "" {
+			return
+		}
+		code := objc.Send[int](key, sel("keyCode"))
+		mods := apple.Modifiers(objc.Send[uint](key, sel("modifierFlags")))
+		if held, ok := s.keysHeld[code]; ok {
+			// Its up never came: report it before the key goes down again.
+			s.engine.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: held.id, Text: held.name, Modifiers: withModifier(mods, held.name, false)})
+		}
+		mods = withModifier(mods, name, true)
+		if s.keysHeld == nil {
+			s.keysHeld = map[int]heldKey{}
+		}
+		if v == nil {
+			s.keysHeld[code] = heldKey{0, name}
+			s.engine.Dispatch(driver.Event{Kind: driver.EventKeyDown, Text: name, Modifiers: mods})
+			return
+		}
+		s.keysHeld[code] = heldKey{v.id, name}
+		if s.engine.DispatchKeyDown(driver.Event{Kind: driver.EventKeyDown, ID: v.id, Text: name, Modifiers: mods}) {
+			consumed = true
+		}
+	})
+	return consumed
+}
+
+// releasePresses reports the up of each hardware key in presses whose down was reported, to the view its down went to, with the modifiers still held, the released one not among them while no other key of its name is held.
+func (s *surface) releasePresses(presses, event objc.ID) {
+	if len(s.keysHeld) == 0 {
+		return
+	}
+	apple.ForEach(presses, func(press objc.ID) {
+		key := press.Send(sel("key"))
+		if key == 0 {
+			return
+		}
+		code := objc.Send[int](key, sel("keyCode"))
+		held, ok := s.keysHeld[code]
+		if !ok {
+			return
+		}
+		delete(s.keysHeld, code)
+		// The event's flags are the keys held now; a press's are those of its own down.
+		flags := objc.Send[uint](key, sel("modifierFlags"))
+		if event != 0 && objc.Send[bool](event, sel("respondsToSelector:"), sel("modifierFlags")) {
+			flags = objc.Send[uint](event, sel("modifierFlags"))
+		}
+		mods := withModifier(apple.Modifiers(flags), held.name, s.holds(held.name))
+		s.engine.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: held.id, Text: held.name, Modifiers: mods})
+	})
+}
+
+// holds reports whether a key named name is still held, as the other Shift.
+func (s *surface) holds(name string) bool {
+	for _, held := range s.keysHeld {
+		if held.name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// releaseKeys reports the up of every hardware key whose down was reported, with no modifiers held, as the app stops being active.
+func (s *surface) releaseKeys() {
+	if s.engine == nil {
+		return
+	}
+	for code, held := range s.keysHeld {
+		delete(s.keysHeld, code)
+		s.engine.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: held.id, Text: held.name})
+	}
+}
+
 // typesKey reports whether presses hold a hardware key other than a
 // modifier (UIKeyboardHIDUsage's Caps Lock, and the controls, shifts,
 // options and commands from 224 on).
@@ -1960,9 +2101,12 @@ func pressSurface(self objc.ID) *surface {
 	return controllerSurface(self)
 }
 
-// pressesEnded stops repeating a held key's binding.
+// pressesEnded reports the held keys' ups and stops repeating a held key's binding.
 func pressesEnded(self objc.ID, cmd objc.SEL, presses, event objc.ID) {
 	app := pressSurface(self)
+	if app != nil && app.engine != nil {
+		app.releasePresses(presses, event)
+	}
 	if app != nil && app.heldStop != nil {
 		close(app.heldStop)
 		app.heldStop, app.held = nil, 0

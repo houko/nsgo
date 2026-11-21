@@ -8,14 +8,92 @@ import (
 	"github.com/nsgo-dev/nsgo/internal/driver"
 )
 
-// KeyEvent is a key going down on a hardware keyboard while a view has the keyboard focus (View.OnKeyDown).
+// KeyEvent is a key going down on a hardware keyboard while a view has the keyboard focus (View.OnKeyDown), or coming up after it went down there (View.OnKeyUp).
 type KeyEvent struct {
 	// Key names the key as OnKey does, without modifiers: "k", "1", "space", "enter", "f5", "left", "escape"; a modifier pressed alone is "shift", "ctrl", "alt" or "meta", which is Command on macOS and the Windows or Super key elsewhere. A letter or a digit is the one the keyboard layout types unshifted.
 	Key string
-	// Modifiers are the modifier keys held, the one pressed alone included.
+	// Modifiers are the modifier keys held: going down, the one pressed alone included; coming up, those still held, the one released not among them.
 	Modifiers Modifiers
-	// Repeat is whether the press is a held key's auto-repeat.
+	// Repeat is whether the press is a held key's auto-repeat, which iOS never reports; it is false for a key coming up.
 	Repeat bool
+}
+
+// KeysDown returns the names of the keys held on cx's window, sorted, as KeyEvent.Key names them: "shift" for either Shift, "left", "space", "a". It is a tracked read, so what reads it renders again as a key goes down or comes up but not as a held key repeats, and a RequestAnimationFrame callback, which runs untracked, reads the same keys, as a game's frame loop polls them. A key held as the window loses the keyboard focus comes up then.
+//
+// The first read on a window asks its platform for every key, not only those a focused view that hears keys (View.OnKeyDown) has, and that stays on for the life of the window; a key already held then is unknown until it is pressed again. Keys typed while a text input or a web view has the focus, or while an input method composes, are never held. macOS, Windows, Linux, the web and iOS with a hardware keyboard report them; Android, HarmonyOS, watchOS and mini programs do not, so none is ever held there.
+func KeysDown(cx *Scope) []string {
+	t := cx.tree()
+	if t == nil {
+		return nil
+	}
+	return slices.Clone(t.keysHeld().Get())
+}
+
+// KeyHeld reports whether key is held on cx's window, a tracked read of KeysDown's keys: key is one name, as OnKey writes it ("left", "space", "shift"), "mod" being "meta" where the platform modifier is Command (Env.AppleKeys) and "ctrl" elsewhere, or several joined by "+" ("shift+a"), held together.
+func KeyHeld(cx *Scope, key string) bool {
+	t := cx.tree()
+	if t == nil {
+		return false
+	}
+	held := t.keysHeld().Get()
+	for _, name := range strings.Split(driver.NormalizeKey(key), "+") {
+		switch name {
+		case "mod":
+			name = "ctrl"
+			if cx.Env().AppleKeys() {
+				name = "meta"
+			}
+		case "control":
+			name = "ctrl"
+		case "option":
+			name = "alt"
+		case "cmd", "command", "super", "win":
+			name = "meta"
+		}
+		if !slices.Contains(held, name) {
+			return false
+		}
+	}
+	return true
+}
+
+// keysHeld is the signal KeysDown reads, made by the first read, which asks the platform for every key going down and up (driver.MountItem.HeldKeys) with the next keymap.
+func (t *Tree) keysHeld() *Signal[[]string] {
+	if t.heldRead == nil {
+		t.heldRead = NewSignalFunc(t.root, t.heldNames(), slices.Equal[[]string])
+		t.heldKeys = true
+		t.keysChanged, t.changed = true, true
+	}
+	return t.heldRead
+}
+
+// holdKey counts key name going down (delta 1) or coming up (-1). A count never goes below none: the platform reports an up for a key it saw go down only as a repeat, as one held before the window took the focus, which was never counted.
+func (t *Tree) holdKey(name string, delta int) {
+	n := t.held[name] + delta
+	if name == "" || n < 0 {
+		return
+	}
+	if n == 0 {
+		delete(t.held, name)
+	} else {
+		if t.held == nil {
+			t.held = map[string]int{}
+		}
+		t.held[name] = n
+	}
+	if t.heldRead != nil {
+		t.heldRead.Set(t.heldNames())
+	}
+}
+
+// heldNames returns the names of the keys held, sorted.
+func (t *Tree) heldNames() []string {
+	names := make([]string, 0, len(t.held))
+	for name := range t.held {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
 }
 
 // Shortcut returns the press in OnKey's and desktop.RegisterHotKey's form, with each modifier by its own name, as driver.NormalizeKey writes it: "ctrl+shift+k" or "alt+space" on Windows and Linux, "shift+meta+k" for Command+Shift+K on macOS. A modifier pressed alone is "".

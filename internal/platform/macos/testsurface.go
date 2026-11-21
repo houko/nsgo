@@ -73,6 +73,10 @@ type testSurface struct {
 	hovered []objc.ID
 	clicks  testhost.Clicks
 	pressID int // the last press's marker, read and written on the main thread
+	// heldFlags are the flags of the modifiers KeyDown holds, which every key after it carries until their KeyUp.
+	heldFlags uint
+	// heldCodes are the key codes of the keys other than a modifier that KeyDown holds, whose next KeyDown is their auto-repeat.
+	heldCodes map[uint16]bool
 }
 
 // follow has a test's surface act on the main window its app opened, while one is open, as the test's model follows it (testhost.WindowHost), else on its own surface.
@@ -404,57 +408,53 @@ var testModifiers = map[string]struct {
 	"mod": {55, flagCommand | 0x08}, "meta": {55, flagCommand | 0x08}, "cmd": {55, flagCommand | 0x08}, "command": {55, flagCommand | 0x08},
 }
 
-// modifier presses and releases a modifier key alone, as AppKit reports it: flagsChanged with its flags set, then cleared.
-func (t *testSurface) modifier(code uint16, held, flags uint) {
+// modifier sends a modifier key going down or coming up alone, as AppKit reports it: flagsChanged with flags, the modifiers held once it changed, its own set as it goes down and cleared as it comes up.
+func (t *testSurface) modifier(code uint16, flags uint) {
 	const evFlagsChanged = 12
-	for _, f := range []uint{held | flags, held} {
-		onMainSync(func() {
-			if t.s.closed {
-				// What it did closed the window, as a key or a press on Close does: its next event has nowhere to go.
-				return
+	onMainSync(func() {
+		if t.s.closed {
+			// What it did closed the window, as a key or a press on Close does: its next event has nowhere to go.
+			return
+		}
+		ev := apple.KeyEvent(evFlagsChanged, flags, uptime(), objc.Send[int](t.s.window, sel("windowNumber")), "", "", false, code)
+		rememberTestInput(ev)
+		if objc.Send[bool](t.s.window, sel("isKeyWindow")) {
+			nsApp().Send(sel("postEvent:atStart:"), ev, false)
+		} else if ev = t.s.filter(ev); ev != 0 {
+			if r := t.s.window.Send(sel("firstResponder")); r != 0 {
+				r.Send(sel("flagsChanged:"), ev)
 			}
-			ev := apple.KeyEvent(evFlagsChanged, f, uptime(), objc.Send[int](t.s.window, sel("windowNumber")), "", "", false, code)
-			rememberTestInput(ev)
-			if objc.Send[bool](t.s.window, sel("isKeyWindow")) {
-				nsApp().Send(sel("postEvent:atStart:"), ev, false)
-			} else if ev = t.s.filter(ev); ev != 0 {
-				if r := t.s.window.Send(sel("firstResponder")); r != 0 {
-					r.Send(sel("flagsChanged:"), ev)
-				}
-			}
-		})
-	}
+		}
+	})
 	time.Sleep(10 * time.Millisecond)
 }
 
-// key sends a key down and up with chars, ignoring is what it types without modifiers. A background window receives its keys directly.
-func (t *testSurface) key(code uint16, flags uint, chars, ignoring string) {
-	for _, kind := range []uint{evKeyDown, evKeyUp} {
-		onMainSync(func() {
-			if t.s.closed {
-				// What it did closed the window, as a key or a press on Close does: its next event has nowhere to go.
-				return
+// key sends a key event of kind, evKeyDown or evKeyUp, with chars, ignoring is what it types without modifiers, and repeat set for a down that is the auto-repeat of a key held. A background window receives its keys directly: the filter reports its down or up, and the responder then hears it.
+func (t *testSurface) key(kind uint, code uint16, flags uint, chars, ignoring string, repeat bool) {
+	onMainSync(func() {
+		if t.s.closed {
+			// What it did closed the window, as a key or a press on Close does: its next event has nowhere to go.
+			return
+		}
+		ev := apple.KeyEvent(kind, flags, uptime(), objc.Send[int](t.s.window, sel("windowNumber")), chars, ignoring, repeat, code)
+		rememberTestInput(ev)
+		if objc.Send[bool](t.s.window, sel("isKeyWindow")) {
+			nsApp().Send(sel("postEvent:atStart:"), ev, false)
+		} else if ev = t.s.filter(ev); ev != 0 {
+			// A background app can have no key window. Its monitors still see queued keys, but AppKit never hands them to the responder: run the same filter and deliver to that responder, without activating the app.
+			r := t.s.window.Send(sel("firstResponder"))
+			switch {
+			case kind == evKeyDown && flags&(flagCommand|flagControl) != 0 && t.keyEquivalent(ev):
+				// A view or the menu bar took it.
+			case code == 48 && kind == evKeyDown && (r == t.s.window || r == t.s.native || r == 0):
+				t.s.tabFromSurface(flags&flagShift != 0)
+			case kind == evKeyUp:
+				r.Send(sel("keyUp:"), ev)
+			default:
+				r.Send(sel("keyDown:"), ev)
 			}
-			ev := apple.KeyEvent(kind, flags, uptime(), objc.Send[int](t.s.window, sel("windowNumber")), chars, ignoring, false, code)
-			rememberTestInput(ev)
-			if objc.Send[bool](t.s.window, sel("isKeyWindow")) {
-				nsApp().Send(sel("postEvent:atStart:"), ev, false)
-			} else if ev = t.s.filter(ev); ev != 0 {
-				// A background app can have no key window. Its monitors still see queued keys, but AppKit never hands them to the responder: run the same filter and deliver to that responder, without activating the app.
-				r := t.s.window.Send(sel("firstResponder"))
-				switch {
-				case kind == evKeyDown && flags&(flagCommand|flagControl) != 0 && t.keyEquivalent(ev):
-					// A view or the menu bar took it.
-				case code == 48 && kind == evKeyDown && (r == t.s.window || r == t.s.native || r == 0):
-					t.s.tabFromSurface(flags&flagShift != 0)
-				case kind == evKeyUp:
-					r.Send(sel("keyUp:"), ev)
-				default:
-					r.Send(sel("keyDown:"), ev)
-				}
-			}
-		})
-	}
+		}
+	})
 	time.Sleep(10 * time.Millisecond)
 }
 
@@ -581,7 +581,8 @@ func (t *testSurface) Type(text string) error {
 		if r >= 'A' && r <= 'Z' {
 			flags = flagShift
 		}
-		t.key(code, flags, string(r), name)
+		t.key(evKeyDown, code, flags, string(r), name, false)
+		t.key(evKeyUp, code, flags, string(r), name, false)
 	}
 	return nil
 }
@@ -656,20 +657,22 @@ func (t *testSurface) Key(key string) error {
 			return fmt.Errorf("unknown modifier %q in %q", m, key)
 		}
 	}
-	if m, ok := testModifiers[name]; ok {
-		t.modifier(m.code, flags, m.flags)
+	k, err := testKeyNamed(name, key)
+	if err != nil {
+		return err
+	}
+	flags |= t.heldFlags
+	if k.modifier != 0 {
+		t.modifier(k.code, flags|k.modifier)
+		t.modifier(k.code, flags)
 		return nil
 	}
-	code, ok := keyCodes[name]
-	if !ok {
-		return fmt.Errorf("unknown key %q", key)
-	}
-	if action := editActions[name]; flags == flagCommand && action != "" {
+	if action := editActions[name]; flags&(flagCommand|flagControl|flagOption|flagShift) == flagCommand && action != "" {
 		// The menu's key equivalents need the app active, which a test
 		// leaves to the app the user works in: the field does the edit the
 		// menu item would ask of it.
 		onMainSync(func() {
-			ev := apple.KeyEvent(evKeyDown, flags, uptime(), objc.Send[int](t.s.window, sel("windowNumber")), name, name, false, code)
+			ev := apple.KeyEvent(evKeyDown, flags, uptime(), objc.Send[int](t.s.window, sel("windowNumber")), name, name, false, k.code)
 			rememberTestInput(ev)
 			if t.s.filter(ev) == 0 {
 				return
@@ -678,7 +681,81 @@ func (t *testSurface) Key(key string) error {
 				r.Send(sel("tryToPerform:with:"), sel(action), objc.ID(0))
 			}
 		})
+		// Its up still comes, so a down the surface reported comes up.
+		onMainSync(func() {
+			if t.s.closed {
+				return
+			}
+			ev := apple.KeyEvent(evKeyUp, flags, uptime(), objc.Send[int](t.s.window, sel("windowNumber")), name, name, false, k.code)
+			rememberTestInput(ev)
+			t.s.filter(ev)
+		})
 		return nil
+	}
+	t.key(evKeyDown, k.code, flags, k.chars, k.chars, false)
+	t.key(evKeyUp, k.code, flags, k.chars, k.chars, false)
+	return nil
+}
+
+// KeyDown implements testhost.KeyHoldSurface: key goes down and stays held, a modifier's flags joining every key after it until its KeyUp.
+func (t *testSurface) KeyDown(key string) error { return t.hold(key, true) }
+
+// KeyUp implements testhost.KeyHoldSurface: key, which KeyDown held, comes up.
+func (t *testSurface) KeyUp(key string) error { return t.hold(key, false) }
+
+// hold sends key, one key and not a chord, going down or coming up, with the modifiers KeyDown holds.
+func (t *testSurface) hold(key string, down bool) error {
+	t.follow()
+	if err := t.keyboard(); err != nil {
+		return err
+	}
+	name := strings.ToLower(key)
+	if strings.Contains(name, "+") {
+		return fmt.Errorf("%q is a chord: a key goes down or comes up alone", key)
+	}
+	k, err := testKeyNamed(name, key)
+	if err != nil {
+		return err
+	}
+	if k.modifier != 0 {
+		if down {
+			t.heldFlags |= k.modifier
+		} else {
+			t.heldFlags &^= k.modifier
+		}
+		t.modifier(k.code, t.heldFlags)
+		return nil
+	}
+	if !down {
+		delete(t.heldCodes, k.code)
+		t.key(evKeyUp, k.code, t.heldFlags, k.chars, k.chars, false)
+		return nil
+	}
+	// A key already held goes down again as its auto-repeat, as AppKit sends a key held down.
+	repeat := t.heldCodes[k.code]
+	if t.heldCodes == nil {
+		t.heldCodes = map[uint16]bool{}
+	}
+	t.heldCodes[k.code] = true
+	t.key(evKeyDown, k.code, t.heldFlags, k.chars, k.chars, repeat)
+	return nil
+}
+
+// testKey is a key a test names, as AppKit sends it: its key code, the flags it sets while held for a modifier key (0 for another key), and the characters it types without modifiers.
+type testKey struct {
+	code     uint16
+	modifier uint
+	chars    string
+}
+
+// testKeyNamed returns the key named name, lowercase without modifiers, of the step's key.
+func testKeyNamed(name, key string) (testKey, error) {
+	if m, ok := testModifiers[name]; ok {
+		return testKey{code: m.code, modifier: m.flags}, nil
+	}
+	c, ok := keyCodes[name]
+	if !ok {
+		return testKey{}, fmt.Errorf("unknown key %q", key)
 	}
 	chars, special := keyChars[name]
 	switch {
@@ -688,8 +765,7 @@ func (t *testSurface) Key(key string) error {
 		// A key that types nothing carries AppKit's function key character, which a text field reads as the arrow or the Home it is; its name would be typed as text.
 		chars = string(keyEquivalents[name])
 	}
-	t.key(code, flags, chars, chars)
-	return nil
+	return testKey{code: c, chars: chars}, nil
 }
 
 // Back is Escape, twice in a field, whose first only leaves it.

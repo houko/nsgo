@@ -86,6 +86,8 @@ type testSurface struct {
 	// field is the field a press last focused: GTK reports the focus
 	// only while the window is active, which a test cannot ask.
 	field *view
+	// mods are the state bits of the modifier keys KeyDown holds, which every key after them carries until their KeyUp.
+	mods uint32
 }
 
 // focused is the field with the keyboard.
@@ -391,11 +393,10 @@ var moveSteps = map[string]moveStep{
 	"end":   {gtkMovementDisplayLineEnds, gtkMovementBufferEnds, 1},
 }
 
-// Key presses a key with modifiers through the window's controller first, then lets the focused field edit if the controller leaves it the key, and releases the key either way.
-func (t *testSurface) Key(key string) error {
+// parseKey reads a key as Key takes it, with modifiers: its name, its GDK keyval and the state bits of the modifiers.
+func parseKey(key string) (name string, keyval, state uint32, err error) {
 	parts := strings.Split(strings.ToLower(key), "+")
-	name := parts[len(parts)-1]
-	var state uint32
+	name = parts[len(parts)-1]
 	for _, m := range parts[:len(parts)-1] {
 		switch m {
 		case "mod", "ctrl", "control":
@@ -407,7 +408,7 @@ func (t *testSurface) Key(key string) error {
 		case "meta", "super", "cmd":
 			state |= 1 << 26
 		default:
-			return fmt.Errorf("unknown modifier %q in %q", m, key)
+			return "", 0, 0, fmt.Errorf("unknown modifier %q in %q", m, key)
 		}
 	}
 	keyval, ok := keyvals[name]
@@ -418,15 +419,68 @@ func (t *testSurface) Key(key string) error {
 		keyval, ok = gdkF1+uint32(n-1), true
 	}
 	if !ok {
-		return fmt.Errorf("unknown key %q", key)
+		return "", 0, 0, fmt.Errorf("unknown key %q", key)
 	}
+	return name, keyval, state, nil
+}
+
+// parseOneKey reads a key as KeyDown and KeyUp take it: one key, without modifiers.
+func parseOneKey(key string) (name string, keyval uint32, err error) {
+	if strings.Contains(key, "+") {
+		return "", 0, fmt.Errorf("%q is not one key", key)
+	}
+	name, keyval, _, err = parseKey(key)
+	return name, keyval, err
+}
+
+// Key presses a key with modifiers, joined by the modifiers KeyDown holds, and releases it.
+func (t *testSurface) Key(key string) error {
+	name, keyval, state, err := parseKey(key)
+	if err != nil {
+		return err
+	}
+	return t.key(name, keyval, state|t.mods, true, true)
+}
+
+// KeyDown presses one key and holds it; a modifier it holds joins every key after it until its KeyUp. A key already held is pressed again, as an auto-repeat is.
+func (t *testSurface) KeyDown(key string) error {
+	name, keyval, err := parseOneKey(key)
+	if err != nil {
+		return err
+	}
+	// GDK's state at a modifier's press holds only the modifiers before it.
+	err = t.key(name, keyval, t.mods, true, false)
+	if m, ok := modifierKeyvals[keyval]; ok {
+		t.mods |= m.bit
+	}
+	return err
+}
+
+// KeyUp releases one key KeyDown holds.
+func (t *testSurface) KeyUp(key string) error {
+	name, keyval, err := parseOneKey(key)
+	if err != nil {
+		return err
+	}
+	// GDK's state at a modifier's release still holds it.
+	state := t.mods
+	if m, ok := modifierKeyvals[keyval]; ok {
+		t.mods &^= m.bit
+	}
+	return t.key(name, keyval, state, false, true)
+}
+
+// key presses (press) a key with the modifiers in state through the window's controller first, then lets the focused field edit if the controller leaves it the key, and releases it (release) either way. The key's keycode is its keyval, so the keys held apart stay apart.
+func (t *testSurface) key(name string, keyval, state uint32, press, release bool) error {
 	loadEditing()
 	closing := false
 	t.onLoop(func() {
 		// After the release, wait for the display server to have sent the events the key caused, which the loop's next turn handles before the turn below.
 		defer func() { gdkDisplaySync(gdkDisplayGetDefault()); closing = t.w.closing }()
-		defer keyReleasedCallback(0, keyval, 0, state, t.w.handle)
-		if keyPressedCallback(0, keyval, 0, state, t.w.handle) != 0 {
+		if release {
+			defer keyReleasedCallback(0, keyval, keyval, state, t.w.handle)
+		}
+		if !press || keyPressedCallback(0, keyval, keyval, state, t.w.handle) != 0 {
 			return
 		}
 		v := t.focused()

@@ -270,8 +270,11 @@ type surface struct {
 	// transparent leaves the window borderless and clear behind the app's views (look.go), or has a panel draw nothing of its own (newPanel); skipTaskbar keeps a window out of the Window menu and Cmd+` (look.go).
 	transparent, skipTaskbar bool
 	keys                     []driver.KeyBinding // the keymap's bindings
+	heldKeys                 bool                // ItemKeymap's HeldKeys: report every key going down and up, not only a focused view's
 	webFocus                 *view               // the page holding the window's first responder
 	stopWebFocus             func()              // ends first-responder observation in the current window
+	// keysHeld are the keys whose down was reported, by AppKit key code: the view the down went to, 0 for none, and the name it reported, which the key's up reports wherever the focus has gone since.
+	keysHeld map[uint16]heldKey
 
 	// What a batch touched, finished once its frames are set.
 	images, presenting []*view
@@ -1293,11 +1296,18 @@ func (s *surface) observe() {
 		})
 	}
 
-	const keyDown, leftDown, leftUp, mouseMoved, leftDragged, rightDown, otherDown, rightDragged, otherDragged, wheel, flags = 1 << 10, 1 << 1, 1 << 2, 1 << 5, 1 << 6, 1 << 3, 1 << 25, 1 << 7, 1 << 27, 1 << 22, 1 << 12
+	// A key held as the window stops being key comes up for the app: its up goes to the window that is key now, or to none.
+	s.stops = append(s.stops, apple.Observe(center, apple.Global(appKitPath, "NSWindowDidResignKeyNotification"), func(note objc.ID) {
+		if note.Send(sel("object")) == s.window {
+			s.releaseKeys()
+		}
+	}))
+
+	const keyDown, keyUp, leftDown, leftUp, mouseMoved, leftDragged, rightDown, otherDown, rightDragged, otherDragged, wheel, flags = 1 << 10, 1 << 11, 1 << 1, 1 << 2, 1 << 5, 1 << 6, 1 << 3, 1 << 25, 1 << 7, 1 << 27, 1 << 22, 1 << 12
 	handler := objcblock.New(func(_ objc.Block, event objc.ID) objc.ID { return s.filter(event) })
 	nsEvent := objc.ID(apple.Class("NSEvent"))
 	monitor := nsEvent.Send(sel("addLocalMonitorForEventsMatchingMask:handler:"),
-		uint64(keyDown|leftDown|leftUp|mouseMoved|leftDragged|rightDown|otherDown|rightDragged|otherDragged|wheel|flags), handler).Send(sel("retain"))
+		uint64(keyDown|keyUp|leftDown|leftUp|mouseMoved|leftDragged|rightDown|otherDown|rightDragged|otherDragged|wheel|flags), handler).Send(sel("retain"))
 	handler.Release()
 	s.stops = append(s.stops, func() {
 		nsEvent.Send(sel("removeMonitor:"), monitor)
@@ -1364,11 +1374,14 @@ func (s *surface) filterEvent(event objc.ID) objc.ID {
 	if s.window == 0 || event.Send(selWindow) != s.window || s.engine == nil {
 		return event
 	}
-	const typeLeftDown, typeLeftUp, typeRightDown, typeMouseMoved, typeLeftDragged, typeRightDragged, typeKeyDown, typeFlagsChanged, typeScrollWheel, typeOtherDown, typeOtherDragged = 1, 2, 3, 5, 6, 7, 10, 12, 22, 25, 27
+	const typeLeftDown, typeLeftUp, typeRightDown, typeMouseMoved, typeLeftDragged, typeRightDragged, typeKeyDown, typeKeyUp, typeFlagsChanged, typeScrollWheel, typeOtherDown, typeOtherDragged = 1, 2, 3, 5, 6, 7, 10, 11, 12, 22, 25, 27
 	switch objc.Send[uint](event, sel("type")) {
 	case typeFlagsChanged:
 		s.modifiersChanged(event)
-		s.modifierDown(event)
+		s.modifierKey(event)
+	case typeKeyUp:
+		// Not gated by hasKeys: a key whose down was reported comes up wherever the focus went since. The event goes on to AppKit.
+		s.keyUp(objc.Send[uint16](event, sel("keyCode")), apple.Modifiers(objc.Send[uint](event, sel("modifierFlags"))))
 	case typeMouseMoved:
 		// The hovers the move reports and the cursor follow where the
 		// content shows.
@@ -1387,7 +1400,7 @@ func (s *surface) filterEvent(event objc.ID) objc.ID {
 			break
 		}
 		s.engine.InputModality(driver.ModalityKeyboard)
-		if name := keyName(event); name != "" && s.keyDown(name, event, objc.Send[bool](event, sel("isARepeat"))) {
+		if name := keyName(event); name != "" && s.keyDown(objc.Send[uint16](event, sel("keyCode")), name, event, objc.Send[bool](event, sel("isARepeat"))) {
 			return 0
 		}
 		if id, consumed := s.binding(event); consumed {
@@ -1446,14 +1459,64 @@ func (s *surface) keyFocus() *view {
 	return v
 }
 
-// keyDown offers a key going down to the focused view that hears keys, before the keymap and AppKit, and reports whether it consumed the key.
-func (s *surface) keyDown(name string, event objc.ID, repeat bool) bool {
+// heldKey is a key whose down was reported: the view it went to, 0 for none, and the name it reported.
+type heldKey struct {
+	id   driver.NodeID
+	name string
+}
+
+// keyDown offers a key going down, code its AppKit key code, to the focused view that hears keys, before the keymap and AppKit, and reports whether it consumed the key. Where no such view has the focus and the surface asked for held keys, it reports the down with ID 0 and consumes nothing, unless a text field or a web page has the keys or an input method composes. A key whose down it reports is recorded, a repeat's too when its first down came before the window was key, so its up reaches the same view.
+func (s *surface) keyDown(code uint16, name string, event objc.ID, repeat bool) bool {
 	v := s.keyFocus()
-	if v == nil {
+	if v == nil && (!s.heldKeys || s.editing() || s.composing()) {
 		return false
 	}
-	return s.engine.DispatchKeyDown(driver.Event{Kind: driver.EventKeyDown, ID: v.id, Text: name,
-		Modifiers: apple.Modifiers(objc.Send[uint](event, sel("modifierFlags"))), Repeat: repeat})
+	var id driver.NodeID
+	if v != nil {
+		id = v.id
+	}
+	mods := apple.Modifiers(objc.Send[uint](event, sel("modifierFlags")))
+	held, ok := s.keysHeld[code]
+	switch {
+	case !ok:
+		if s.keysHeld == nil {
+			s.keysHeld = map[uint16]heldKey{}
+		}
+		s.keysHeld[code] = heldKey{id, name}
+	case !repeat:
+		// Its up never came, as AppKit can drop one: report it before the key goes down again.
+		s.engine.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: held.id, Text: held.name, Modifiers: mods})
+		s.keysHeld[code] = heldKey{id, name}
+	case v == nil:
+		// The repeat of a key no view hears changes no key held.
+		return false
+	}
+	if v == nil {
+		s.engine.Dispatch(driver.Event{Kind: driver.EventKeyDown, Text: name, Modifiers: mods, Repeat: repeat})
+		return false
+	}
+	return s.engine.DispatchKeyDown(driver.Event{Kind: driver.EventKeyDown, ID: v.id, Text: name, Modifiers: mods, Repeat: repeat})
+}
+
+// keyUp reports the up of the key with AppKit key code code, with mods the keys still held, to the view its down went to, if its down was reported.
+func (s *surface) keyUp(code uint16, mods driver.Modifiers) {
+	held, ok := s.keysHeld[code]
+	if !ok {
+		return
+	}
+	delete(s.keysHeld, code)
+	s.engine.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: held.id, Text: held.name, Modifiers: mods})
+}
+
+// releaseKeys reports the up of every key whose down was reported, with no modifiers held, as the window stops being key: AppKit sends their ups to another window, or to none.
+func (s *surface) releaseKeys() {
+	if s.engine == nil {
+		return
+	}
+	for code, held := range s.keysHeld {
+		delete(s.keysHeld, code)
+		s.engine.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: held.id, Text: held.name})
+	}
 }
 
 // modifierKeys are the AppKit key codes of the modifier keys, with the device-dependent flag that is set while each is down, as flagsChanged reports a modifier going down or up.
@@ -1465,14 +1528,22 @@ var modifierKeys = map[uint16]struct {
 	58: {"alt", 0x20}, 61: {"alt", 0x40}, 55: {"meta", 0x08}, 54: {"meta", 0x10},
 }
 
-// modifierDown reports a modifier key going down alone to the focused view that hears keys. AppKit sends it as flagsChanged, not keyDown; the event goes on to AppKit whatever the view answers, as no binding takes a modifier alone.
-func (s *surface) modifierDown(event objc.ID) {
-	m, ok := modifierKeys[objc.Send[uint16](event, sel("keyCode"))]
-	if !ok || objc.Send[uint](event, sel("modifierFlags"))&m.flag == 0 || !s.hasKeys() {
+// modifierKey reports a modifier key going down or coming up alone, which AppKit sends as flagsChanged, not keyDown or keyUp: its down as keyDown does, while the surface has the keys, and its up, whose flags no longer hold it, wherever the focus went since. The event goes on to AppKit whatever a view answers, as no binding takes a modifier alone.
+func (s *surface) modifierKey(event objc.ID) {
+	code := objc.Send[uint16](event, sel("keyCode"))
+	m, ok := modifierKeys[code]
+	if !ok {
 		return
 	}
-	// isARepeat is a key event's alone: a modifier does not repeat.
-	s.keyDown(m.name, event, false)
+	flags := objc.Send[uint](event, sel("modifierFlags"))
+	if flags&m.flag == 0 {
+		s.keyUp(code, apple.Modifiers(flags))
+		return
+	}
+	if s.hasKeys() {
+		// isARepeat is a key event's alone: a modifier does not repeat.
+		s.keyDown(code, m.name, event, false)
+	}
 }
 
 // hasKeys reports whether the window's keys are the surface's: the
@@ -1894,7 +1965,7 @@ func (s *surface) apply(b *driver.MountBatch) {
 			announce(it.Value)
 			continue
 		case driver.ItemKeymap:
-			s.keys = it.Keys
+			s.keys, s.heldKeys = it.Keys, it.HeldKeys
 			continue
 		case driver.ItemTitle, driver.ItemWindow, driver.ItemMenu, driver.ItemDockMenu, driver.ItemRecentFile:
 			if it.Kind == driver.ItemWindow && it.Window.Action == driver.WindowDestroy {

@@ -254,7 +254,7 @@ lookup := desktop.OpenPanel(cx, desktop.PanelOptions{Width: 380, Height: 520, Tr
 desktop.RegisterHotKey(cx, "alt+space", lookup.Toggle)
 ```
 
-快捷键录制控件让用户自己选这样的按键。`Focusable` 视图的 `OnKeyDown` 在它有焦点时、应用的绑定之前，收到每个按下的键和当时按住的修饰键，单独按下的修饰键也算；返回 `true` 让这个键不再交给绑定，所以录制 Command+S 时不会触发保存。`KeyEvent.Shortcut` 把按键写成 `OnKey` 和 `RegisterHotKey` 接受的形式，每个修饰键用自己的名字（"ctrl+shift+k"、"alt+space"，Command+Shift+K 是 "shift+meta+k"），单独的修饰键为 ""。它在 macOS、Windows、Linux 和 Web 上可用，Web 上浏览器不交给页面的快捷键仍归浏览器，`nsgotest` 中也可用；Android 和 iOS 还不向它报告按键。应用自己注册的全局快捷键会先于视图拿到按键，所以录制期间要先注销它。
+快捷键录制控件让用户自己选这样的按键。`Focusable` 视图的 `OnKeyDown` 在它有焦点时、应用的绑定之前，收到每个按下的键和当时按住的修饰键，单独按下的修饰键也算；返回 `true` 让这个键不再交给绑定，所以录制 Command+S 时不会触发保存。`KeyEvent.Shortcut` 把按键写成 `OnKey` 和 `RegisterHotKey` 接受的形式，每个修饰键用自己的名字（"ctrl+shift+k"、"alt+space"，Command+Shift+K 是 "shift+meta+k"），单独的修饰键为 ""。它的 `OnKeyUp` 收到这些键各自抬起，即使 `OnKeyDown` 已消费该键或焦点已经移走，同时带着仍按住的修饰键。两者在 macOS、Windows、Linux、Web（浏览器不交给页面的快捷键仍归浏览器）、Apple TV 和 `nsgotest` 中可用；Android、iPhone 和 iPad 不向视图报告按键。应用自己注册的全局快捷键会先于视图拿到按键，所以录制期间要先注销它。
 
 ```go
 core.View{
@@ -265,8 +265,25 @@ core.View{
 		}
 		return true
 	},
+	OnKeyUp: func(core.KeyEvent) { recording.Set(false) },
 	Children: []core.Node{core.Text{ContentFunc: shortcut.Get}},
 }
+```
+
+游戏或画布则轮询按键。`core.KeysDown(cx)` 列出窗口上按住的键，`core.KeyHeld(cx, "left")` 判断某个键是否按住：二者都是被追踪的读取，`RequestAnimationFrame` 循环也能读取。第一次读取后，平台从此报告每个键，所以读取前已经按住的键要再按一次才会知道；在文本框或网页视图中、或输入法组字时按下的键永远不算按住，窗口失去焦点时仍按住的键会在那时抬起。它们在 `OnKeyUp` 可用的地方都可用，在接了硬件键盘的 iPhone 和 iPad 上也可用。
+
+```go
+var loop func(time.Time)
+loop = func(time.Time) {
+	if core.KeyHeld(cx, "left") {
+		x.Update(func(x float32) float32 { return x - 4 })
+	}
+	if core.KeyHeld(cx, "right") {
+		x.Update(func(x float32) float32 { return x + 4 })
+	}
+	cx.RequestAnimationFrame(loop)
+}
+cx.RequestAnimationFrame(loop)
 ```
 
 ## 登录

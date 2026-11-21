@@ -558,6 +558,10 @@ type window struct {
 	pressing *pressing
 
 	swap *swapChain
+
+	// heldKeys is ItemKeymap's ask for every key's down and up (driver.MountItem.HeldKeys); keysHeld the keys reported going down and not yet up, by physical key (physicalKey).
+	heldKeys bool
+	keysHeld map[uint32]heldKey
 }
 
 // Window procedures are process-wide callbacks; they find their window
@@ -1393,7 +1397,7 @@ func (w *window) apply(b *driver.MountBatch) {
 			w.imageInfo(it)
 			continue
 		case driver.ItemKeymap:
-			w.setKeymap(it.Keys)
+			w.setKeymap(it.Keys, it.HeldKeys)
 			continue
 		case driver.ItemTitle, driver.ItemWindow, driver.ItemMenu, driver.ItemDockMenu, driver.ItemRecentFile:
 			// An embedding host owns its window and menu bar.
@@ -2334,13 +2338,20 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 		w.showPopup()
 		return 0
 	case wmKeyUp:
+		w.keyUp(wParam, lParam)
 		w.modifierKey(wParam)
 	case wmSysKeyUp:
+		// Before the menu bar, which takes Alt's up.
+		w.keyUp(wParam, lParam)
 		w.modifierKey(wParam)
 		if w.menuBarKey(message, wParam, lParam) {
 			return 0
 		}
 	case wmEnterMenuLoop, wmExitMenuLoop:
+		// The menu's own loop takes the keys from here on, their ups too.
+		if message == wmEnterMenuLoop {
+			w.releaseKeys()
+		}
 		w.menuLoop(message == wmEnterMenuLoop, wParam != 0)
 	case wmSettingChange:
 		// Theme ("ImmersiveColorSet"), locale and accessibility changes.
