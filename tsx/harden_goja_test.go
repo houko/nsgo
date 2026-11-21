@@ -8,8 +8,7 @@ import (
 	"github.com/nsgo-dev/nsgo/tsx/internal/js"
 )
 
-// Discover constructors in a pristine goja runtime so an engine upgrade
-// adding a global constructor also brings it under this check.
+// TestHardenCoversRuntimeConstructors discovers constructors in a pristine goja runtime, so an engine upgrade adding a global constructor also brings it under this check.
 func TestHardenCoversRuntimeConstructors(t *testing.T) {
 	r := &runtime{vm: js.New()}
 	check, err := r.vm.RunString(`(function () {
