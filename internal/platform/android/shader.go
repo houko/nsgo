@@ -12,14 +12,7 @@ import (
 	"github.com/nsgo-dev/nsgo/internal/shaderir/glsl"
 )
 
-// Shaders draw with OpenGL ES 3.0 in the Java runtime's ShaderNode, a
-// TextureView: Go translates each program into GLSL ES once and sends
-// its source with the first item that draws it, with where each uniform
-// lane lies in its std140 block; Java compiles it once for its context,
-// writes the lanes, the animated ones each frame they change, and draws
-// when they, the size or an image change. An image of pixels goes with
-// the item, its bytes only when the core sent a new copy, and Java writes
-// them into a texture the view keeps.
+// Shaders draw with OpenGL ES 3.0 in the Java runtime's ShaderNode, a TextureView: Go translates each program into GLSL ES once and sends its source with the first item that draws it, with where each uniform lane lies in its std140 block; Java compiles it once for its context, writes the lanes, the animated ones each frame they change, and draws when they, the size or an image change. An image of pixels goes with the item, its bytes only when the core sent a new copy and the batch has room for them, and Java writes them into a texture the view keeps.
 
 // glProgram is a program translated for Java.
 type glProgram struct {
@@ -56,9 +49,6 @@ const (
 	shaderImageNone
 )
 
-// maxShaderPixels is the most bytes an image of pixels takes, leaving room in a message for the rest of its batch (maxMessage).
-const maxShaderPixels = maxMessage / 2
-
 // glMain is the fragment stage around the program's function: the
 // position counts down from the top, as the program's does.
 const glMain = `
@@ -74,6 +64,7 @@ void main() {
 // trackShaders translates the programs a batch's shader items draw, and says which of their pixels Java lacks, on the engine goroutine.
 func (s *surface) trackShaders(tv *treeView, b *driver.MountBatch) []shaderItem {
 	var out []shaderItem
+	budget := maxShaderPixels
 	for i := range b.Items {
 		it := &b.Items[i]
 		if it.Kind == driver.ItemCreate || it.Kind == driver.ItemDelete {
@@ -93,17 +84,12 @@ func (s *surface) trackShaders(tv *treeView, b *driver.MountBatch) []shaderItem 
 			s.programs[it.Shader.Program] = p
 		}
 		// The core sends the same copy while the version stays, which Java has.
-		sent := tv.shaderPixels[it.ID]
-		pixels := make([]bool, len(it.Shader.Images))
-		now := make([]*image.RGBA, len(it.Shader.Images))
-		for j, img := range it.Shader.Images {
-			now[j] = img.Pixels
-			pixels[j] = img.Pixels != nil && (j >= len(sent) || sent[j] != img.Pixels)
-		}
+		pixels, held, left := shaderPixels(it.Shader.Images, tv.shaderPixels[it.ID], budget)
+		budget = left
 		if tv.shaderPixels == nil {
 			tv.shaderPixels = map[driver.NodeID][]*image.RGBA{}
 		}
-		tv.shaderPixels[it.ID] = now
+		tv.shaderPixels[it.ID] = held
 		out = append(out, shaderItem{prog: p, source: !p.sent, pixels: pixels})
 		p.sent = true
 	}

@@ -31,7 +31,7 @@
 | Windows | Premultiplied BGRA (`imagedecode.FromPixels`), a Direct2D bitmap with premultiplied alpha | The same | `UpdateSubresource` |
 | Linux | Premultiplied BGRA, a Cairo ARGB32 surface | The same | `glTexSubImage2D` in the area's context |
 | Web | A `<canvas>` the pixels are put into, straight, and its PNG data URL, which the browser loads as a new image: blank until it loads | That `<canvas>` | `texSubImage2D` from a `Uint8Array` kept for the image |
-| Android | A PNG without compression made once per copy, the view keeping only its latest (`imageView.asPNG`), decoded by Java as a new request: blank until it decodes, with a 1 ms fade | Not drawn: Go answers Java's request for them as a failed load | The bytes with the `ItemShader`, only for a copy Java lacks and at most 32 MiB, and `glTexSubImage2D` on the GL thread |
+| Android | A PNG without compression made once per copy, the view keeping only its latest (`imageView.asPNG`), decoded by Java as a new request: blank until it decodes, with a 1 ms fade | Not drawn: Go answers Java's request for them as a failed load | The bytes with the `ItemShader`, only for a copy Java lacks, at most 32 MiB of them in a batch (a copy that does not fit waits for the shader's next batch, the previous one still showing), and `glTexSubImage2D` on the GL thread |
 | HarmonyOS, mini programs | Not shown | Not drawn | No shaders |
 
 `Scope.ImageSize` answers a pixel source at once with its buffer's size, and `PrefetchImage` with success, without asking the platform.

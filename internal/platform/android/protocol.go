@@ -3,6 +3,7 @@ package android
 import (
 	"encoding/binary"
 	"fmt"
+	"image"
 	"math"
 	"net/url"
 	"strings"
@@ -24,6 +25,39 @@ func checkMessage(kind byte, n int) error {
 		return fmt.Errorf("a message (kind %d) of %d bytes is over the %d MiB the Android runtime reads", kind, n, maxMessage>>20)
 	}
 	return nil
+}
+
+// maxShaderPixels is the most bytes of shader pixels a batch carries, leaving room in its message for the rest of the batch (maxMessage). An image over it never goes.
+const maxShaderPixels = maxMessage / 2
+
+// shaderPixels says which images of a shader item send their bytes, given the copies Java holds (sent) and the bytes the batch has left for pixels (budget). A new copy goes while it fits; one that does not stays unsent, so Java keeps showing the copy it has and the item's next batch sends it. It returns which images send their bytes, the copies Java holds after the batch, and the budget left.
+func shaderPixels(images []driver.ImageSource, sent []*image.RGBA, budget int) (fresh []bool, held []*image.RGBA, left int) {
+	fresh = make([]bool, len(images))
+	held = make([]*image.RGBA, len(images))
+	for i, img := range images {
+		var had *image.RGBA
+		if i < len(sent) {
+			had = sent[i]
+		}
+		px := img.Pixels
+		held[i] = px
+		if px == nil || px == had {
+			continue
+		}
+		n := 4 * px.Rect.Dx() * px.Rect.Dy()
+		if n > maxShaderPixels {
+			// writeShader leaves it out and logs it.
+			fresh[i] = true
+			continue
+		}
+		if n > budget {
+			held[i] = had
+			continue
+		}
+		fresh[i] = true
+		budget -= n
+	}
+	return fresh, held, budget
 }
 
 // Native components on Android depart from NSH's, whose components are
