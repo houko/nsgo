@@ -252,6 +252,99 @@ func TestAFocusedViewHearsItsKeysComeUp(t *testing.T) {
 	}
 }
 
+// startHeldKeys starts a view that records the keys it hears go down and come up where a focused view hears them, and shows core.KeysDown; held checks what it shows.
+func startHeldKeys(t *testing.T, record func(down bool, e core.KeyEvent)) (app *nsgotest.App, held func(want string)) {
+	t.Helper()
+	var recorder core.Ref
+	var focused atomic.Bool
+	app = nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.View{Style: core.Style{Padding: core.All(20)}, Children: []core.Node{
+			core.View{
+				TestID: "recorder", Ref: &recorder, Focusable: func() bool { return true }, OnFocus: func() { focused.Store(true) },
+				OnKeyDown: func(e core.KeyEvent) bool { record(true, e); return false },
+				OnKeyUp:   func(e core.KeyEvent) { record(false, e) },
+				Style:     core.Style{Width: core.Pt(200), Height: core.Pt(40)},
+			},
+			core.Text{TestID: "held", ContentFunc: func() string { return strings.Join(core.KeysDown(cx), " ") }},
+		}}
+	}, nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}), nsgotest.Size(300, 120))
+	switch nsgotest.Target() {
+	case "ios", "ios_simulator":
+		// No view hears keys go down there; core.KeysDown follows them.
+	case "tvos_simulator":
+		app.Post(recorder.Focus)
+		app.WaitUntil(5*time.Second, focused.Load)
+	default:
+		app.Focus("id:recorder")
+	}
+	held = func(want string) {
+		t.Helper()
+		if got := app.Find("id:held").Text; got != want {
+			t.Fatalf("core.KeysDown reads %q, want %q", got, want)
+		}
+	}
+	return app, held
+}
+
+// The keys a test still holds as its app ends come up then, through the platform under -target, so the next app in the same process, a subtest's under nsgo test -target as headless, finds none held: a fresh press is no auto-repeat and carries no modifier the earlier one held.
+func TestNoKeyStaysHeldIntoTheNextTest(t *testing.T) {
+	var mu sync.Mutex
+	var downs, ups []core.KeyEvent
+	record := func(down bool, e core.KeyEvent) {
+		mu.Lock()
+		defer mu.Unlock()
+		if down {
+			downs = append(downs, e)
+		} else {
+			ups = append(ups, e)
+		}
+	}
+	t.Run("holds", func(t *testing.T) {
+		app, held := startHeldKeys(t, record)
+		app.KeyDown("shift")
+		app.KeyDown("a")
+		held("a shift")
+	})
+	switch nsgotest.Target() {
+	case "macos", "windows", "linux", "web", "tvos_simulator":
+		// The view heard the keys it held come up as its test ended.
+		want := []core.KeyEvent{{Key: "a", Modifiers: core.Modifiers{Shift: true}}, {Key: "shift"}}
+		var got []core.KeyEvent
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			mu.Lock()
+			got = slices.Clone(ups)
+			mu.Unlock()
+			if slices.Equal(got, want) || time.Now().After(deadline) {
+				break
+			}
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("the keys held as the test ended came up as %+v, want %+v", got, want)
+		}
+	}
+	mu.Lock()
+	downs = nil
+	mu.Unlock()
+	t.Run("presses again", func(t *testing.T) {
+		app, held := startHeldKeys(t, record)
+		held("")
+		app.KeyDown("a")
+		held("a")
+		switch nsgotest.Target() {
+		case "ios", "ios_simulator":
+		default:
+			mu.Lock()
+			got := slices.Clone(downs)
+			mu.Unlock()
+			if want := []core.KeyEvent{{Key: "a"}}; !slices.Equal(got, want) {
+				t.Fatalf("the key went down as %+v, want %+v", got, want)
+			}
+		}
+		app.KeyUp("a")
+		held("")
+	})
+}
+
 // core.KeysDown follows a hardware keyboard's keys on iPhone and iPad, where no view hears them go down, as on every platform that reports keys (#1046).
 func TestKeysDownFollowsAHardwareKeyboard(t *testing.T) {
 	switch nsgotest.Target() {

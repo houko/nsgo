@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/png"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -94,8 +95,8 @@ type target struct {
 	windowed bool
 	main     uint32
 	ownMenu  []driver.MenuEntry
-	// held are the keys KeyDown holds on the surface, by the name keyName gives them, so a KeyUp of a key not held fails the step on every platform, as it does headless.
-	held map[string]bool
+	// held are the keys KeyDown holds on the surface, as the test named them, by the name keyName gives them, so a KeyUp of a key not held fails the step on every platform, as it does headless, and the test's end lets them come up (releaseHeld).
+	held map[string]string
 }
 
 // targetUpdate is a batch or an event reported by the named surface.
@@ -246,6 +247,7 @@ func (a *App) startTarget(view func(cx *core.Scope) core.Node, fn func(app *core
 		if t.surface != nil && a.popupID != 0 {
 			_ = t.surface.ChoosePopup(0)
 		}
+		t.releaseHeld()
 		a.root.Dispose()
 	})
 	a.seed()
@@ -803,7 +805,7 @@ func (t *target) hold(key string, down bool) {
 	}
 	name := t.a.keyName(driver.NormalizeKey(key))
 	if !down {
-		if !t.held[name] {
+		if _, ok := t.held[name]; !ok {
 			t.a.t.Fatalf("nsgotest: %s: %q is not held; KeyDown holds a key", t.a.stepName, key)
 		}
 		delete(t.held, name)
@@ -811,10 +813,27 @@ func (t *target) hold(key string, down bool) {
 		return
 	}
 	if t.held == nil {
-		t.held = map[string]bool{}
+		t.held = map[string]string{}
 	}
-	t.held[name] = true
+	t.held[name] = key
 	t.check(s.KeyDown(key))
+}
+
+// releaseHeld lets every key KeyDown still holds come up as the test ends, other keys before modifiers, so neither the platform nor, on the web, the page keeps one held into the next app the test process opens, such as a later subtest's. A key a window that has closed held is gone with it; such an up's error is ignored.
+func (t *target) releaseHeld() {
+	s, ok := t.surface.(testhost.KeyHoldSurface)
+	if !ok {
+		return
+	}
+	names := slices.Sorted(maps.Keys(t.held))
+	for _, modifiers := range []bool{false, true} {
+		for _, name := range names {
+			if modifierKey(name) == modifiers {
+				_ = s.KeyUp(t.held[name])
+			}
+		}
+	}
+	t.held = nil
 }
 
 func (t *target) drag(start driver.Point, path []driver.Point) {

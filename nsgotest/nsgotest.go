@@ -609,7 +609,11 @@ func start(t testing.TB, view func(cx *core.Scope) core.Node, fn func(app *core.
 		HotKeys: true,
 		Windows: windows,
 	})
-	t.Cleanup(a.root.Dispose)
+	t.Cleanup(func() {
+		// Keys KeyDown still holds go with the app; on a target they come up through the platform (target.releaseHeld).
+		a.held = nil
+		a.root.Dispose()
+	})
 	a.seed()
 	a.start = a.Clock.Now()
 	a.anim = driver.NewAnimator(func(ev driver.Event) {

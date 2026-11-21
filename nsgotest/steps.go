@@ -826,7 +826,7 @@ func (a *App) Key(key string) {
 	a.done()
 }
 
-// KeyDown presses one key and holds it, as the keymap names it ("a", "left", "space", "shift", "mod"), never a chord, which fails the step: what Key does as a key goes down, OnKeyDown, the keymap, Tab, the focused field and the menu, without its coming up. A modifier it holds joins every later KeyDown, KeyUp and Key until KeyUp releases it, so KeyDown("shift") then Key("a") presses shift+a. A key already held goes down again as its auto-repeat, except on the iOS and tvOS simulators, where UIKit reports a held key's down once. Under nsgo test -target, a platform that cannot hold a key skips the test: Android, HarmonyOS and watchOS.
+// KeyDown presses one key and holds it, as the keymap names it ("a", "left", "space", "shift", "mod"), never a chord, which fails the step: what Key does as a key goes down, OnKeyDown, the keymap, Tab, the focused field and the menu, without its coming up. A modifier it holds joins every later KeyDown, KeyUp and Key until KeyUp releases it, so KeyDown("shift") then Key("a") presses shift+a. A key already held goes down again as its auto-repeat, except on the iOS and tvOS simulators, where UIKit reports a held key's down once. A key still held as the test ends is released then, under nsgo test -target through the platform, whose OnKeyUp the view that heard it go down hears, so none stays held into the next test. Under nsgo test -target, a platform that cannot hold a key skips the test: Android, HarmonyOS and watchOS.
 func (a *App) KeyDown(key string) {
 	a.t.Helper()
 	a.step("keyDown(%s)", key)
