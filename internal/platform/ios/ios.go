@@ -2008,7 +2008,7 @@ func (s *surface) pressKeys(presses objc.ID) bool {
 			return
 		}
 		code := objc.Send[int](key, sel("keyCode"))
-		mods := apple.Modifiers(objc.Send[uint](key, sel("modifierFlags")))
+		mods := s.heldModifiers(apple.Modifiers(objc.Send[uint](key, sel("modifierFlags"))))
 		if held, ok := s.keysHeld[code]; ok {
 			// Its up never came: report it before the key goes down again.
 			s.engine.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: held.id, Text: held.name, Modifiers: withModifier(mods, held.name, false)})
@@ -2051,9 +2051,18 @@ func (s *surface) releasePresses(presses, event objc.ID) {
 		if event != 0 && objc.Send[bool](event, sel("respondsToSelector:"), sel("modifierFlags")) {
 			flags = objc.Send[uint](event, sel("modifierFlags"))
 		}
-		mods := withModifier(apple.Modifiers(flags), held.name, s.holds(held.name))
+		mods := withModifier(s.heldModifiers(apple.Modifiers(flags)), held.name, s.holds(held.name))
 		s.engine.Dispatch(driver.Event{Kind: driver.EventKeyUp, ID: held.id, Text: held.name, Modifiers: mods})
 	})
+}
+
+// heldModifiers returns m with the modifier keys whose down the surface reported and that are still held: UIKit's flags can miss one, as they miss the first Shift a simulator's synthesized keyboard holds in a newly launched app.
+func (s *surface) heldModifiers(m driver.Modifiers) driver.Modifiers {
+	for _, held := range s.keysHeld {
+		// withModifier leaves m as it is for a key that is no modifier.
+		m = withModifier(m, held.name, true)
+	}
+	return m
 }
 
 // holds reports whether a key named name is still held, as the other Shift.
