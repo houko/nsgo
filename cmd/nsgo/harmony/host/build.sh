@@ -2,7 +2,8 @@
 # Rebuilds this directory's host skeleton from ../templates: the ArkTS
 # host, compiled by hvigor. These are the parts NSGo cannot build with Go,
 # so they are committed. Needs hvigorw on PATH and OHOS_BASE_SDK_HOME set
-# to an OpenHarmony SDK laid out a directory per API, as hvigor reads it.
+# to an OpenHarmony SDK with API 26 (26.0.0), matching the templates'
+# compile and target SDK versions. hvigor reads the SDK by API directory.
 #
 # The bundle name is the first argument, a fixed-length placeholder by
 # default. The compiled bytecode names each module <bundle>/<module>/<path>;

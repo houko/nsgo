@@ -91,6 +91,12 @@ jobs:
           pactl set-default-sink nsgo_test
       - name: Vet
         run: go tool nsgo check
+      - name: Test HarmonyOS Wasm backend under Node.js
+        # The gallery's TestHarmonyOSPages needs an ArkUI emulator connected through hdc, which this runner does not have.
+        # Keep the Wasm test process within Go's environment size limit.
+        run: >-
+          go tool nsgo test -env GOOS=js -env GOARCH=wasm ./internal/platform/harmonyos
+          -- "-exec=env -i \"PATH=$PATH\" \"$(go env GOROOT)/lib/wasm/go_js_wasm_exec\"" -count=1
       - name: Test headless press routing, modifiers and visible labels
         run: go tool nsgo test ./internal/testhost/testdata/press
       - name: Test native press routing, modifiers and visible labels

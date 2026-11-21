@@ -46,6 +46,14 @@ go tool nsgo test -bench . ./core  # core 的基准测试
 
 `check -target all` 在任何宿主系统上都会检查 macOS、Windows、Linux、Android arm64 和 Web 目标。有对应 Xcode SDK 时，还会检查 iOS、tvOS 和 watchOS，并集中列出跳过的目标。显式指定的目标（例如 `check -target ios`）在所需工具不可用时仍会失败，与 `all` 一起指定时也一样。一个目标失败不会阻止后续目标的检查，任何必需检查失败都会让命令失败。`build -target all` 仍需要装有 Xcode 的 macOS。在 NSGo 自己的仓库里，每个指定的目标还会带 `nsgotest` 检查平台的测试宿主；`harmonyos` 预览目标不在 `all` 里，CI 会单独指定它。
 
+Linux CI 通过 Node.js 和 Go 的 Wasm 启动器运行 HarmonyOS Go 后端的 `js/wasm` 测试。Gallery 测试需通过 `hdc` 连接 ArkUI 模拟器后单独运行。编译 [HarmonyOS 宿主模板](building.md#harmonyos) 需要 OpenHarmony SDK API 26。
+
+```sh
+go tool nsgo test -env GOOS=js -env GOARCH=wasm ./internal/platform/harmonyos \
+  -- "-exec=env -i \"PATH=$PATH\" \"$(go env GOROOT)/lib/wasm/go_js_wasm_exec\"" -count=1
+go tool nsgo test -target harmonyos -run TestHarmonyOSPages -timeout 10m ./examples/gallery
+```
+
 ## NSH
 
 NSGo 把 [Native Shell](https://github.com/longbridge/nsh) 作为设计参考，测试都不依赖它。需要阅读时，将它克隆到仓库旁边，并检出它的最新发行版标签，不要用 `main`：
