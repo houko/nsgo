@@ -1363,6 +1363,9 @@ func (w *window) apply(b *driver.MountBatch) {
 		case driver.ItemCheckForUpdates:
 			w.checkForUpdates(it.On, it.Count)
 			continue
+		case driver.ItemPointerLock:
+			w.setPointerLock(it)
+			continue
 		case driver.ItemPickImages:
 			w.pickImages(*it.Pick, it.Count)
 			continue
@@ -2269,6 +2272,12 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 		w.taskbarButtonReady()
 		return 0
 	}
+	if message == wmKeyDown && w.escapePointer(wParam) {
+		return 0
+	}
+	if lockedPointer.owner == w && message == wmMouseMove {
+		return 0
+	}
 	w.reportModality(message, wParam)
 	if message == wmMouseActivate && w.kind == driver.SurfacePanel && w.noActivate {
 		return maNoActivate
@@ -2411,7 +2420,12 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 		if w.engine != nil {
 			w.post(w.reportFrameWindow)
 		}
+	case wmRawInput:
+		w.rawPointerMotion(lParam)
 	case wmActivateApp:
+		if wParam == 0 && lockedPointer.owner != nil {
+			lockedPointer.owner.releasePointer(true)
+		}
 		// Sent to each top-level window of the thread: the embedded views
 		// on it follow too.
 		*appActive() = wParam != 0
@@ -2663,6 +2677,9 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 		w.fieldChar(uint16(wParam))
 		return 0
 	case wmSetFocus, wmKillFocus:
+		if message == wmKillFocus {
+			w.releasePointer(true)
+		}
 		w.windowFocus(message == wmSetFocus)
 	case wmSysKeyDown:
 		if !repeated(lParam) {
@@ -2728,6 +2745,7 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 		w.cancelColorPicker()
 		w.closeCustomCursors()
 		w.stopPower()
+		w.releasePointer(false)
 		w.closeCanvasImages()
 		w.removeTrays()
 		w.unregisterHotKeys()
