@@ -140,6 +140,30 @@ export function Panel() { return <Text testID="export">{() => "export " + ticks(
 	}
 }
 
+// TestRequestAnimationFrameNeverPassesNow runs a frame the display timed a frame ahead of the clock, as macOS's and iOS's display links do: the callback's timestamp is held to performance.now(), as a browser's is, so the time since it is never negative.
+func TestRequestAnimationFrameNeverPassesNow(t *testing.T) {
+	data, trust := signedPackage(t, `import { signal, Text } from "nsgo";
+export function Panel() {
+  const lag = signal("waiting");
+  requestAnimationFrame((ts) => lag.set("lag " + (performance.now() - ts)));
+  return <Text testID="lag">{() => lag()}</Text>;
+}`, 1)
+	p, err := trust.Verify(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root *core.Scope
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		root = cx
+		return tsx.View{Package: p, Export: "Panel", Sandbox: tsx.Sandbox{WebUnisolated: true}}
+	})
+	root.RunFrameAt(app.Clock.Now().Add(16 * time.Millisecond))
+	app.Settle()
+	if got := app.Find("id:lag").Text; got != "lag 0" {
+		t.Fatalf("performance.now() - ts in a frame timed ahead of now = %q, want %q", got, "lag 0")
+	}
+}
+
 func TestViewNamedExportErrors(t *testing.T) {
 	data, trust := signedPackage(t, `export const NotAComponent = 1;`, 1)
 	p, err := trust.Verify(data)

@@ -100,9 +100,12 @@ func (r *runtime) installTimers() {
 		r.timers.next++
 		id := r.timers.next
 		r.cx.Run(func() {
-			// The frame's time, on performance.now()'s clock.
+			// The frame's time, on performance.now()'s clock. The core may give a time up to a frame ahead of now, as macOS's and iOS's display links tell when the frame shows; a browser's timestamp is never later than performance.now(), so the time is held to now and performance.now() - ts never goes negative. Both only move forward, so the times still never go back.
 			frames[id] = r.cx.RequestAnimationFrame(func(at time.Time) {
 				delete(frames, id)
+				if now := r.cx.Now(); at.After(now) {
+					at = now
+				}
 				r.under(dl, func() { r.call(fn, r.vm.ToValue(r.millis(at))) })
 			})
 		})
