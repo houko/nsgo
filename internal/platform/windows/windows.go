@@ -736,6 +736,12 @@ func Run(app engine.App, opts Options) {
 		if t := windows[m.Hwnd]; t != nil && (t == w || t.hostWindow == w) {
 			t.reportModality(m.Message, m.WParam)
 			if (m.Message == wmKeyDown || m.Message == wmSysKeyDown) && (t.keyDown(m.WParam, m.LParam) || t.shortcut(m.WParam, m.LParam)) {
+				// A consumed system key still counts as a key with Alt held.
+				// Otherwise releasing Alt would look like Alt was pressed alone
+				// and toggle an auto-hiding menu bar or popup menu.
+				if m.Message == wmSysKeyDown {
+					t.chrome.altAlone = false
+				}
 				continue
 			}
 		}

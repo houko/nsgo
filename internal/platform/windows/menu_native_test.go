@@ -150,6 +150,89 @@ func TestHiddenTitleBarMenuPopsUp(t *testing.T) {
 	})
 }
 
+// TestConsumedAltChordKeepsMenusClosed sends both kinds of consumed keys
+// through Run's message loop. Alt alone still opens either menu.
+func TestConsumedAltChordKeepsMenusClosed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("opens a window")
+	}
+	const altDown, altUp = 1<<29 | 1, 1<<31 | 1<<30 | 1<<29 | 1
+	getState, setState := user32.NewProc("GetKeyboardState"), user32.NewProc("SetKeyboardState")
+	for _, tc := range []struct {
+		name  string
+		title driver.TitleBarStyle
+	}{
+		{"bar", driver.TitleBarDefault},
+		{"popup", driver.TitleBarHidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const title = "nsgo-consumed-alt"
+			handled := make(chan string, 2)
+			hwnd := startApp(t, title, func(cx *core.Scope) core.Node {
+				cx.SetMenuBar(core.MenuBarAutoHide)
+				cx.SetTitleBar(tc.title, 40)
+				cx.SetApplicationMenu([]core.MenuItem{{Label: "Actions", Items: []core.MenuItem{
+					{Label: "Example", OnSelect: func() {}},
+				}}})
+				cx.OnKey("alt+s", func() { handled <- "shortcut" })
+				return core.View{TestID: "recorder", Focusable: func() bool { return true },
+					OnKeyDown: func(e core.KeyEvent) bool {
+						if e.Shortcut() != "alt+a" {
+							return false
+						}
+						handled <- "view"
+						return true
+					}}
+			}, 300, 200)
+			onMain(t, hwnd, func(w *window) {
+				w.applyBatches()
+				for _, v := range w.views {
+					if v != nil && v.props.TestID == "recorder" {
+						w.focusView(v)
+					}
+				}
+			})
+			for _, key := range []struct {
+				vk   uintptr
+				want string
+			}{{'A', "view"}, {'S', "shortcut"}} {
+				var saved [256]byte
+				onMain(t, hwnd, func(*window) {
+					getState.Call(uintptr(unsafe.Pointer(&saved)))
+					held := saved
+					held[vkMenu] |= 0x80
+					setState.Call(uintptr(unsafe.Pointer(&held)))
+					postMessageW.Call(hwnd, wmSysKeyDown, vkMenu, altDown)
+					postMessageW.Call(hwnd, wmSysKeyDown, key.vk, altDown)
+				})
+				select {
+				case got := <-handled:
+					if got != key.want {
+						t.Errorf("Alt+%c reached %s, want %s", key.vk, got, key.want)
+					}
+				case <-time.After(3 * time.Second):
+					t.Errorf("Alt+%c did not reach the %s", key.vk, key.want)
+				}
+				onMain(t, hwnd, func(w *window) {
+					setState.Call(uintptr(unsafe.Pointer(&saved)))
+					if w.menuBarKey(wmSysKeyUp, vkMenu, altUp) || w.chrome.revealed || len(w.popups) != 0 {
+						t.Errorf("releasing Alt after Alt+%c opened the %s", key.vk, tc.name)
+						w.hideMenuBar()
+						w.popups = nil
+					}
+				})
+			}
+			onMain(t, hwnd, func(w *window) {
+				w.menuBarKey(wmSysKeyDown, vkMenu, altDown)
+				if !w.menuBarKey(wmSysKeyUp, vkMenu, altUp) || !w.chrome.revealed && len(w.popups) == 0 {
+					t.Errorf("Alt alone did not open the %s", tc.name)
+				}
+				w.popups = nil
+			})
+		})
+	}
+}
+
 // TestMenuLeavesOutMacRolesAndDrawsRadios builds a menu with the roles only macOS has, which leave no separator at either end of their group nor an empty submenu, the Speech items, which show only where Windows speaks, a Help holder with no items, which is left out, and radio items, which take MFT_RADIOCHECK.
 func TestMenuLeavesOutMacRolesAndDrawsRadios(t *testing.T) {
 	getItem := user32.NewProc("GetMenuItemInfoW")
