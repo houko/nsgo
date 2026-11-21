@@ -658,6 +658,29 @@ mount(() => <View testID="box" class="bg-brand-500 w-2 h-2" />);`)},
 	}
 }
 
+func TestSandboxHardensTypedArrays(t *testing.T) {
+	code, err := bundler.Compile(fstest.MapFS{"App.tsx": {Data: []byte(`import { mount, Text } from "nsgo";
+const arrays = ["Uint8Array", "Uint8ClampedArray", "Int8Array", "Uint16Array", "Int16Array", "Uint32Array",
+    "Int32Array", "Float16Array", "Float32Array", "Float64Array", "BigInt64Array", "BigUint64Array", "DataView"];
+const typed = Object.getPrototypeOf(Uint8Array);
+const frozen = [typed, ...arrays.map(name => globalThis[name]).filter(Boolean)].every(C =>
+    Object.isFrozen(C) && Object.isFrozen(C.prototype));
+const fixedMethods = ["set", "subarray"].every(name => !Object.getOwnPropertyDescriptor(typed.prototype, name).writable);
+const bytes = new Uint8Array(3);
+bytes.set([110, 115, 103]);
+const text = new TextDecoder().decode(bytes.subarray(0, 2));
+const generator = Object.getPrototypeOf((function* () {}).prototype);
+const fixedFunctionPrototypes = Object.isFrozen(Function.prototype) && Object.isFrozen(generator);
+mount(() => <Text testID="result">{frozen && fixedMethods && fixedFunctionPrototypes ? text : "unfrozen"}</Text>);`)}}, "App.tsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := nsgotest.Start(t, tsx.Sandboxed("App.tsx", code, tsx.Sandbox{}))
+	if got := app.Find("id:result").Text; got != "ns" {
+		t.Fatalf("hardened typed-array check = %q, want ns", got)
+	}
+}
+
 func TestSandboxLimitsCutRunawayScripts(t *testing.T) {
 	code, err := bundler.Compile(fstest.MapFS{"App.tsx": {Data: []byte(`import { mount, signal, Text } from "nsgo";
 let made = "no";

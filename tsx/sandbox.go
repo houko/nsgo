@@ -31,9 +31,9 @@ type Limits struct {
 	Load, Call, CallTotal time.Duration
 	// Stack is the call depth in frames on native targets. Values at or below zero or above 10,000 use 10,000, so a plugin's recursion throws a catchable RangeError rather than overflowing the goroutine's stack. DefaultLimits uses 1,000. The web uses the browser's stack limit.
 	Stack int
-	// Harden deletes eval, has the Function constructors throw and
-	// freezes the built-in prototypes, so code cannot be made from
-	// strings or the shared objects changed.
+	// Harden deletes eval, makes the Function constructors throw and
+	// freezes the constructors and prototypes of the realm's built-ins,
+	// including typed arrays and DataView.
 	Harden bool
 	// Nodes is how many elements the bundle may hold at once, each of
 	// which may hold a native view; past it the bundle stops.
