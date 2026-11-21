@@ -87,18 +87,29 @@ func TestScrollPastItsEndComesBackToIt(t *testing.T) {
 
 func TestListPastItsEndComesBackToIt(t *testing.T) {
 	var list core.Ref
-	var count *core.Signal[int]
+	var shortened *core.Signal[bool]
 	var heard core.Points
 	app := Start(t, func(cx *core.Scope) core.Node {
-		count = core.NewSignal(cx, 50)
+		shortened = core.NewSignal(cx, false)
 		return core.List{
 			TestID: "list", Ref: &list,
-			Count: count.Get, EstimatedSize: 10,
-			Behavior: core.ScrollBehavior{ContentInset: core.Edges{Bottom: 10}},
-			Style:    core.Style{Height: core.Pt(100)},
-			OnScroll: func(e core.ScrollEvent) { heard = e.Offset.Y },
-			Row: func(*core.Scope, core.ListRow) core.Node {
-				return core.View{Style: core.Style{Height: core.Pt(10)}}
+			Count: func() int {
+				if shortened.Get() {
+					return 40
+				}
+				return 50
+			},
+			EstimatedSize: 10,
+			Behavior:      core.ScrollBehavior{ContentInset: core.Edges{Bottom: 10}},
+			Style:         core.Style{Height: core.Pt(100)},
+			OnScroll:      func(e core.ScrollEvent) { heard = e.Offset.Y },
+			Row: func(_ *core.Scope, row core.ListRow) core.Node {
+				return core.View{StyleFunc: func() core.Style {
+					if row.Index() == 30 && shortened.Get() {
+						return core.Style{Height: core.Pt(60)}
+					}
+					return core.Style{Height: core.Pt(10)}
+				}}
 			},
 		}
 	})
@@ -107,10 +118,12 @@ func TestListPastItsEndComesBackToIt(t *testing.T) {
 	if heard != 380 {
 		t.Fatalf("the app heard offset %v before removing rows, want 380", heard)
 	}
-	app.Post(func() { count.Set(30) })
+	// Also grow a row above the viewport so the commit includes a relative
+	// scroll adjustment before the backend settles on the new end.
+	app.Post(func() { shortened.Set(true) })
 	app.Settle()
-	if got := app.Find("id:list").Offset.Y; got != 210 || heard != 210 {
-		t.Fatalf("after removing rows: offset %v, the app heard %v, want 210", got, heard)
+	if got := app.Find("id:list").Offset.Y; got != 360 || heard != 360 {
+		t.Fatalf("after removing rows: offset %v, the app heard %v, want 360", got, heard)
 	}
 }
 

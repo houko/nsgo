@@ -182,18 +182,20 @@ type surface struct {
 	rtl, directed bool
 	// stickyBound are the scroll views with sticky cells whose insets
 	// follow animated values.
-	stickyBound    map[*view]bool
+	stickyBound map[*view]bool
+	app         engine.App
+	id          string
+	native      objc.ID
+	engine      *engine.Engine
+	audio       *apple.Audio // the engine's sounds and players, made with its first ItemAudio and closed with the surface
+	batches     queue.Batches
+	views       []*view // index is NodeID
+	pips        []*view // the views of mobile.PictureInPicture trees, which draw into their sessions' frames
+	fingers     fingers // the touches reported
+	env         driver.Environment
+
+	// resizedScrolls are checked after the current batch or animation step.
 	resizedScrolls []*view
-	app            engine.App
-	id             string
-	native         objc.ID
-	engine         *engine.Engine
-	audio          *apple.Audio // the engine's sounds and players, made with its first ItemAudio and closed with the surface
-	batches        queue.Batches
-	views          []*view // index is NodeID
-	pips           []*view // the views of mobile.PictureInPicture trees, which draw into their sessions' frames
-	fingers        fingers // the touches reported
-	env            driver.Environment
 
 	keyboard driver.Points
 	// keyboardScroll is the scroll view keeping the focused input clear
