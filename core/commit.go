@@ -476,7 +476,10 @@ func (t *Tree) resolve(n *node, inherited textFields, force bool) {
 					spanStyle.RTL = ts.RTL
 					spanStyle.Align = sidedAlign(spanStyle.Align, ts.RTL)
 					span := driver.TextSpan{Start: start, End: b.Len(), Style: spanStyle, Cursor: sp.style.Cursor, Link: sp.press != nil,
-						Background: driver.TextBackground{Color: currentIn(sp.style.Background, spanStyle.Color), Radius: sp.style.CornerRadius}}
+						Background: driver.TextBackground{
+							Color: currentIn(sp.style.Background, spanStyle.Color), Radius: sp.style.CornerRadius,
+							Top: sp.style.BackgroundInsetTop, Bottom: sp.style.BackgroundInsetBottom,
+						}}
 					if sp.style.Visibility == VisibilityHidden {
 						// In place: laid out, drawn as nothing, no link.
 						span.Hidden, span.Link, span.Background = true, false, driver.TextBackground{}

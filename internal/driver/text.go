@@ -45,8 +45,7 @@ type TextSpan struct {
 	// skip it draws nothing.
 	Hidden bool
 	// Background is drawn behind the span's characters: a box per line
-	// from the font's ascent to its descent, behind the selection and
-	// the glyphs.
+	// between the font's ascent and descent, behind the selection and glyphs.
 	Background TextBackground
 	// Copy is what a copy takes in place of the attachment the span styles, as a formula copies as its TeX; empty leaves the attachment out. Screen readers read the attachment's label instead (ShownText).
 	Copy string
@@ -88,12 +87,26 @@ func PressesAt(spans []TextSpan, i int) bool {
 	return !linked
 }
 
-// TextBackground is the background of a span, from its style's
-// Background and CornerRadius. It is drawing only: it changes no line.
+// TextBackground is the background of a span. It changes only drawing.
 type TextBackground struct {
 	Color Color
-	// Radius rounds each line's box, at most to half its height.
+	// Radius rounds each line's box, at most to half its painted height.
 	Radius Points
+	// Top and Bottom inset the box in points or as a percentage of its height.
+	Top, Bottom Length
+}
+
+// VerticalBounds returns the background's top and bottom offsets from
+// the top of a box of the given height. A band with bottom <= top is empty.
+func (bg TextBackground) VerticalBounds(height Points) (top, bottom Points) {
+	resolve := func(l Length) Points {
+		p := l.Resolve(height)
+		if p > 0 {
+			return min(p, height)
+		}
+		return 0
+	}
+	return resolve(bg.Top), height - resolve(bg.Bottom)
 }
 
 // HasHidden reports whether a span of t is hidden.

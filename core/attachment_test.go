@@ -129,16 +129,20 @@ func TestSpanBackgrounds(t *testing.T) {
 	h := newHost(t, Size{Width: 200, Height: 200}, func(cx *Scope) Node {
 		return Text{TestID: "text", Spans: []Span{
 			{Content: "a "},
-			{Content: "code", Style: Style{Background: RGB(0xeeeeee), CornerRadius: 3}},
+			{Content: "code", Style: Style{Background: RGB(0xeeeeee), CornerRadius: 3, BackgroundInsetTop: Pct(62), BackgroundInsetBottom: Pt(2)}},
+			{Content: "hidden", Style: Style{Background: RGB(0xff0000), BackgroundInsetTop: Pct(62), Visibility: VisibilityHidden}},
 		}}
 	})
 	h.commit()
 	spans := h.find("text").text.text.Spans
-	if got, want := spans[1].Background, (driver.TextBackground{Color: RGB(0xeeeeee), Radius: 3}); got != want {
+	if got, want := spans[1].Background, (driver.TextBackground{Color: RGB(0xeeeeee), Radius: 3, Top: Pct(62), Bottom: Pt(2)}); got != want {
 		t.Errorf("background = %+v, want %+v", got, want)
 	}
 	if spans[0].Background != (driver.TextBackground{}) {
 		t.Error("a span without a background has one")
+	}
+	if !spans[2].Hidden || spans[2].Background != (driver.TextBackground{}) {
+		t.Errorf("hidden span kept its background: %+v", spans[2])
 	}
 }
 

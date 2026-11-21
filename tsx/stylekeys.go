@@ -520,6 +520,10 @@ func (r *runtime) styleKey(s *core.Style, key string, v js.Value) {
 			"wavy": core.DecorationWavy})
 	case "textDecorationColor":
 		s.TextDecorationColor = r.color(key, v)
+	case "backgroundInsetTop":
+		s.BackgroundInsetTop = r.length(key, v)
+	case "backgroundInsetBottom":
+		s.BackgroundInsetBottom = r.length(key, v)
 	case "textDecorationThickness":
 		if str, ok := v.Export().(string); ok && (str == "auto" || str == "from-font") {
 			s.TextDecorationThickness = core.Length{}

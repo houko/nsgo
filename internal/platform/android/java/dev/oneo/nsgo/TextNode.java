@@ -223,7 +223,7 @@ final class TextNode extends FrameLayout {
     /**
      * Fills the spans' backgrounds: a box on each line a span reaches,
      * around its visible characters (trailing spaces left out), from its
-     * font's ascent to its descent, rounded at most to half its height.
+     * font's ascent and descent, rounded at most to half its painted height.
      */
     private void drawBackgrounds(Canvas canvas) {
         CharSequence text = layout.getText();
@@ -243,9 +243,8 @@ final class TextNode extends FrameLayout {
                 float x2 = b < layout.getLineEnd(line) ? layout.getPrimaryHorizontal(b) : layout.getLineRight(line);
                 if (layout.getParagraphDirection(line) < 0 && b >= lineEnd) x2 = layout.getLineLeft(line);
                 float baseline = layout.getLineBaseline(line);
-                backgroundRect.set(Math.min(x1, x2), baseline - bg.ascent, Math.max(x1, x2), baseline + bg.descent);
-                float r = Math.min(bg.radius, backgroundRect.height() / 2);
-                canvas.drawRoundRect(backgroundRect, r, r, backgroundPaint);
+                backgroundRect.set(Math.min(x1, x2), baseline + bg.top, Math.max(x1, x2), baseline + bg.bottom);
+                canvas.drawRoundRect(backgroundRect, bg.radius, bg.radius, backgroundPaint);
             }
         }
     }

@@ -152,6 +152,7 @@ func drawText(t *testing.T, l *textLayout, width, height int) (uintptr, int) {
 	t.Helper()
 	surface := cairoImageSurfaceCreate(0, int32(width), int32(height))
 	cr := cairoCreate(surface)
+	l.drawBackgrounds(cr, 0, 0)
 	l.draw(cr, 0, 0)
 	cairoSurfaceFlush(surface)
 	t.Cleanup(func() {

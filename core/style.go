@@ -89,6 +89,11 @@ type Style struct {
 
 	// Look.
 	Background Color
+	// BackgroundInsetTop and BackgroundInsetBottom inset a Span's background
+	// from the top and bottom of each line's box. They take points or a
+	// percentage of the box's height. A zero or negative inset leaves that
+	// edge in place.
+	BackgroundInsetTop, BackgroundInsetBottom Length
 	// Gradients are drawn over Background, the first on top. A state
 	// style that sets Background and no Gradients replaces them, so press
 	// feedback shows.
@@ -699,6 +704,8 @@ func (s Style) Merge(o Style) Style {
 	set(&s.GridRow, o.GridRow)
 	set(&s.GridColumn, o.GridColumn)
 	set(&s.Background, o.Background)
+	set(&s.BackgroundInsetTop, o.BackgroundInsetTop)
+	set(&s.BackgroundInsetBottom, o.BackgroundInsetBottom)
 	setSlice(&s.Gradients, o.Gradients)
 	set(&s.CornerRadius, o.CornerRadius)
 	set(&s.CornerRadii, o.CornerRadii)

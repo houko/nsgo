@@ -44,6 +44,101 @@ func TestARegisteredFontMeasures(t *testing.T) {
 	}
 }
 
+// TestSpanBackgroundBand compares a wrapped background before and after
+// adding insets through the platform's text view.
+func TestSpanBackgroundBand(t *testing.T) {
+	switch nsgotest.Target() {
+	case "macos", "ios", "ios_simulator", "android", "windows", "linux", "web", "tvos", "tvos_simulator":
+	default:
+		t.Skip("needs a target that paints span backgrounds")
+	}
+
+	var inset *core.Signal[bool]
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		inset = core.NewSignal(cx, false)
+		return core.View{Style: core.Style{FlexGrow: 1, Padding: core.All(24), Background: core.RGB(0xffffff)}, Children: []core.Node{
+			core.Text{TestID: "highlight", Selectable: core.SelectableOn, Style: core.Style{
+				Width: core.Pt(190), FontSize: 32, LineHeight: 48, Color: core.RGB(0), SelectionColor: core.RGB(0x0000ff)},
+				SpansFunc: func() []core.Span {
+					style := core.Style{Background: core.RGB(0xff0000), CornerRadius: 5}
+					if inset.Get() {
+						style.BackgroundInsetTop, style.BackgroundInsetBottom = core.Pct(60), core.Pt(2)
+					}
+					return []core.Span{
+						{Content: "a "},
+						{Content: "marks marks marks marks", Style: style},
+						{Content: " z"},
+					}
+				}},
+		}}
+	}, nsgotest.Size(300, 340))
+
+	type band struct{ left, top, bottom, firstWidth, maxWidth int }
+	paint := func() []band {
+		img := app.Capture()
+		bounds := img.Bounds()
+		var bands []band
+		start := true
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			left, right := bounds.Max.X, bounds.Min.X
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				r, g, b, _ := img.At(x, y).RGBA()
+				if r > 0xd000 && g < 0x6000 && b < 0x6000 {
+					left, right = min(left, x), max(right, x)
+				}
+			}
+			if left >= right {
+				start = true
+				continue
+			}
+			if start {
+				bands = append(bands, band{left: left, top: y, firstWidth: right - left})
+				start = false
+			}
+			b := &bands[len(bands)-1]
+			b.left = min(b.left, left)
+			b.bottom = y
+			b.maxWidth = max(b.maxWidth, right-left)
+		}
+		return bands
+	}
+
+	size := app.Find("id:highlight").Bounds()
+	full := paint()
+	app.Post(func() { inset.Set(true) })
+	marked := paint()
+	if got := app.Find("id:highlight").Bounds(); got != size {
+		t.Errorf("insets moved or resized the text from %v to %v", size, got)
+	}
+	if len(full) < 2 || len(marked) != len(full) {
+		t.Fatalf("full backgrounds = %+v, inset backgrounds = %+v, want a band on each wrapped line", full, marked)
+	}
+	if marked[0].left <= marked[1].left {
+		t.Errorf("the first band starts at %d, want it after the first word (later rows start at %d)", marked[0].left, marked[1].left)
+	}
+	for i, b := range marked {
+		f := full[i]
+		if b.top <= (f.top+f.bottom)/2 || b.bottom >= f.bottom {
+			t.Errorf("line %d: inset rows %d..%d, want them in the lower part of %d..%d with bottom space",
+				i, b.top, b.bottom, f.top, f.bottom)
+		}
+		if b.firstWidth >= b.maxWidth {
+			t.Errorf("line %d: the top of the band is as wide as its middle (%d pixels)", i, b.maxWidth)
+		}
+	}
+
+	switch nsgotest.Target() {
+	case "macos", "windows", "linux", "web":
+		app.DragAt("id:highlight", core.Point{X: 4, Y: 24}, core.Point{X: 60}, core.Point{X: 110})
+		app.Key("mod+a")
+		for _, b := range paint() {
+			if b.maxWidth > marked[0].maxWidth/2 {
+				t.Errorf("a selected line still shows %d pixels of the band under the opaque selection", b.maxWidth)
+			}
+		}
+	}
+}
+
 // TestSelectingInAScrollViewKeepsItsPlace selects inside a scroll view under nsgo test -target and leaves it where it was: only a drag past its edge scrolls it, never where the last drag ended before this one's first move.
 func TestSelectingInAScrollViewKeepsItsPlace(t *testing.T) {
 	if nsgotest.Target() == "" {

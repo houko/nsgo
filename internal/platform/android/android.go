@@ -671,6 +671,8 @@ func (s *surface) Prepare(t *driver.AttributedText) driver.PreparedText {
 			writeStyle(w, &sp.Style)
 			w.u32(uint32(sp.Background.Color)) // 0: none
 			w.points(sp.Background.Radius)
+			writeBackgroundInset(w, sp.Background.Top)
+			writeBackgroundInset(w, sp.Background.Bottom)
 		}
 		// Java sizes each placeholder and places it in its line as
 		// core.TextAttachment.Ascent and Extent say.
@@ -1780,6 +1782,18 @@ func writeStyle(w *writer, t *driver.TextStyle) {
 		t.Decoration&driver.TextDecorationUnderline != 0,
 		t.Decoration&driver.TextDecorationLineThrough != 0, t.RTL)
 	w.byte(byte(t.Font.Variant))
+}
+
+// writeBackgroundInset writes either points or a fraction of the box's height.
+func writeBackgroundInset(w *writer, inset driver.Length) {
+	if percent, ok := inset.Percent(); ok {
+		w.byte(1)
+		w.float(percent / 100)
+		return
+	}
+	points, _ := inset.Points()
+	w.byte(0)
+	w.points(points)
 }
 
 // writeDecoration writes how a text style's decoration lines are drawn,

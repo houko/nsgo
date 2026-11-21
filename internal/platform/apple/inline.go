@@ -105,7 +105,7 @@ type decoration struct {
 	color      driver.Color
 	strike     bool
 	style      driver.TextDecorationStyle
-	radius     float64
+	background driver.TextBackground
 	// ascent and descent bound a background; offset is a strike's height
 	// above the baseline and thickness its width.
 	ascent, descent, offset, thickness float64
@@ -139,7 +139,7 @@ func decorations(t *driver.AttributedText, toUTF16 []int) []decoration {
 			ascent: ctFontGetAscent(f), descent: ctFontGetDescent(f)}
 		if r.background.Color != 0 {
 			bg := d
-			bg.color, bg.radius = r.background.Color, float64(r.background.Radius)
+			bg.background = r.background
 			out = append(out, bg)
 		}
 		lineColor := r.style.Color
@@ -214,9 +214,12 @@ func (l *Layout) place(decos []decoration, atts []driver.TextAttachment, fonts [
 					color: d.color, style: d.style})
 				continue
 			}
-			h := d.ascent + d.descent
-			l.under = append(l.under, box{rect: Rect(o.X+x0, o.Y-d.ascent, x1-x0, h), color: d.color,
-				radius: min(d.radius, h/2)})
+			bg := d.background
+			top, bottom := bg.VerticalBounds(driver.Points(d.ascent + d.descent))
+			if h := float64(bottom - top); h > 0 {
+				l.under = append(l.under, box{rect: Rect(o.X+x0, o.Y-d.ascent+float64(top), x1-x0, h),
+					color: bg.Color, radius: max(0, min(float64(bg.Radius), h/2))})
+			}
 		}
 	}
 	l.attachments = make([]attachmentBox, len(atts))

@@ -226,6 +226,7 @@ final class Text {
         /** The background's ARGB color, 0 for none, and its corner radius. */
         final int background;
         final float radius;
+        final BackgroundInset top, bottom;
 
         Span(DataInputStream in, float density) throws IOException {
             start = in.readInt();
@@ -233,6 +234,24 @@ final class Text {
             style = new Style(in, density);
             background = argb(in.readInt());
             radius = in.readFloat() * density;
+            top = new BackgroundInset(in, density);
+            bottom = new BackgroundInset(in, density);
+        }
+    }
+
+    private static final class BackgroundInset {
+        final boolean relative;
+        final float value;
+
+        BackgroundInset(DataInputStream in, float density) throws IOException {
+            relative = in.readUnsignedByte() != 0;
+            float amount = in.readFloat();
+            value = relative ? amount : amount * density;
+        }
+
+        float resolve(float height) {
+            if (!(value > 0)) return 0;
+            return Math.min(relative ? value * height : value, height);
         }
     }
 
@@ -319,8 +338,13 @@ final class Text {
                         measure.setTypeface(span.style.typeface());
                         measure.setTextSize(span.style.size);
                         measure.getFontMetrics(font);
-                        spanned.setSpan(new Background(span.background, span.radius, -font.ascent, font.descent),
-                                start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                        float height = font.descent - font.ascent;
+                        float top = font.ascent + span.top.resolve(height);
+                        float bottom = font.descent - span.bottom.resolve(height);
+                        if (bottom > top) {
+                            spanned.setSpan(new Background(span.background, span.radius, top, bottom),
+                                    start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                        }
                     }
                 }
                 // Attachments come in ascending offsets.
@@ -661,17 +685,17 @@ final class Text {
 
     /**
      * A span's background, which TextNode draws behind each line's part of
-     * its characters, from its font's ascent to its descent (pixels).
+     * its characters, between its font's ascent and descent (pixels).
      */
     static final class Background {
         final int color;
-        final float radius, ascent, descent;
+        final float radius, top, bottom;
 
-        Background(int color, float radius, float ascent, float descent) {
+        Background(int color, float radius, float top, float bottom) {
             this.color = color;
-            this.radius = radius;
-            this.ascent = ascent;
-            this.descent = descent;
+            this.radius = Math.max(0, Math.min(radius, (bottom - top) / 2));
+            this.top = top;
+            this.bottom = bottom;
         }
     }
 

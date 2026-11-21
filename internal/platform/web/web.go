@@ -11,6 +11,7 @@
 package web
 
 import (
+	"encoding/base64"
 	"fmt"
 	"math"
 	"slices"
@@ -840,12 +841,8 @@ func (s *surface) Prepare(t *driver.AttributedText) driver.PreparedText {
 		// Alignment is the paragraph's.
 		css := fontStyle(sp.Style)
 		delete(css, "text-align")
-		// A background is the span's inline box: from its font's ascent to
-		// its descent, a rounded box on every line, changing no line.
-		if bg := sp.Background; bg.Color != 0 {
-			css["background-color"] = webstyle.Color(bg.Color)
-			css["border-radius"] = webstyle.Px(bg.Radius)
-			css["box-decoration-break"], css["-webkit-box-decoration-break"] = "clone", "clone"
+		if sp.Background.Color != 0 {
+			spanBackground(css, sp.Background)
 		}
 		if sp.Hidden {
 			// In place, as the browser hides an inline box: out of copies
@@ -882,6 +879,52 @@ func (s *surface) Prepare(t *driver.AttributedText) driver.PreparedText {
 		}
 	}
 	return p
+}
+
+// spanBackground paints each inline fragment separately. A background
+// image gives an inset band its own rounded corners without changing the
+// size of the inline box or the text's selection.
+func spanBackground(css map[string]string, bg driver.TextBackground) {
+	inset := func(l driver.Length) (length string, percent float32) {
+		if p, ok := l.Percent(); ok && p > 0 {
+			return fmt.Sprintf("%g%%", min(100, p)), min(100, p)
+		}
+		if p, ok := l.Points(); ok && p > 0 {
+			if math.IsInf(float64(p), 1) {
+				return "100%", 100
+			}
+			return webstyle.Px(p), 0
+		}
+		return "0px", 0
+	}
+	top, topPct := inset(bg.Top)
+	bottom, bottomPct := inset(bg.Bottom)
+	css["box-decoration-break"], css["-webkit-box-decoration-break"] = "clone", "clone"
+	if top == "0px" && bottom == "0px" {
+		css["background-color"] = webstyle.Color(bg.Color)
+		css["border-radius"] = webstyle.Px(bg.Radius)
+		return
+	}
+	css["background-size"] = "100% max(0px, calc(100% - " + top + " - " + bottom + "))"
+	css["background-repeat"] = "no-repeat"
+	// A percentage position is measured over the free space (the top
+	// and bottom insets together), rather than the whole inline box.
+	y := top
+	if topPct > 0 {
+		if bottomPct > 0 {
+			y = fmt.Sprintf("%g%%", 100*topPct/(topPct+bottomPct))
+		} else {
+			y = "calc(100% - " + bottom + ")"
+		}
+	}
+	css["background-position"] = "left " + y
+	fill := webstyle.Color(bg.Color)
+	if bg.Radius <= 0 {
+		css["background-image"] = "linear-gradient(" + fill + "," + fill + ")"
+		return
+	}
+	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg"><rect width="100%%" height="100%%" rx="%g" fill="%s"/></svg>`, bg.Radius, fill)
+	css["background-image"] = "url(data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(svg)) + ")"
 }
 
 // paragraphStyle is the CSS of t's paragraph, kept by what makes it: a

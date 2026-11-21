@@ -358,8 +358,9 @@ type Span struct {
 	Class       string
 	Content     string
 	ContentFunc func() string
-	// Style's text fields merge over the Text's. Its Background and
-	// CornerRadius draw behind the span's characters, a box per line.
+	// Style's text fields merge over the Text's. Background and CornerRadius
+	// draw a box behind the span's characters on each line.
+	// BackgroundInsetTop and BackgroundInsetBottom inset that box vertically.
 	// Cursor overrides the containing Text's cursor over these characters
 	// when it is not Auto.
 	Style     Style

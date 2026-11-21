@@ -778,9 +778,23 @@ func (p *painter) drawContent(v *view, s *driver.ViewStyle, world matrix) {
 	}
 	if v.text != nil {
 		x, y := float32(v.content.Origin.X), float32(v.content.Origin.Y)
-		p.drawSelection(v, x, y)
-		if v.animated.Has(driver.PropTextColor) {
-			p.drawTinted(world, v.animated.TextColor, func() { v.text.draw(p, x, y) })
+		selected := v.selEnd > v.selStart
+		tinted := v.animated.Has(driver.PropTextColor)
+		if !tinted || selected {
+			var tint *driver.Color
+			if tinted {
+				tint = &v.animated.TextColor
+			}
+			v.text.drawBackgrounds(p, x, y, tint)
+			p.drawSelection(v, x, y)
+		}
+		if tinted {
+			p.drawTinted(world, v.animated.TextColor, func() {
+				if !selected {
+					v.text.drawBackgrounds(p, x, y, nil)
+				}
+				v.text.draw(p, x, y)
+			})
 		} else {
 			v.text.draw(p, x, y)
 		}

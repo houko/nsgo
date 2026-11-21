@@ -269,11 +269,24 @@ func (w *window) snapshotContent(v *view, s *driver.ViewStyle, snap uintptr) {
 			s := gskShadow{rgba(sh.Color), float32(sh.Offset.X), float32(sh.Offset.Y), float32(sh.Radius) * shadowBlurPerUnit}
 			gtkSnapshotPushShadow(snap, &s, 1)
 		}
-		snapshotSelection(v, l, snap, v.content.Origin.X, v.content.Origin.Y)
-		if a := v.animated; a != nil && a.Has(driver.PropTextColor) {
-			// A bound color paints the whole text: its glyphs as a mask.
+		a := v.animated
+		tinted := a != nil && a.Has(driver.PropTextColor)
+		selected := v.selEnd > v.selStart
+		if !tinted || selected {
+			var tint *driver.Color
+			if tinted {
+				tint = &a.TextColor
+			}
+			l.snapshotBackgrounds(snap, v.content.Origin.X, v.content.Origin.Y, tint)
+			snapshotSelection(v, l, snap, v.content.Origin.X, v.content.Origin.Y)
+		}
+		if tinted {
+			// A bound color paints the whole text as a mask.
 			cr := gtkSnapshotAppendCairo(snap, &grown)
 			cairoPushGroup(cr)
+			if !selected {
+				l.drawBackgrounds(cr, v.content.Origin.X, v.content.Origin.Y)
+			}
 			l.draw(cr, v.content.Origin.X, v.content.Origin.Y)
 			glyphs := cairoPopGroup(cr)
 			setColorAlpha(cr, a.TextColor, 1)

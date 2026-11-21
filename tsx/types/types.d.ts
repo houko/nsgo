@@ -173,6 +173,9 @@ export interface ViewStyle extends LayoutStyle {
 }
 
 export interface TextStyle extends ViewStyle {
+  /** Insets the background of each span fragment by points or a percentage of its height. */
+  backgroundInsetTop?: LengthValue;
+  backgroundInsetBottom?: LengthValue;
   color?: Animatable<ColorValue>;
   fontSize?: number;
   fontWeight?: "normal" | "bold" | number | `${number}`;

@@ -49,6 +49,7 @@ const (
 // drawnText is a TextLayout of this backend, drawn by it.
 type drawnText interface {
 	driver.TextLayout
+	drawBackgrounds(p *painter, x, y float32, tint *driver.Color)
 	draw(p *painter, x, y float32)
 }
 
@@ -880,9 +881,13 @@ func (pt *preparedText) Layout(size driver.Size) driver.TextLayout {
 			if bg {
 				// Hanging spaces at the line's end are not painted.
 				if x0, x1 := inkWidth(layout, max(r.start, b.start), min(r.end, b.end-b.trailing-b.newline)); x1 > x0 {
-					box := rectF{x0, b.baseline - m.ascent*size, x1, b.baseline + m.descent*size}
-					radius := max(min(float32(r.bg.Radius), (box.bottom-box.top)/2), 0)
-					l.backgrounds = append(l.backgrounds, backgroundBox{box, r.bg.Color, radius})
+					top, bottom := r.bg.VerticalBounds(driver.Points((m.ascent + m.descent) * size))
+					if bottom > top {
+						y := b.baseline - m.ascent*size
+						box := rectF{x0, y + float32(top), x1, y + float32(bottom)}
+						radius := max(0, min(float32(r.bg.Radius), (box.bottom-box.top)/2))
+						l.backgrounds = append(l.backgrounds, backgroundBox{box, r.bg.Color, radius})
+					}
 				}
 			}
 			if deco == 0 {
@@ -1108,14 +1113,24 @@ func (l *textLayout) effects(p *painter) {
 	l.generation = gfxGeneration
 }
 
-// draw paints the span backgrounds, the glyphs, then the decorations, at
-// x, y in the view; attachments are the text view's children.
-func (l *textLayout) draw(p *painter, x, y float32) {
+// drawBackgrounds paints the span boxes before the selection.
+func (l *textLayout) drawBackgrounds(p *painter, x, y float32, tint *driver.Color) {
 	if l.layout == nil {
 		return
 	}
 	for _, b := range l.backgrounds {
-		p.fillRounded(rectF{b.r.left + x, b.r.top + y, b.r.right + x, b.r.bottom + y}, b.radius, b.color)
+		c := b.color
+		if tint != nil {
+			c = tint.Faded(float32(c&0xff) / 255)
+		}
+		p.fillRounded(rectF{b.r.left + x, b.r.top + y, b.r.right + x, b.r.bottom + y}, b.radius, c)
+	}
+}
+
+// draw paints the glyphs and their decorations at x, y in the view.
+func (l *textLayout) draw(p *painter, x, y float32) {
+	if l.layout == nil {
+		return
 	}
 	l.effects(p)
 	if !l.clip.empty() {

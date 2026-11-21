@@ -31,6 +31,7 @@
 - Move the native field's selection with `nsgotest`'s `App.Select` under `-target` on macOS, Windows, Linux and the web, so the next edit acts on the selected range (#772 by @houko).
 - Let `nsgotest` press a text field directly and report the focus a press moves when the step returns on macOS, Windows and Linux (#1083 by @houko).
 - Add `Scope.Tween` and TSX's `Animated.tween`, which step a number for what an animated value cannot reach, such as a figure counting up in a text; an `nsgotest` step waits for its end and reduced motion shows the end at once (#336 by @houko).
+- Add vertical span background insets in Go and TSX for marker bands that follow wrapped text (#966 by @houko).
 - Add `TabStyle` and `IndicatorStyle` to `ui.Tabs` to restyle its tabs, the selected tab and the indicator (#958 by @houko).
 - Reload a TSX `<WebView>` in place with the new script when `injectedJavaScriptBeforeContentLoaded` changes, as `core.WebView.InjectedJavaScriptBeforeContentFunc` does, rather than replacing the web view (#895 by @houko).
 - Keep partial borders above Apple backdrop, material and glass layers while leaving app children above the border (#935 by @houko).

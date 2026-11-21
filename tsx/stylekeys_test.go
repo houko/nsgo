@@ -186,6 +186,9 @@ func TestStyleKeysSetTheirFields(t *testing.T) {
 			return s.TextDecorationStyle == core.DecorationWavy && s.TextDecorationColor == core.RGB(1) &&
 				s.TextDecorationThickness == core.Pt(2) && s.TextUnderlineOffset == core.Pt(3)
 		},
+		`{backgroundInsetTop: "62%", backgroundInsetBottom: 2}`: func(s core.Style) bool {
+			return s.BackgroundInsetTop == core.Pct(62) && s.BackgroundInsetBottom == core.Pt(2)
+		},
 		`{textDecorationThickness: "auto"}`:         func(s core.Style) bool { return s.TextDecorationThickness == core.Length{} },
 		`{textShadow: "0 0 1px red, 0 0 5px blue"}`: func(s core.Style) bool { return s.TextShadowRadius == 5 },
 		`{textShadowColor: "#000001", textShadowOffset: {width: 1, height: 2}, textShadowRadius: 3}`: func(s core.Style) bool {

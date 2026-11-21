@@ -665,7 +665,7 @@ func (w *window) capHeight(f driver.Font, ui string) driver.Points {
 func blank(c byte) bool { return c == ' ' || c == '\n' || c == '\r' || c == '\t' }
 
 // placeBackgrounds puts a box per line behind each span with a
-// background, from its font's ascent to its descent.
+// background, within its font's ascent and descent.
 func (p *preparedText) placeBackgrounds(l *textLayout) {
 	has := false
 	for _, sp := range p.spans {
@@ -694,7 +694,11 @@ func (p *preparedText) placeBackgrounds(l *textLayout) {
 				continue
 			}
 			font := p.w.fontExtent(sp.Style.Font, p.ui)
-			h := float64(font.Ascent + font.Descent)
+			top, bottom := bg.VerticalBounds(font.Ascent + font.Descent)
+			h := float64(bottom - top)
+			if h <= 0 {
+				continue
+			}
 			var ranges uintptr
 			var n int32
 			pangoLayoutLineGetXRanges(line, int32(a), int32(b), &ranges, &n)
@@ -707,8 +711,8 @@ func (p *preparedText) placeBackgrounds(l *textLayout) {
 				if x1 <= x0 {
 					continue
 				}
-				l.under = append(l.under, rect{x: float64(x0), y: float64(baseline - font.Ascent),
-					w: float64(x1 - x0), h: h, r: min(float64(bg.Radius), h/2)})
+				l.under = append(l.under, rect{x: float64(x0), y: float64(baseline - font.Ascent + top),
+					w: float64(x1 - x0), h: h, r: max(0, min(float64(bg.Radius), h/2))})
 				l.underColors = append(l.underColors, bg.Color)
 			}
 			gFree(ranges)
@@ -949,20 +953,21 @@ func (l *textLayout) ensure(cr uintptr) {
 	pangoCairoUpdateLayout(cr, l.layout)
 }
 
-// snapshot appends the text with its top-left at x, y to snap as draw
-// paints it, its glyphs as GSK text nodes, which the renderer draws from
-// its glyph cache, as NSH's backend does: a Cairo node of the text was
-// rastered on the CPU each time its view was drawn again, most of the
-// main thread's frame in a fast scroll of a table. The decoration lines
-// Pango cannot draw stay Cairo's.
-func (l *textLayout) snapshot(snap uintptr, x, y driver.Points) {
-	if l.text == "" {
-		return
-	}
+// snapshotBackgrounds paints the span boxes before the selection.
+func (l *textLayout) snapshotBackgrounds(snap uintptr, x, y driver.Points, tint *driver.Color) {
 	for i, r := range l.under {
+		c := l.underColors[i]
+		if tint != nil {
+			c = tint.Faded(float32(c&0xff) / 255)
+		}
 		rr := roundedRect(float32(r.x)+float32(x), float32(r.y)+float32(y), float32(r.w), float32(r.h), float32(r.r))
-		fillRounded(snap, &rr, l.underColors[i])
+		fillRounded(snap, &rr, c)
 	}
+}
+
+// snapshot appends the glyphs at x, y as GSK text nodes, drawn from the
+// renderer's glyph cache. The decoration lines Pango cannot draw stay Cairo's.
+func (l *textLayout) snapshot(snap uintptr, x, y driver.Points) {
 	l.ensure(scratchCairo())
 	clip := l.maxLines > 0 && l.ellipsize == driver.EllipsizeClip
 	if clip {
@@ -999,12 +1004,8 @@ func scratchCairo() uintptr {
 	return scratch
 }
 
-// draw paints the text with its top-left at x, y: its spans'
-// backgrounds, then its glyphs and their lines.
-func (l *textLayout) draw(cr uintptr, x, y driver.Points) {
-	if l.text == "" {
-		return
-	}
+// drawBackgrounds paints the span boxes into a Cairo target.
+func (l *textLayout) drawBackgrounds(cr uintptr, x, y driver.Points) {
 	for i, r := range l.under {
 		r.x += float64(x)
 		r.y += float64(y)
@@ -1012,6 +1013,10 @@ func (l *textLayout) draw(cr uintptr, x, y driver.Points) {
 		roundRect(cr, r)
 		cairoFill(cr)
 	}
+}
+
+// draw paints the glyphs and their decorations at x, y.
+func (l *textLayout) draw(cr uintptr, x, y driver.Points) {
 	l.ensure(cr)
 	clip := l.maxLines > 0 && l.ellipsize == driver.EllipsizeClip
 	if clip {
