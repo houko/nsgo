@@ -240,7 +240,7 @@ const (
 	// EventBiometric answers an ItemBiometricAvailability or
 	// ItemBiometricAuthenticate request: Index is a kind or result.
 	EventBiometric
-	// EventQuitRequest asks the app whether a quit the user asked for may proceed, after the kinds Android's Protocol.java mirrors so that they keep their values. Count identifies the request; the app answers with ItemQuitResponse. It is sent for user-initiated app termination, not Scope.Quit.
+	// EventQuitRequest delivers a user or system quit request. Count identifies the request the app answers with ItemQuitResponse. Forced marks a system session ending, which does not wait for the answer.
 	EventQuitRequest
 	// EventOverlayPermission answers ItemOverlayPermission Count with the permission as Index.
 	EventOverlayPermission
@@ -354,6 +354,8 @@ type Event struct {
 	Data any
 	// Repeat is whether EventKeyDown's key is a held key's auto-repeat.
 	Repeat bool
+	// Forced is whether EventQuitRequest was issued by the system to end its session.
+	Forced bool
 	// Finished is whether an animation ran to its end, or the platform
 	// closed a modal.
 	Finished bool

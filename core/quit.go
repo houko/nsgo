@@ -20,17 +20,21 @@ type quitHandler struct {
 	fn    func(ctx context.Context)
 }
 
-// QuitRequest is the core's part of desktop.QuitRequest, which apps use: a quit the user asked for, which a handler may cancel, or defer while it asks the user what to do.
+// QuitRequest is the core's part of desktop.QuitRequest, which apps use for user and system requests to quit.
 type QuitRequest struct {
+	forced   bool
 	canceled bool
 	deferred bool
 	answered atomic.Bool
 	answer   func(bool)
 }
 
-// Cancel keeps the app running. It has an effect only while the request handler is running.
+// Forced reports whether the system is ending the session, as at logout, restart or shutdown on macOS.
+func (q *QuitRequest) Forced() bool { return q != nil && q.forced }
+
+// Cancel keeps the app running. It has an effect in a user quit's request handler.
 func (q *QuitRequest) Cancel() {
-	if q != nil && !q.deferred {
+	if q != nil && !q.forced && !q.deferred {
 		q.canceled = true
 	}
 }
@@ -38,9 +42,9 @@ func (q *QuitRequest) Cancel() {
 // Canceled reports whether a handler canceled the quit: what a test of a handler reads.
 func (q *QuitRequest) Canceled() bool { return q != nil && q.canceled }
 
-// Defer keeps the platform's quit request pending and returns a one-shot answer. quit true proceeds with quitting; false cancels it. The returned function is safe to call from another goroutine. Call it in every case: until it is called, a later quit request, such as a second Cmd+Q, waits for this one's answer. A handler that panics after Defer, without having answered, cancels the request, and the function it got then does nothing.
+// Defer keeps a user quit pending and returns a one-shot answer. quit true proceeds with quitting; false cancels it. The returned function is safe to call from another goroutine. Call it in every case: until it is called, a later user quit request waits for this one's answer. A handler that panics after Defer, without having answered, cancels the request, and the function it got then does nothing. For a forced request, Defer returns a function that does nothing.
 func (q *QuitRequest) Defer() func(quit bool) {
-	if q == nil || q.canceled || q.deferred || q.answer == nil {
+	if q == nil || q.forced || q.canceled || q.deferred || q.answer == nil {
 		return func(bool) {}
 	}
 	q.deferred = true
@@ -57,7 +61,7 @@ type quitRequestHandler struct {
 	fn    func(*QuitRequest)
 }
 
-// OnQuitRequest is the core's part of desktop.OnQuitRequest, which apps use: fn runs, while the current owner lives, when the user asks the app to quit, by Cmd+Q, the Dock, a tray menu's Quit or the system, on macOS. Handlers run newest first. A handler that does not cancel or defer lets the request continue to the next handler; when all handlers do so, the app quits. Scope.Quit and Restart remain immediate.
+// OnQuitRequest is the core's part of desktop.OnQuitRequest. On macOS it runs fn while the current owner lives, when the user asks the app to quit or the system ends the session. Handlers run newest first. A user request goes on to the next handler until one cancels or defers it, or all accept it. A forced request cannot be canceled or deferred. Scope.Quit and Restart remain immediate.
 func (cx *Scope) OnQuitRequest(fn func(*QuitRequest)) {
 	rt := cx.rt
 	h := &quitRequestHandler{owner: cx.current(), fn: fn}
@@ -67,7 +71,7 @@ func (cx *Scope) OnQuitRequest(fn func(*QuitRequest)) {
 	})
 }
 
-func (rt *runtime) quitRequest(id uint32) {
+func (rt *runtime) quitRequest(id uint32, forced bool) {
 	answer := func(quit bool) {
 		t := rt.tree
 		if t == nil {
@@ -83,7 +87,7 @@ func (rt *runtime) quitRequest(id uint32) {
 		if h.owner.disposed {
 			continue
 		}
-		q := &QuitRequest{answer: func(quit bool) {
+		q := &QuitRequest{forced: forced, answer: func(quit bool) {
 			if rt.post != nil {
 				rt.post(func() { answer(quit) })
 			} else {

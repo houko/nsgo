@@ -297,6 +297,8 @@ type runner struct {
 	// quitted is closed once the OnQuit handlers returned.
 	quitted chan struct{}
 	once    sync.Once
+	// forcedQuit is set before done closes, when the system ends the app's session.
+	forcedQuit bool
 	// tree is the first surface's graph, which only the engine's goroutine reads: Language posts a function there.
 	tree *core.Tree
 }
@@ -585,6 +587,9 @@ func (e *Engine) run(p Platform, app App, opts Options, tokens Tokens) {
 		select {
 		case <-e.wake:
 		case <-e.done:
+			if e.forcedQuit {
+				tree.Dispatch(driver.Event{Kind: driver.EventQuitRequest, Forced: true})
+			}
 			root.Quitting()
 			close(e.quitted)
 			root.Dispose()
@@ -1028,11 +1033,23 @@ func (e *Engine) FontsChanged() { e.push(message{fonts: true}) }
 // graph, and waits for the engine goroutine to exit; an opened surface's Engine only detaches its
 // platform. It must not be called from the engine goroutine.
 func (e *Engine) Close() {
+	e.close(false)
+}
+
+// CloseForForcedQuit delivers the system's quit request on the engine goroutine before OnQuit, under the same bounded wait as Close.
+func (e *Engine) CloseForForcedQuit() {
+	e.close(true)
+}
+
+func (e *Engine) close(forced bool) {
 	if e.surface != 0 {
 		e.push(message{surface: e.surface, detach: true})
 		return
 	}
-	e.once.Do(func() { close(e.done) })
+	e.once.Do(func() {
+		e.forcedQuit = forced
+		close(e.done)
+	})
 	// The OnQuit handlers have core.QuitTimeout, and the platform waits
 	// no longer for one that overstays it.
 	timer := time.NewTimer(core.QuitTimeout + quitGrace)

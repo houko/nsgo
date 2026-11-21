@@ -124,6 +124,11 @@ type KeyboardSurface interface {
 	FocusRefusal() error
 }
 
+// QuitSurface sends a user or system quit request to the test's app without ending the test host.
+type QuitSurface interface {
+	RequestQuit(id uint32, forced bool)
+}
+
 var host Host
 
 // ErrNoMenu is a platform's answer to a menu step where it shows no

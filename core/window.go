@@ -890,7 +890,7 @@ func (t *Tree) surfaceEvent(ev driver.Event) bool {
 	case driver.EventNotificationPress:
 		t.within(t.root, func() { rt.notificationPressed(ev.Text) })
 	case driver.EventQuitRequest:
-		t.within(t.root, func() { rt.quitRequest(ev.Count) })
+		t.within(t.root, func() { rt.quitRequest(ev.Count, ev.Forced) })
 	default:
 		return false
 	}

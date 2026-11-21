@@ -298,6 +298,28 @@ func (a *App) CloseWindow() bool {
 	return w.Closed()
 }
 
+// RequestQuit sends a user quit request, or a forced request as at logout, to the app's OnQuitRequest handlers. An approved request counts in Quits. The step runs headless and on macOS.
+func (a *App) RequestQuit(forced bool) {
+	a.t.Helper()
+	a.step("requestQuit(%t)", forced)
+	a.requestQuit(forced)
+	a.done()
+}
+
+func (a *App) requestQuit(forced bool) {
+	a.t.Helper()
+	a.quitRequests++
+	if a.target == nil {
+		a.dispatchOn(a.appTree, driver.Event{Kind: driver.EventQuitRequest, Count: a.quitRequests, Forced: forced})
+		return
+	}
+	if s, ok := a.target.surface.(testhost.QuitSurface); ok {
+		s.RequestQuit(a.quitRequests, forced)
+	} else {
+		a.t.Skip("nsgotest: RequestQuit runs headless or on macOS")
+	}
+}
+
 // HeaderBack presses the back button in the system header of the screen
 // selector matches, as iOS and Android draw it.
 func (a *App) HeaderBack(selector string) {

@@ -959,8 +959,7 @@ func (a *App) menuRole(role driver.MenuRole) {
 		a.CloseWindow()
 	case driver.MenuQuit:
 		if a.env != nil && a.env.OS == driver.OSMacOS {
-			a.quitRequests++
-			a.dispatchOn(a.appTree, driver.Event{Kind: driver.EventQuitRequest, Count: a.quitRequests})
+			a.requestQuit(false)
 		} else {
 			a.Quits++
 		}

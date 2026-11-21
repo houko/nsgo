@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/internal/driver"
 	"github.com/nsgo-dev/nsgo/internal/engine"
 	"github.com/nsgo-dev/nsgo/internal/platform/apple"
 	"github.com/nsgo-dev/nsgo/internal/platform/imageload"
@@ -42,6 +43,10 @@ func (host) Several() bool { return true }
 
 // OpensWindows implements testhost.WindowHost: the app opens its windows itself, as Run's does.
 func (host) OpensWindows() bool { return true }
+
+func (t *testSurface) RequestQuit(id uint32, forced bool) {
+	t.own.engine.Dispatch(driver.Event{Kind: driver.EventQuitRequest, Count: id, Forced: forced})
+}
 
 // startTest starts a test's app as startOwn starts Run's, on an own surface with no window, which opens the app's windows at the test's size, the main window's default without one; test is what the test opens it with.
 func startTest(app engine.App, opts Options, test *testWindow) *surface {

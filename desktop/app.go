@@ -22,7 +22,7 @@ type (
 	WindowClosing = core.WindowClosing
 	// ShutdownMode says when the app ends by itself.
 	ShutdownMode = core.ShutdownMode
-	// QuitRequest is a quit the user asked for, which OnQuitRequest's handlers may cancel, or defer while they ask the user.
+	// QuitRequest is a user or system request to quit. Forced reports a system session ending.
 	QuitRequest = core.QuitRequest
 	// Tray is a tray icon: in the macOS menu bar, or a Linux StatusNotifierItem.
 	Tray = core.Tray
@@ -79,10 +79,10 @@ func MainWindow(cx *core.Scope) *Window { return cx.MainWindow() }
 // handler the main window shows and takes the focus.
 func OnReopen(cx *core.Scope, fn func()) { cx.OnReopen(fn) }
 
-// OnQuitRequest runs fn when the user asks the app to quit, by Cmd+Q, the Dock, a tray menu's Quit or the system, on macOS, newest first: a handler may cancel the quit, or defer it with QuitRequest.Defer while it asks the user, and when none does the app quits. core.Scope.Quit and Restart quit without asking:
+// OnQuitRequest runs fn on macOS for Cmd+Q, the Dock, a tray menu's Quit, or when the system ends the session. Handlers run newest first and may cancel or defer a user quit. Check QuitRequest.Forced before asking the user for a decision. core.Scope.Quit and Restart quit without asking.
 //
 //	desktop.OnQuitRequest(cx, func(q *desktop.QuitRequest) {
-//		if !dirty.Get() {
+//		if q.Forced() || !dirty.Get() {
 //			return
 //		}
 //		done := q.Defer()

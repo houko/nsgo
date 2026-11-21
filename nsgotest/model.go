@@ -783,7 +783,7 @@ func (a *App) apply(b *driver.MountBatch) {
 				a.Restarts++
 			}
 		case driver.ItemQuitResponse:
-			// The app lets the quit the user asked for proceed (OnQuitRequest), and the platform quits.
+			// OnQuitRequest has accepted the request, and the platform quits.
 			if it.On {
 				a.Quits++
 			}

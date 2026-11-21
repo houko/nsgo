@@ -659,6 +659,7 @@ func Run(app engine.App, opts Options) {
 	}
 	own = nil
 	engine.SyncStorage()
+	replyToForcedQuits()
 	nsApp.Send(sel("setDelegate:"), objc.ID(0))
 }
 
@@ -762,10 +763,12 @@ func startApp(opts Options, ready func(login bool)) objc.ID {
 		Cmd: sel("applicationShouldTerminateAfterLastWindowClosed:"),
 		Fn:  func(self objc.ID, _ objc.SEL, app objc.ID) bool { return false },
 	}, {
-		// Quitting returns from Run instead of ending the process, so AppKit's terminate is always canceled: a quit the user asks for, from the menu bar, the Dock, a tray menu or the system, is the app's to answer (core.Scope.OnQuitRequest), and its approval finishes the app as ItemQuit does. NSTerminateLater would not do: AppKit exit()s once it is answered YES, skipping OnQuit and the return from Run, a second terminate: while it waits exits without asking, and its wait, nested in whatever sent terminate:, starves the main queue when that is a block on it, as a tray menu's is.
+		// Run stops the event loop and returns to the caller. A session-ending Apple event is acknowledged separately once shutdown finishes. A user quit is the app's to answer (core.Scope.OnQuitRequest).
 		Cmd: sel("applicationShouldTerminate:"),
 		Fn: func(self objc.ID, _ objc.SEL, app objc.ID) uint {
 			switch {
+			case suspendForcedQuit():
+				finish()
 			case finished:
 			case own == nil || own.engine == nil:
 				finish()
@@ -961,7 +964,11 @@ func (s *surface) close() {
 	}
 	s.stops = nil
 	if s.engine != nil {
-		s.engine.Close()
+		if s == own && len(forcedQuitEvents) > 0 {
+			s.engine.CloseForForcedQuit()
+		} else {
+			s.engine.Close()
+		}
 	}
 	s.awake.releaseAll()
 	s.loopback.Close()
