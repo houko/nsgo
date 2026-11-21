@@ -32,6 +32,14 @@ go tool nsgo dev -target android            # 通过 adb 在连接的设备或�
 
 运行前，`go tool nsgo check` 会检查应用并对它的 TSX 做类型检查；加上 `-target all` 则改为为每个目标检查，这样在 Mac 上也能检查到其他平台构建标签下的代码。
 
+### Linux 网页视图
+
+Ubuntu 24.04 及更新版本可通过 AppArmor 限制非特权用户的命名空间。bubblewrap 无法启动 WebKitGTK 沙箱时，NSGo 会记录错误并显示占位内容。一些 WebKitGTK 版本遇到这种情况时会在打开第一个网页视图时以 `SIGTRAP` 退出。[Ubuntu AppArmor 文档](https://documentation.ubuntu.com/security/security-features/privilege-restriction/apparmor/)
+
+优先使用发行版提供的 bubblewrap AppArmor 配置，例如 `bwrap-userns-restrict`。否则管理员可以参考 [NSGo Linux CI 使用的配置](https://github.com/nsgo-dev/nsgo/blob/main/.github/workflows/test.yml)，为 `/usr/bin/bwrap` 加载允许 `userns` 的配置。该配置适用于所有调用系统 bubblewrap 的应用，由管理员管理。
+
+`WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1` 会关闭 WebKit 的子进程沙箱，只适用于使用可信内容的本地开发。
+
 ## DevTools
 
 ```sh

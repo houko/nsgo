@@ -32,6 +32,14 @@ A failed build shows over the running app, with buttons to copy the error and to
 
 Before running, `go tool nsgo check` vets the app and type-checks its TSX; `-target all` vets it for every target, so code behind another platform's build tags is checked from a Mac too.
 
+### Linux web views
+
+Ubuntu 24.04 and later can restrict unprivileged user namespaces through AppArmor. When bubblewrap cannot start WebKitGTK's sandbox, NSGo logs the error and shows a placeholder. Some WebKitGTK versions otherwise exit with `SIGTRAP` while opening the first web view. [Ubuntu AppArmor documentation](https://documentation.ubuntu.com/security/security-features/privilege-restriction/apparmor/)
+
+Use your distribution's bubblewrap AppArmor profile if it provides one, such as `bwrap-userns-restrict`. Otherwise, an administrator can load a profile granting `userns` to `/usr/bin/bwrap` using [the profile from NSGo's Linux CI](https://github.com/nsgo-dev/nsgo/blob/main/.github/workflows/test.yml) as a starting point. The administrator manages the profile because it applies to every app using the system's bubblewrap.
+
+`WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1` turns off WebKit's subprocess sandbox. Use it only for local development with trusted content.
+
 ## DevTools
 
 ```sh

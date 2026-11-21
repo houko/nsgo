@@ -112,8 +112,8 @@ var (
 	jscValueToString                     func(uintptr) uintptr
 )
 
-// openWebKit loads WebKitGTK and JavaScriptCore, reporting what is
-// missing.
+// openWebKit loads WebKitGTK and JavaScriptCore and checks that the system
+// can start WebKit's sandbox.
 func openWebKit() error {
 	webkitOnce.Do(func() {
 		webkit, err := purego.Dlopen("libwebkitgtk-6.0.so.4", purego.RTLD_NOW|purego.RTLD_GLOBAL)
@@ -136,6 +136,9 @@ func openWebKit() error {
 				webkitErr = fmt.Errorf("web views need WebKitGTK 6.0: %v", r)
 			}
 		}()
+		if webkitErr = checkWebKitSandbox(webKitUserNSRestriction, "/usr/bin/bwrap"); webkitErr != nil {
+			return
+		}
 		bindWebKit(webkit, jsc, soup)
 	})
 	return webkitErr
