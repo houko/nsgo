@@ -182,17 +182,18 @@ type surface struct {
 	rtl, directed bool
 	// stickyBound are the scroll views with sticky cells whose insets
 	// follow animated values.
-	stickyBound map[*view]bool
-	app         engine.App
-	id          string
-	native      objc.ID
-	engine      *engine.Engine
-	audio       *apple.Audio // the engine's sounds and players, made with its first ItemAudio and closed with the surface
-	batches     queue.Batches
-	views       []*view // index is NodeID
-	pips        []*view // the views of mobile.PictureInPicture trees, which draw into their sessions' frames
-	fingers     fingers // the touches reported
-	env         driver.Environment
+	stickyBound    map[*view]bool
+	resizedScrolls []*view
+	app            engine.App
+	id             string
+	native         objc.ID
+	engine         *engine.Engine
+	audio          *apple.Audio // the engine's sounds and players, made with its first ItemAudio and closed with the surface
+	batches        queue.Batches
+	views          []*view // index is NodeID
+	pips           []*view // the views of mobile.PictureInPicture trees, which draw into their sessions' frames
+	fingers        fingers // the touches reported
+	env            driver.Environment
 
 	keyboard driver.Points
 	// keyboardScroll is the scroll view keeping the focused input clear
@@ -1417,12 +1418,10 @@ func (s *surface) apply(b *driver.MountBatch) {
 				s.shadeLater(v)
 			}
 		case driver.ItemScrollTo:
-			size := objc.Send[apple.CGSize](v.native, sel("contentSize"))
-			in := objc.Send[edgeInsets](v.native, sel("adjustedContentInset"))
-			seen := objc.Send[apple.CGRect](v.native, selBounds).Size
+			start, end := scrollLimits(v.native)
 			to := apple.CGPoint{
-				X: min(max(float64(it.Point.X), -in.Left), max(size.Width-seen.Width+in.Right, -in.Left)),
-				Y: min(max(float64(it.Point.Y), -in.Top), max(size.Height-seen.Height+in.Bottom, -in.Top)),
+				X: min(max(float64(it.Point.X), start.X), end.X),
+				Y: min(max(float64(it.Point.Y), start.Y), end.Y),
 			}
 			if v.sc != nil {
 				v.sc.applied++
@@ -1519,6 +1518,7 @@ func (s *surface) apply(b *driver.MountBatch) {
 		if lb != nil {
 			s.stepMotions(s.clock())
 		}
+		s.pullBackResizedScrolls()
 		s.applyAnimated()
 	})
 	s.drawShaders()

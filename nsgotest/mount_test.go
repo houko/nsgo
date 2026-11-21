@@ -66,6 +66,9 @@ func TestScrollPastItsEndComesBackToIt(t *testing.T) {
 	})
 	app.Post(func() { scroll.ScrollToEnd(false) })
 	app.Settle()
+	if heard != 400 {
+		t.Fatalf("the app heard offset %v before the resize, want 400", heard)
+	}
 	for _, step := range []struct {
 		name    string
 		change  func()
@@ -79,6 +82,35 @@ func TestScrollPastItsEndComesBackToIt(t *testing.T) {
 		if got := app.Find("id:scroll").Offset.Y; got != step.wantEnd || heard != step.wantEnd {
 			t.Errorf("%s: offset %v, the app heard %v, want the new end %v", step.name, got, heard, step.wantEnd)
 		}
+	}
+}
+
+func TestListPastItsEndComesBackToIt(t *testing.T) {
+	var list core.Ref
+	var count *core.Signal[int]
+	var heard core.Points
+	app := Start(t, func(cx *core.Scope) core.Node {
+		count = core.NewSignal(cx, 50)
+		return core.List{
+			TestID: "list", Ref: &list,
+			Count: count.Get, EstimatedSize: 10,
+			Behavior: core.ScrollBehavior{ContentInset: core.Edges{Bottom: 10}},
+			Style:    core.Style{Height: core.Pt(100)},
+			OnScroll: func(e core.ScrollEvent) { heard = e.Offset.Y },
+			Row: func(*core.Scope, core.ListRow) core.Node {
+				return core.View{Style: core.Style{Height: core.Pt(10)}}
+			},
+		}
+	})
+	app.Post(func() { list.ScrollTo(core.Point{Y: 380}, false) })
+	app.Settle()
+	if heard != 380 {
+		t.Fatalf("the app heard offset %v before removing rows, want 380", heard)
+	}
+	app.Post(func() { count.Set(30) })
+	app.Settle()
+	if got := app.Find("id:list").Offset.Y; got != 210 || heard != 210 {
+		t.Fatalf("after removing rows: offset %v, the app heard %v, want 210", got, heard)
 	}
 }
 

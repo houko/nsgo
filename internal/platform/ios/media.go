@@ -145,6 +145,7 @@ func (s *surface) tick() {
 	}
 	apple.WithoutAnimation(func() {
 		s.stepMotions(now)
+		s.pullBackResizedScrolls()
 		s.applyAnimated()
 	})
 	if s.animator.Running() || len(s.motions) > 0 {
@@ -321,11 +322,11 @@ func (v *view) place(f driver.Bounds) {
 	}
 	v.sizeContent()
 	if resized && v.sc != nil {
-		v.pullBackAtRest()
-	}
-	if resized && v.sc != nil && v.hasEdges() {
-		// Each step of a layout animation, as the keyboard moves a composer.
-		v.placeEdges()
+		v.surface.resizedScrolls = append(v.surface.resizedScrolls, v)
+		if v.hasEdges() {
+			// Each step of a layout animation, as the keyboard moves a composer.
+			v.placeEdges()
+		}
 	}
 	if v.image != nil {
 		v.image.Layout(apple.CGSize{Width: float64(f.Size.Width), Height: float64(f.Size.Height)})

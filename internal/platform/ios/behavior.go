@@ -308,36 +308,55 @@ func (v *view) setRefreshable(on, refreshing bool) {
 
 // setContent sets the unzoomed size of the view's content.
 func (v *view) setContent(size driver.Size) {
+	if v.sc.content != size {
+		v.surface.resizedScrolls = append(v.surface.resizedScrolls, v)
+	}
 	v.sc.content = size
 	if v.sc.zoom != 0 {
 		v.layoutZoom()
-		v.pullBackAtRest()
 		return
 	}
 	v.native.Send(selSetContentSize, apple.CGSize{Width: float64(size.Width), Height: float64(size.Height)})
-	v.pullBackAtRest()
 }
 
-// pullBackAtRest clamps an offset left past the new content end. UIKit keeps
-// that offset until the next touch, so do the same pull-back other backends
-// perform when a content or viewport size changes.
-func (v *view) pullBackAtRest() {
-	if v.native == 0 || objc.Send[bool](v.native, sel("isTracking")) ||
-		objc.Send[bool](v.native, sel("isDragging")) || objc.Send[bool](v.native, sel("isDecelerating")) {
-		return
+func scrollLimits(n objc.ID) (start, end apple.CGPoint) {
+	size := objc.Send[apple.CGSize](n, sel("contentSize"))
+	in := objc.Send[edgeInsets](n, sel("adjustedContentInset"))
+	seen := objc.Send[apple.CGRect](n, selBounds).Size
+	return apple.CGPoint{X: -in.Left, Y: -in.Top}, apple.CGPoint{
+		X: max(size.Width-seen.Width+in.Right, -in.Left),
+		Y: max(size.Height-seen.Height+in.Bottom, -in.Top),
 	}
-	size := objc.Send[apple.CGSize](v.native, sel("contentSize"))
-	in := objc.Send[edgeInsets](v.native, sel("adjustedContentInset"))
-	seen := objc.Send[apple.CGRect](v.native, selBounds).Size
-	o := objc.Send[apple.CGPoint](v.native, selContentOffset)
-	to := apple.CGPoint{
-		X: min(max(o.X, -in.Left), max(size.Width-seen.Width+in.Right, -in.Left)),
-		Y: min(max(o.Y, -in.Top), max(size.Height-seen.Height+in.Bottom, -in.Top)),
+}
+
+// pullBackResizedScrolls runs once the batch's scroll commands and the
+// current layout animation step have placed the viewport and its content.
+func (s *surface) pullBackResizedScrolls() {
+	for _, v := range s.resizedScrolls {
+		if s.viewOf(v.id) != v {
+			continue
+		}
+		n := v.native
+		if objc.Send[bool](n, sel("isTracking")) || objc.Send[bool](n, sel("isDragging")) ||
+			objc.Send[bool](n, sel("isDecelerating")) || objc.Send[bool](n, sel("isZooming")) ||
+			objc.Send[bool](n, sel("isZoomBouncing")) {
+			continue
+		}
+		// The animation properties were added in iOS 17.4.
+		if (objc.Send[bool](n, sel("respondsToSelector:"), sel("isScrollAnimating")) && objc.Send[bool](n, sel("isScrollAnimating"))) ||
+			(objc.Send[bool](n, sel("respondsToSelector:"), sel("isZoomAnimating")) && objc.Send[bool](n, sel("isZoomAnimating"))) {
+			continue
+		}
+		_, end := scrollLimits(n)
+		at := objc.Send[apple.CGPoint](n, selContentOffset)
+		if to := (apple.CGPoint{X: min(at.X, end.X), Y: min(at.Y, end.Y)}); to != at {
+			// The scroll delegate reports the new offset with the count of
+			// scroll commands already applied.
+			n.Send(sel("setContentOffset:"), to)
+		}
 	}
-	if to == o {
-		return
-	}
-	v.native.Send(sel("setContentOffset:"), to)
+	clear(s.resizedScrolls)
+	s.resizedScrolls = s.resizedScrolls[:0]
 }
 
 // setZoomable gives the view a zoom view, moving its children into it,
