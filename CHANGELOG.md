@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Run injected WebView scripts and answer cookie requests with `Unavailable` on HarmonyOS (#894 by @houko).
 - Restore web builds with pixel-backed custom cursors (#1206 by @houko).
 - Free a closed macOS window's views, shaders' Metal layers among them, once its frame clock had run, as an animation or a scroll does, where each window opened and closed leaked them.
 - Add `nsgo build -channel steam` for desktop depots with development-only `steam_appid.txt` support (#1227 by @houko).

@@ -219,6 +219,12 @@ function fitOf(fit: string): ImageFit {
   return ImageFit.Cover;
 }
 
+interface WebScripts {
+  disabled: boolean;
+  before: string;
+  after: string;
+}
+
 class VNode {
   id: number = 0;
   kind: number = 1;
@@ -299,7 +305,9 @@ class VNode {
   drawing: string = '';
   // A web view's page, whether its scripts run, and the command it waits for.
   webSrc: string = '';
-  noJS: boolean = false;
+  webSrcShown: string = '';
+  webScripts: WebScripts = { disabled: false, before: '', after: '' };
+  webScriptsShown: WebScripts | undefined = undefined;
   webCmd: number = 0;
   webCmdValue: string = '';
   // webController is the web view's, made with the node.
@@ -710,7 +718,12 @@ class Tree {
           v.ch = o[3] as number;
         } else if (code === 'web') {
           v.webSrc = o[2] as string;
-          v.noJS = o[3] as boolean;
+          const disabled = o[3] as boolean;
+          const before = o[4] as string;
+          const after = o[5] as string;
+          const shown = v.webScriptsShown;
+          v.webScripts = shown !== undefined && shown.disabled === disabled && shown.before === before &&
+            shown.after === after ? shown : { disabled: disabled, before: before, after: after };
         } else if (code === 'wcmd') {
           v.webCmd = o[2] as number;
           v.webCmdValue = o[3] as string;
@@ -1989,13 +2002,9 @@ struct Index {
     this.controller.runJavaScript('nsgoEvent("zoom",' + id + ',' + z + ',' + x + ',' + y + ')');
   }
 
-  send(name: string, id: number, x: number, y: number, text: string): void {
-    let js = 'nsgoEvent("' + name + '",' + id + ',' + x + ',' + y;
-    if (text !== '') {
-      js += ',"' + text.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
-    }
-    js += ')';
-    this.controller.runJavaScript(js);
+  send(name: string, id: number, x: number, y: number, text: string, detail: string = ''): void {
+    const args = JSON.stringify([name, id, x, y, text, detail]);
+    this.controller.runJavaScript('nsgoEvent(...' + args + ')');
   }
 
   serve(url: string): WebResourceResponse {
@@ -2515,35 +2524,44 @@ struct VideoView {
       })
   }
 }
-// WebView draws a web view's page: the engine gives it a URL and its
-// commands, and the page reports loading back.
+// WebView draws a web view's page and reports its navigation.
 @Component
 struct WebView {
   v: VNode = new VNode();
   c: webview.WebviewController | undefined = undefined;
   host: Index | undefined = undefined;
 
+  scripts(script: string): ScriptItem[] {
+    if (this.v.webScripts.disabled || script === '') {
+      return [];
+    }
+    // The ArkWeb hook can run in matching subframes as well.
+    return [{ script: 'if (window === window.top) {\n' + script + '\n}', scriptRules: ['*'] }];
+  }
+
+  // A replaced or removed Web can still have a navigation callback pending.
+  currentHost(): Index | undefined {
+    const host = this.host;
+    if (host?.tree.at(this.v.id)?.webController === this.c) {
+      return host;
+    }
+    return undefined;
+  }
+
   build() {
     if (this.c !== undefined) {
       Web({ src: this.v.webSrc, controller: this.c })
-        .javaScriptAccess(!this.v.noJS)
-        .onPageBegin(() => {
-          const host = this.host;
-          if (host !== undefined) {
-            host.send('webloadstart', this.v.id, 0, 0, this.v.webSrc);
-          }
+        .javaScriptAccess(!this.v.webScripts.disabled)
+        .javaScriptOnDocumentStart(this.scripts(this.v.webScripts.before))
+        .javaScriptOnDocumentEnd(this.scripts(this.v.webScripts.after))
+        .onPageBegin((e: OnPageBeginEvent) => {
+          this.currentHost()?.send('webloadstart', this.v.id, 0, 0, e.url);
         })
-        .onPageEnd(() => {
-          const host = this.host;
-          if (host !== undefined) {
-            host.send('webload', this.v.id, 0, 0, this.v.webSrc);
-          }
+        .onPageEnd((e: OnPageEndEvent) => {
+          this.currentHost()?.send('webload', this.v.id, 0, 0, e.url, this.c?.getTitle() ?? '');
         })
         .onErrorReceive((e: OnErrorReceiveEvent) => {
-          const host = this.host;
-          if (host !== undefined) {
-            host.send('weberror', this.v.id, 0, 0, e.request.getRequestUrl());
-          }
+          this.currentHost()?.send('weberror', this.v.id, 0, 0, e.request.getRequestUrl());
         })
     }
   }
@@ -2675,9 +2693,6 @@ class Renderer {
   contents: Map<number, FrameNode> = new Map();
   scrollers: Map<number, Scroller> = new Map();
   leaves: Map<number, BuilderNode<[VNode]>> = new Map();
-  // webControllers are the web views' controllers, which commands use.
-  webControllers: Map<number, webview.WebviewController> = new Map();
-  webShown: Map<number, string> = new Map();
   videoShown: Map<number, string> = new Map();
   // headers are the system headers the screens draw, and their builders.
   headers: Map<number, FrameNode> = new Map();
@@ -2805,8 +2820,6 @@ class Renderer {
     this.contents.delete(id);
     this.scrollers.delete(id);
     this.leaves.delete(id);
-    this.webControllers.delete(id);
-    this.webShown.delete(id);
     this.videoShown.delete(id);
     this.headers.delete(id);
     this.headerBuilders.delete(id);
@@ -2862,9 +2875,9 @@ class Renderer {
       return this.leaf(v, KIND_CANVAS);
     }
     if (v.kind === KIND_WEB) {
-      const c = new webview.WebviewController();
-      v.webController = c;
-      this.webControllers.set(v.id, c);
+      v.webController = new webview.WebviewController();
+      v.webScriptsShown = v.webScripts;
+      v.webSrcShown = v.webSrc;
       return this.leaf(v, KIND_WEB);
     }
     if (v.kind === KIND_VIDEO) {
@@ -2881,7 +2894,7 @@ class Renderer {
     return s;
   }
 
-  leaf(v: VNode, kind: number): FrameNode | null {
+  leaf(v: VNode, kind: number, container?: FrameNode): FrameNode | null {
     const ui = this.ui;
     if (ui === undefined) {
       return null;
@@ -2907,7 +2920,7 @@ class Renderer {
     // it keeps the frame of the parent's top left corner and the view lands
     // there whatever the engine laid out. A Stack of its own holds the frame
     // and the view fills it.
-    const box = typeNode.createNode(ui, 'Stack');
+    const box = container ?? typeNode.createNode(ui, 'Stack');
     const ba = typeNode.getAttribute(box, 'Stack');
     if (ba !== undefined) {
       ba.alignContent(Alignment.TopStart);
@@ -3003,13 +3016,24 @@ class Renderer {
         b.update(v);
       }
     } else if (v.kind === KIND_WEB) {
-      const b = this.leaves.get(v.id);
-      const c = this.webControllers.get(v.id);
-      if (b !== undefined && c !== undefined) {
-        if (this.webShown.get(v.id) !== v.webSrc) {
-          this.webShown.set(v.id, v.webSrc);
-          b.update(v);
+      if (v.webScriptsShown !== v.webScripts) {
+        // Updating a Web's source can start loading before its new script
+        // modifiers apply. Install them on a new Web before its first load.
+        v.webController = new webview.WebviewController();
+        const old = this.leaves.get(v.id);
+        const drawn = old?.getFrameNode();
+        if (drawn !== undefined && drawn !== null) {
+          node.removeChild(drawn);
         }
+        old?.dispose();
+        v.webScriptsShown = v.webScripts;
+        this.leaf(v, KIND_WEB, node);
+      } else if (v.webSrc !== v.webSrcShown) {
+        this.leaves.get(v.id)?.update(v);
+      }
+      v.webSrcShown = v.webSrc;
+      const c = v.webController;
+      if (c !== undefined) {
         const cmd = v.webCmd;
         v.webCmd = 0;
         if (cmd === 1) {
