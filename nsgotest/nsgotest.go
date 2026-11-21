@@ -343,6 +343,8 @@ type App struct {
 	PermissionSettings []core.Permission
 	Guide              core.Permission
 	guideID            uint32
+	// Orientation is the app's current interface orientation request. Zero means the app uses the system policy.
+	Orientation core.Orientation
 	// Awake is the keep-awake holds the app keeps, oldest first, each gone once released. AwakeHolds records every hold the app took and AwakeReleases the IDs of the holds it released, oldest first. None changes the test machine's power state.
 	Awake         []AwakeHold
 	AwakeHolds    []AwakeHold

@@ -429,6 +429,14 @@ cx.BiometricAvailability(func(kind core.BiometricKind) {
 
 使用面容 ID 的应用要在 `apple.info` 下声明 `NSFaceIDUsageDescription`；Android 应用要在 `android.permissions` 中列出 `USE_BIOMETRIC`。
 
+## 界面方向
+
+在全屏播放器的作用域内调用 `cx.RequestOrientation(core.OrientationLandscape)`，可请求 iOS 或 Android 将界面切换到横屏。仍存活的作用域中，最新的请求生效。作用域结束后，恢复上一个请求，或者回到应用原有的方向策略。桌面平台和 Web 忽略此调用。
+
+在 iOS 16 及更新版本上，请求可立即旋转界面。在较早的 iOS 版本上，请求限制下次系统旋转可选的方向。已显示的模态视图的 `IOS.SupportedOrientations` 优先。Android 无法表达某些横竖屏的组合，此时会固定到其中一个方向，优先保留当前方向。在大屏幕或多窗口模式下，Android 可能忽略方向请求。
+
+`nsgotest.App.Orientation` 记录最新请求的方向集合，零表示使用应用原有的方向策略。
+
 ## Android 上的悬浮窗
 
 `mobile.OpenOverlay` 在 Android 上把应用的一个视图显示在其他应用之上：它是一棵独立的树，与应用共享信号，显示期间由前台服务让应用保持运行。应用要在 `android.permissions` 中列出 `SYSTEM_ALERT_WINDOW`，并由用户在系统设置中授权，`mobile.RequestOverlayPermission` 会打开这个设置；没有授权时悬浮窗立即结束，`OnEnd` 会得知原因。它接收触摸，但按键和窗口以外的触摸仍交给前台应用，除非设为 `Focusable` 或 `Passive`；在内容里用 `desktop.SetWindowFrame` 移动它。其他平台不会打开悬浮窗。

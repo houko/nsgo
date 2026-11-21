@@ -256,6 +256,13 @@ final class Protocol {
     static final int ITEM_OVERLAY_PERMISSION = 89;
     static final int ITEM_SPEAK = 102;
     static final int ITEM_SENSOR = 103;
+    static final int ITEM_ORIENTATION = 111;
+
+    static final int ORIENTATION_PORTRAIT = 1;
+    static final int ORIENTATION_PORTRAIT_UPSIDE_DOWN = 2;
+    static final int ORIENTATION_LANDSCAPE_LEFT = 4;
+    static final int ORIENTATION_LANDSCAPE_RIGHT = 8;
+    static final int ORIENTATION_LANDSCAPE = 12;
 
     // What EVENT_OVERLAY_PERMISSION answers ITEM_OVERLAY_PERMISSION with, and why an overlay ends, as the driver's.
     static final int OVERLAY_DENIED = 0;

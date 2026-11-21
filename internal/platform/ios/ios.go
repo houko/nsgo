@@ -221,6 +221,9 @@ type surface struct {
 	// that limit the orientations, in the order they were presented.
 	headers  [2]driver.Points
 	oriented []*view
+	// The active scope's orientation set and UIKit's orientation before it.
+	requestedOrientation driver.Orientation
+	previousOrientation  uint
 	// tops is the screen each stack shows, as the core last said, slides
 	// the stacks whose screens move, and changes the stacks a batch
 	// changes the screens of (nav.go).
@@ -665,6 +668,9 @@ func (s *surface) reconnect(scene objc.ID) {
 		return
 	}
 	s.refresh()
+	if s.requestedOrientation != 0 || s.previousOrientation != 0 {
+		s.updateOrientations()
+	}
 	if runner.engine != nil {
 		runner.sendLaunchLinks()
 	}
@@ -1253,6 +1259,9 @@ func (s *surface) apply(b *driver.MountBatch) {
 			continue
 		case driver.ItemKeymap:
 			s.keys, s.heldKeys = it.Keys, it.HeldKeys
+			continue
+		case driver.ItemOrientation:
+			s.setOrientation(driver.Orientation(it.Count))
 			continue
 		case driver.ItemStatusBar:
 			s.setStatusBar(it.StatusBar)

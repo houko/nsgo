@@ -1378,6 +1378,8 @@ func encode(w *writer, b *driver.MountBatch, first bool, requests []uint32, nati
 			w.str(it.Value)
 		case driver.ItemHaptic, driver.ItemBadge:
 			w.u32(it.Count)
+		case driver.ItemOrientation:
+			w.byte(byte(it.Count))
 		case driver.ItemSpeak:
 			r := it.Speak
 			w.u32(it.Count)

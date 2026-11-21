@@ -646,6 +646,8 @@ func (a *App) apply(b *driver.MountBatch) {
 				a.Notifications = slices.DeleteFunc(a.Notifications, func(o core.Notification) bool { return o.ID == it.Value })
 				a.PendingNotifications = slices.DeleteFunc(a.PendingNotifications, func(o core.Notification) bool { return o.ID == it.Value })
 			}
+		case driver.ItemOrientation:
+			a.Orientation = core.Orientation(it.Count)
 		case driver.ItemBadge:
 			a.Badge = int(it.Count)
 		case driver.ItemKeepAwake:

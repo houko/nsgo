@@ -71,6 +71,7 @@ func (t *Tree) commit(shared bool) *driver.MountBatch {
 	}
 	// The user's input let its owner move the focus until what it caused was committed.
 	t.activated = nil
+	t.emitOrientation()
 	t.markShaderInputs()
 	if len(t.shaderStarts) > 0 {
 		// The platform pictures what a transition starts from before it

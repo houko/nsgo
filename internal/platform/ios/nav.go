@@ -1045,23 +1045,34 @@ func (s *surface) sheetLaidOut(v *view) {
 	s.engine.Dispatch(driver.Event{Kind: driver.EventModalSize, ID: v.id, Size: got, Insets: insets})
 }
 
-// orientations is the UIInterfaceOrientationMask of the last presented
-// modal that limits them, or 0.
+// orientations is the mask the controllers report to UIKit. Presented
+// modals retain precedence over the app's latest scope request.
 func (s *surface) orientations() uint {
+	if modal := s.modalOrientations(); modal != 0 {
+		return modal
+	}
+	return interfaceOrientationMask(s.requestedOrientation)
+}
+
+func (s *surface) modalOrientations() uint {
 	for i := len(s.oriented) - 1; i >= 0; i-- {
 		v := s.oriented[i]
 		if s.views[v.id] != v || (v.sheet == nil && !v.presented) || (v.sheet != nil && v.sheet.gone) {
 			continue
 		}
-		var m uint
-		for o, bit := range orientationMasks {
-			if v.modal.Orientations&o != 0 {
-				m |= bit
-			}
-		}
-		return m
+		return interfaceOrientationMask(v.modal.Orientations)
 	}
 	return 0
+}
+
+func interfaceOrientationMask(orientations driver.Orientation) uint {
+	var mask uint
+	for o, bit := range orientationMasks {
+		if orientations&o != 0 {
+			mask |= bit
+		}
+	}
+	return mask
 }
 
 // updateOrientations has UIKit ask the orientations again.
@@ -1077,6 +1088,9 @@ func (s *surface) updateOrientations() {
 		if objc.Send[bool](c, sel("respondsToSelector:"), sel("setNeedsUpdateOfSupportedInterfaceOrientations")) {
 			c.Send(sel("setNeedsUpdateOfSupportedInterfaceOrientations"))
 		}
+	}
+	if s.requestedOrientation != 0 || s.previousOrientation != 0 {
+		apple.OnMain(s.updateSceneOrientation)
 	}
 }
 

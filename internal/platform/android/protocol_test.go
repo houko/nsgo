@@ -45,7 +45,7 @@ func TestJavaProtocolMatchesTheDriver(t *testing.T) {
 		t.Fatal(err)
 	}
 	checked := 0
-	for _, m := range regexp.MustCompile(`static final int (ITEM|EVENT|ROLE|KEY_USE)_(\w+) = (\d+);`).FindAllStringSubmatch(string(java), -1) {
+	for _, m := range regexp.MustCompile(`static final int (ITEM|EVENT|ROLE|KEY_USE|ORIENTATION)_(\w+) = (\d+);`).FindAllStringSubmatch(string(java), -1) {
 		var name string
 		for _, word := range strings.Split(m[1]+"_"+m[2], "_") {
 			if word == "URL" {

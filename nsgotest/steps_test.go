@@ -951,3 +951,32 @@ func TestPicksRecordTheirHints(t *testing.T) {
 		t.Errorf("folder pick %+v lost its hints", d)
 	}
 }
+
+func TestOrientationRequestsFollowTheirScopes(t *testing.T) {
+	var outer, middle, inner *core.Scope
+	app := Start(t, func(cx *core.Scope) core.Node {
+		outer = cx.Child()
+		outer.Run(func() { outer.RequestOrientation(core.OrientationPortrait) })
+		middle = cx.Child()
+		middle.Run(func() { middle.RequestOrientation(core.OrientationPortraitUpsideDown) })
+		inner = cx.Child()
+		inner.Run(func() { inner.RequestOrientation(core.OrientationLandscape) })
+		return core.View{}
+	})
+	check := func(want core.Orientation) {
+		t.Helper()
+		if app.Orientation != want {
+			t.Fatalf("orientation = %v, want %v", app.Orientation, want)
+		}
+	}
+	check(core.OrientationLandscape)
+	app.Post(middle.Dispose)
+	app.Settle()
+	check(core.OrientationLandscape)
+	app.Post(inner.Dispose)
+	app.Settle()
+	check(core.OrientationPortrait)
+	app.Post(outer.Dispose)
+	app.Settle()
+	check(0)
+}

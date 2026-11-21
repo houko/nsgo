@@ -82,6 +82,7 @@ type Tree struct {
 	tooltips, described []*node
 	headerViews         []*node
 	status              statusBars
+	orientations        orientationRequests
 	anim                animations
 	layoutAnim          *LayoutAnimation
 	fontScale           float32

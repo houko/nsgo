@@ -429,6 +429,14 @@ cx.Purchase("com.example.pro.monthly", core.PurchaseOptions{AccountToken: userUU
 
 Register `OnPurchaseUpdate` as the app starts: updates that come before any handler wait for the first. `cx.CurrentEntitlements` answers what the user owns now, to unlock it at launch, and a Restore Purchases button calls `cx.SyncPurchases`, which may ask the user to sign in. `AccountToken` is a UUID of the app's own that the transaction and the App Store's server notifications carry. macOS sells only in a Mac App Store build, and an App Clip sells nothing; Android, watchOS, Windows, Linux, the web and mini programs answer `PurchasesUnavailable` for now. Test purchases with `nsgotest`, whose `Products`, `PurchaseAnswer`, `UpdatePurchase` and `UnfinishedTransactions` stand in for the store. In TSX, the `Purchases` module needs the `purchases` capability: `purchase` resolves with `{ status: "purchased", transaction }`, `"pending"` or `"cancelled"`, and `on("update", listener)` hears updates.
 
+## Interface orientation
+
+Call `cx.RequestOrientation(core.OrientationLandscape)` in a full-screen player's scope to ask iOS or Android for landscape. The latest request whose scope is alive takes effect. When that scope ends, the previous request resumes or the app returns to its usual orientation policy. Desktops and the web ignore the call.
+
+On iOS 16 and later the request can rotate the interface immediately. On older iOS versions it restricts the next system rotation. A presented modal's `IOS.SupportedOrientations` takes precedence. On Android, a mix of portrait and landscape directions that the system cannot represent is reduced to one allowed direction, preferring the one already shown. Android may disregard orientation requests in large-screen or multi-window modes.
+
+`nsgotest.App.Orientation` records the latest requested mask, with zero for the usual orientation policy.
+
 ## Overlays on Android
 
 `mobile.OpenOverlay` shows a view of the app's over other apps on Android, a tree of its own that shares the app's signals, and a foreground service keeps the app running while it shows. The app lists `SYSTEM_ALERT_WINDOW` under `android.permissions`, and the user grants it in the system's settings, which `mobile.RequestOverlayPermission` opens; without it the overlay ends at once and `OnEnd` hears why. It takes touches but leaves the keys and the touches around it to the app in front, unless it is `Focusable` or `Passive`, and moves with `desktop.SetWindowFrame` from its content. Other platforms open none.

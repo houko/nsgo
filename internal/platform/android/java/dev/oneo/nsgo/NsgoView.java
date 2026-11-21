@@ -691,12 +691,22 @@ public class NsgoView extends FrameLayout implements NsgoEngine.Listener {
         return keptOffScreen && engine != null && engine.isAlive();
     }
 
+    /** The Go app's request, which follows a kept view to its next launcher activity. */
+    private int orientation;
+
+    private void applyOrientation() {
+        if (primary == null && activity() instanceof NsgoActivity) {
+            ((NsgoActivity) activity()).requestOrientation(orientation);
+        }
+    }
+
     /** Shows the app keepOffScreen kept again, in the activity whose context this view's now wraps, before it goes into that activity's window: its appearance and direction restyle that window. */
     void showAgain() {
         keptOffScreen = false;
         themed = null;
         if (engine != null && engine.isAlive()) attachRunningEngine();
         applyDirection();
+        applyOrientation();
     }
 
     /** The last overlay over other apps closed or the last background location stream stopped: a view kept only for them ends the app's process, as its activity did, once nothing else keeps it. */
@@ -2767,6 +2777,10 @@ public class NsgoView extends FrameLayout implements NsgoEngine.Listener {
                 event(Protocol.EVENT_BIOMETRIC, 0, count, 0, 0, "", 0, 0, biometricAvailability());
                 break;
             }
+            case Protocol.ITEM_ORIENTATION:
+                orientation = in.readUnsignedByte();
+                applyOrientation();
+                break;
             case Protocol.ITEM_SPEAK: {
                 long count = in.readInt() & 0xffffffffL;
                 int command = in.readUnsignedByte();
