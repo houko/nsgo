@@ -4,7 +4,7 @@ package windows
 
 import "unsafe"
 
-// A touchscreen's touches are the views' fingers, one per pointer ID, from the WM_POINTER messages Windows sends for touches since Windows 8. Each message still goes on to DefWindowProc, which keeps making the window's WM_GESTURE pinches and rotations and the primary touch's mouse messages, so presses, pans and touch scrolling go on as before. Those mouse messages, which carry the touch signature in their extra information, report no mouse finger, so a finger is never reported twice; a pen's stay the mouse's finger 0.
+// A touchscreen's touches are the views' fingers, one per pointer ID, from the WM_POINTER messages Windows sends for touches since Windows 8. Unless a page or a scroll view takes the touch, each message still goes on to DefWindowProc, which keeps making the window's WM_GESTURE pinches and rotations and the primary touch's mouse messages, so presses, pans and touch scrolling go on as before. Those mouse messages, which carry the touch signature in their extra information, report no mouse finger, so a finger is never reported twice; a pen's stay the mouse's finger 0.
 //
 // RegisterTouchWindow's WM_TOUCH would end the window's WM_GESTURE messages, and EnableMouseInPointer would turn the mouse's own messages into pointer messages for the whole process, so neither is used.
 
@@ -48,6 +48,13 @@ func (w *window) touchFinger(message uint32, wParam, lParam uintptr) {
 	p := w.point(at.X, at.Y)
 	switch {
 	case message == wmPointerDown:
+		// Touches on a video's controls or a page are theirs, as hostedMouse gives them the press Windows makes from the touch.
+		if vd, _, _ := w.barAt(at.X, at.Y); vd != nil {
+			return
+		}
+		if wv, _, _ := w.webAt(at.X, at.Y); wv != nil {
+			return
+		}
 		w.touch(w.fingers.TouchDown(key, w.listensTouches(), p))
 	case message == wmPointerUpdate && flags&pointerFlagInContact != 0:
 		w.touch(w.fingers.TouchMove(key, p))

@@ -2064,7 +2064,7 @@ func (w *window) pointerMoved(x, y int32) {
 	w.hoverViews()
 }
 
-// touch reports the mouse as a finger, when ok.
+// touch reports the views' fingers, when ok.
 func (w *window) touch(ev driver.Event, ok bool) {
 	if ok {
 		w.captureTouches(&ev)

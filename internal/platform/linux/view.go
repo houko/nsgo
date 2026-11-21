@@ -330,7 +330,7 @@ func (w *window) updatePointerCursor() {
 	}
 }
 
-// touch reports the mouse as a finger, when ok.
+// touch reports the views' fingers, when ok.
 func (w *window) touch(ev driver.Event, ok bool) {
 	if ok {
 		w.captureTouches(&ev)

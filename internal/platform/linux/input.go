@@ -119,7 +119,8 @@ func (w *window) pointerDown(at driver.Point, button uint32, device uintptr, sta
 	w.engine.InputModality(driver.ModalityPointer)
 	w.lastPointer, w.pressConsumed, w.windowMove = at, false, nil
 	w.down = driver.Event{Modifiers: modifiers(state), Count: uint32(max(clicks, 1)), Page: at}
-	touch := button == 1 && isTouch(device)
+	// On X11 the released GTK 4 gives a touch's events the core pointer as their device, whose source is the mouse, so a touch is also known by its event's type.
+	touch := button == 1 && (isTouch(device) || w.currentEvent != 0 && gdkEventGetEventType(w.currentEvent) == gdkTouchBegin)
 	if touch {
 		w.touchDown(at)
 	} else {
