@@ -815,6 +815,33 @@ type attachmentBox struct {
 	shown bool
 }
 
+func spanGradientCSS(g driver.Gradient) string {
+	if len(g.Stops) == 0 {
+		return ""
+	}
+	name := "linear-gradient"
+	prefix := fmt.Sprintf("%gdeg", g.Angle)
+	switch g.Kind {
+	case driver.GradientRadial:
+		name, prefix = "radial-gradient", ""
+	case driver.GradientConic:
+		name = "conic-gradient"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s(%s", name, prefix)
+	for _, stop := range g.Stops {
+		b.WriteString(", ")
+		b.WriteString(webstyle.Color(stop.Color))
+		if p, ok := stop.At.Percent(); ok {
+			fmt.Fprintf(&b, " %g%%", p)
+		} else if p, ok := stop.At.Points(); ok {
+			fmt.Fprintf(&b, " %gpx", p)
+		}
+	}
+	b.WriteByte(')')
+	return b.String()
+}
+
 // Release implements core.TextLayout.
 func (*textLayout) Release() {}
 
@@ -842,9 +869,12 @@ func (s *surface) Prepare(t *driver.AttributedText) driver.PreparedText {
 		delete(css, "text-align")
 		// A background is the span's inline box: from its font's ascent to
 		// its descent, a rounded box on every line, changing no line.
-		if bg := sp.Background; bg.Color != 0 {
+		if bg := sp.Background; bg.Color != 0 || bg.Gradients != nil {
 			css["background-color"] = webstyle.Color(bg.Color)
 			css["border-radius"] = webstyle.Px(bg.Radius)
+			if bg.Gradients != nil && len(*bg.Gradients) > 0 {
+				css["background-image"] = spanGradientCSS((*bg.Gradients)[0])
+			}
 			css["box-decoration-break"], css["-webkit-box-decoration-break"] = "clone", "clone"
 		}
 		if sp.Hidden {

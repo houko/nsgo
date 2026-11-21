@@ -11,6 +11,15 @@ import (
 	"github.com/nsgo-dev/nsgo/internal/layout"
 )
 
+func spanBackground(style Style, color Color) driver.TextBackground {
+	b := driver.TextBackground{Color: color, Radius: style.CornerRadius}
+	if len(style.Gradients) > 0 {
+		gs := driver.GradientList(style.Gradients)
+		b.Gradients = &gs
+	}
+	return b
+}
+
 func sameWebConfig(a, b driver.WebConfig) bool {
 	return a.Source == b.Source && a.InjectedJavaScript == b.InjectedJavaScript &&
 		a.InjectedJavaScriptBeforeContent == b.InjectedJavaScriptBeforeContent &&
@@ -474,7 +483,7 @@ func (t *Tree) resolve(n *node, inherited textFields, force bool) {
 					spanStyle.RTL = ts.RTL
 					spanStyle.Align = sidedAlign(spanStyle.Align, ts.RTL)
 					span := driver.TextSpan{Start: start, End: b.Len(), Style: spanStyle, Cursor: sp.style.Cursor, Link: sp.press != nil,
-						Background: driver.TextBackground{Color: currentIn(sp.style.Background, spanStyle.Color), Radius: sp.style.CornerRadius}}
+						Background: spanBackground(sp.style, currentIn(sp.style.Background, spanStyle.Color))}
 					if sp.style.Visibility == VisibilityHidden {
 						// In place: laid out, drawn as nothing, no link.
 						span.Hidden, span.Link, span.Background = true, false, driver.TextBackground{}

@@ -116,6 +116,18 @@ func TestSpanBackgrounds(t *testing.T) {
 	}
 }
 
+func TestSpanBackgroundGradientsReachTheTextEngine(t *testing.T) {
+	gradient := Gradient{Kind: GradientLinear, Angle: 180, Stops: []ColorStop{{Color: Transparent, At: Pct(62)}, {Color: RGB(0xffd60a), At: Pct(62)}}}
+	h := newHost(t, Size{Width: 200, Height: 200}, func(cx *Scope) Node {
+		return Text{TestID: "text", Spans: []Span{{Content: "highlight", Style: Style{Gradients: []Gradient{gradient}}}}}
+	})
+	h.commit()
+	got := h.find("text").text.text.Spans[0].Background.Gradients
+	if got == nil || len(*got) != 1 || (*got)[0].Angle != 180 || len((*got)[0].Stops) != 2 {
+		t.Fatalf("span gradients = %+v", got)
+	}
+}
+
 func TestSpansFuncAttachmentsFollowTheSpans(t *testing.T) {
 	var at *Signal[int]
 	h := newHost(t, Size{Width: 200, Height: 200}, func(cx *Scope) Node {

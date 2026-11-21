@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"reflect"
 	"strings"
 	"unicode/utf8"
 )
@@ -94,7 +95,13 @@ type TextBackground struct {
 	Color Color
 	// Radius rounds each line's box, at most to half its height.
 	Radius Points
+	// Gradients are drawn over Color inside each line's box, as a view's
+	// gradients are drawn over its background.
+	Gradients *GradientList
 }
+
+// GradientList keeps a span background comparable while carrying its gradient paints.
+type GradientList []Gradient
 
 // HasHidden reports whether a span of t is hidden.
 func (t *AttributedText) HasHidden() bool {
@@ -269,7 +276,8 @@ func (a *AttributedText) Equal(b *AttributedText) bool {
 		return false
 	}
 	for i := range a.Spans {
-		if a.Spans[i] != b.Spans[i] {
+		as, bs := a.Spans[i], b.Spans[i]
+		if as.Start != bs.Start || as.End != bs.End || as.Style != bs.Style || as.Cursor != bs.Cursor || as.Link != bs.Link || as.Hidden != bs.Hidden || as.Copy != bs.Copy || !reflect.DeepEqual(as.Background, bs.Background) {
 			return false
 		}
 	}
