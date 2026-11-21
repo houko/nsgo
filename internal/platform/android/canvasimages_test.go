@@ -3,6 +3,7 @@ package android
 import (
 	"context"
 	"fmt"
+	"image"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -170,5 +171,20 @@ func TestCanvasRequestsProcessCloseStopsEverySurface(t *testing.T) {
 	c.update(7, canvasSourceBatch(1, src))
 	if len(c.trees) != 0 {
 		t.Fatal("a late mount revived a closed process")
+	}
+}
+
+func TestCanvasRequestsLeaveShaderPixelsOut(t *testing.T) {
+	var c canvasRequests
+	defer c.closeSurface(0)
+	px := driver.ImageSource{Pixels: image.NewRGBA(image.Rect(0, 0, 2, 2)), Version: 1}
+	url := driver.ImageSource{URI: "https://x/a.png"}
+	c.update(0, &driver.MountBatch{Items: []driver.MountItem{{Kind: driver.ItemShader, ID: 1,
+		Shader: &driver.Shader{Images: []driver.ImageSource{px, url}}}}})
+	if _, _, _, ok := c.start(0, px.Key(), 1); ok {
+		t.Fatal("a shader's pixels are a source Java requests; they go with the item")
+	}
+	if _, got, load, ok := c.start(0, url.Key(), 2); !ok || load == nil || got.URI != url.URI {
+		t.Fatalf("the shader's URL is not available: %v %+v", ok, got)
 	}
 }

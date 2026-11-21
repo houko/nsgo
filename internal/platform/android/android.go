@@ -897,7 +897,7 @@ func (s *surface) mount(v *treeView, b *driver.MountBatch) {
 		}
 	}
 	natives := s.trackNatives(v.id, b)
-	shaders := s.trackShaders(b)
+	shaders := s.trackShaders(v, b)
 	first := !v.defaultsSent
 	v.defaultsSent = true
 	s.send(msgBatch, func(w *writer) {
@@ -922,6 +922,8 @@ type treeView struct {
 	// defaultsSent is set once a batch carried the defaults.
 	defaultsSent bool
 	images       map[driver.NodeID]*imageView
+	// shaderPixels are the copies of pixels each shader view was sent last, by image, which Java keeps.
+	shaderPixels map[driver.NodeID][]*image.RGBA
 }
 
 // target is the Engine of surface id, for the reader goroutine: the first's, else an attached overlay's that has not ended, else nil.

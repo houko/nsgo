@@ -293,23 +293,53 @@ func TestImageSizeAnswersPixelsAtOnce(t *testing.T) {
 	}
 }
 
-func TestShaderImagesTakeNoPixels(t *testing.T) {
+func TestShaderImagesCopyPixelsOncePerVersion(t *testing.T) {
 	prog := MustCompileShader(testShader)
 	frame := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	fillPixels(frame, 10)
 	var version *Signal[uint64]
+	var count *Signal[int]
+	var empty *Signal[bool]
 	h := newHost(t, Size{Width: 100, Height: 100}, func(cx *Scope) Node {
 		version = NewSignal(cx, uint64(1))
-		return Shader{Program: prog, ImagesFunc: func() []ImageSource {
-			return []ImageSource{{Pixels: frame, Version: version.Get()}, Src("https://x/a.png")}
-		}}
+		count = NewSignal(cx, 1)
+		empty = NewSignal(cx, false)
+		return Shader{Program: prog, UniformsFunc: func() Uniforms { return Uniforms{"Count": count.Get()} },
+			ImagesFunc: func() []ImageSource {
+				px := frame
+				if empty.Get() {
+					px = image.NewRGBA(image.Rectangle{})
+				}
+				return []ImageSource{{Pixels: px, Version: version.Get()}, Src("https://x/a.png")}
+			}}
 	})
-	sh := shaderItem(h.commit())
-	if sh == nil || len(sh.Images) != 2 || sh.Images[0].Pixels != nil || sh.Images[0].Version != 0 || sh.Images[1].URI != "https://x/a.png" {
-		t.Fatalf("shader = %+v, want its images without pixels", sh)
+	first := shaderItem(h.commit())
+	if first == nil || len(first.Images) != 2 || first.Images[0].Pixels == nil || first.Images[0].Pixels == frame ||
+		first.Images[0].Version != 1 || first.Images[1].URI != "https://x/a.png" || first.Images[1].Pixels != nil {
+		t.Fatalf("shader = %+v, want a copy of the frame at version 1 and the URL", first)
+	}
+	copied := first.Images[0].Pixels
+	// The app writes its next frame into the same buffer once the commit ran.
+	fillPixels(frame, 20)
+	if copied.Pix[0] != 10 {
+		t.Fatalf("the sent frame changed to %d with the app's buffer", copied.Pix[0])
+	}
+	version.Set(1)
+	if sh := shaderItem(h.commit()); sh != nil {
+		t.Fatalf("the same version sent %+v", sh)
+	}
+	count.Set(2)
+	if sh := shaderItem(h.commit()); sh == nil || sh.Images[0].Pixels != copied {
+		t.Fatalf("a new uniform sent %+v, want the same copy, which uploads nothing", sh)
 	}
 	version.Set(2)
-	if sh := shaderItem(h.commit()); sh != nil {
-		t.Fatalf("a new version sent %+v, which reads no pixels", sh)
+	sh := shaderItem(h.commit())
+	if sh == nil || sh.Images[0].Version != 2 || sh.Images[0].Pixels == copied || sh.Images[0].Pixels.Pix[0] != 20 || copied.Pix[0] != 10 {
+		t.Fatalf("version 2 sent %+v, want a new copy of the frame", sh)
+	}
+	empty.Set(true)
+	if sh := shaderItem(h.commit()); sh == nil || !sh.Images[0].Empty() {
+		t.Fatalf("an empty buffer sent %+v, want no pixels", sh)
 	}
 }
 

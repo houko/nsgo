@@ -4,6 +4,7 @@ package apple
 
 import (
 	"fmt"
+	"image"
 	"log"
 	"math"
 	"runtime"
@@ -44,8 +45,7 @@ type ShaderLayer struct {
 	lanes  []float64
 	buf    []byte
 	render *shaderRender
-	// textures are the images' Metal textures, made once each loads, and
-	// sizes their pixels.
+	// textures are the images' Metal textures, made once each loads, and sizes their pixels. An image of pixels keeps its texture while its size stays, and the render goroutine writes each copy the core sends into it.
 	textures []objc.ID
 	sizes    [][2]float64
 	sources  []driver.ImageSource
@@ -74,6 +74,21 @@ type shaderRender struct {
 	buf      []byte
 	textures []objc.ID // retained for the frame
 	fresh    bool
+	// uploads are the copies of pixels to write into textures, each retained, before the next frame.
+	uploads map[objc.ID]*image.RGBA
+}
+
+// upload has the render goroutine write px into texture t before the frame it draws next, in place of a copy not written yet.
+func (r *shaderRender) upload(t objc.ID, px *image.RGBA) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.uploads == nil {
+		r.uploads = map[objc.ID]*image.RGBA{}
+	}
+	if _, ok := r.uploads[t]; !ok {
+		t.Send(sel("retain"))
+	}
+	r.uploads[t] = px
 }
 
 // metalPipeline is a program compiled for Metal: its pipeline state, 0
@@ -96,6 +111,7 @@ type mtlClearColor struct {
 
 const (
 	mtlPixelFormatBGRA8Unorm = 80
+	mtlPixelFormatRGBA8Unorm = 70
 	mtlLoadActionClear       = 2
 	mtlStoreActionStore      = 1
 	mtlPrimitiveTypeTriangle = 3
@@ -240,18 +256,46 @@ func (l *ShaderLayer) Draw(animated func(lanes []float64)) {
 // a drawable is free, until the layer is released, then lets the layer go.
 func (r *shaderRender) loop() {
 	runtime.LockOSThread()
-	defer r.layer.Send(selRelease)
+	// last is the command buffer of the frame drawn last, which may still read the textures pixels are written into.
+	var last objc.ID
+	defer func() {
+		r.mu.Lock()
+		for t := range r.uploads {
+			t.Send(selRelease)
+		}
+		r.uploads = nil
+		r.mu.Unlock()
+		if last != 0 {
+			last.Send(selRelease)
+		}
+		r.layer.Send(selRelease)
+	}()
 	var buf []byte
 	for range r.wake {
 		pool := poolPush()
 		drawable := r.layer.Send(selNextDrawable)
 		r.mu.Lock()
-		state, fresh, textures := r.state, r.fresh, r.textures
+		state, fresh, textures, uploads := r.state, r.fresh, r.textures, r.uploads
 		buf = append(buf[:0], r.buf...)
-		r.fresh, r.textures = false, nil
+		r.fresh, r.textures, r.uploads = false, nil, nil
 		r.mu.Unlock()
+		if len(uploads) > 0 {
+			// The GPU reads a texture while its frame runs, so the pixels go in once the last frame finished.
+			if last != 0 {
+				last.Send(sel("waitUntilCompleted"))
+			}
+			for t, px := range uploads {
+				writePixels(t, px)
+				t.Send(selRelease)
+			}
+		}
 		if drawable != 0 && fresh {
-			encodeShader(drawable, state, buf, textures)
+			cb := encodeShader(drawable, state, buf, textures)
+			cb.Send(sel("retain"))
+			if last != 0 {
+				last.Send(selRelease)
+			}
+			last = cb
 		}
 		for _, t := range textures {
 			t.Send(selRelease)
@@ -260,9 +304,9 @@ func (r *shaderRender) loop() {
 	}
 }
 
-// encodeShader draws state with the uniforms in buf into drawable and
-// presents it.
-func encodeShader(drawable, state objc.ID, buf []byte, textures []objc.ID) {
+// encodeShader draws state with the uniforms in buf into drawable,
+// presents it and returns the command buffer it committed.
+func encodeShader(drawable, state objc.ID, buf []byte, textures []objc.ID) objc.ID {
 	pass := objc.ID(Class("MTLRenderPassDescriptor")).Send(sel("renderPassDescriptor"))
 	att := pass.Send(selColorAttachments).Send(selObjectAtIndexedSubscript, uint(0))
 	att.Send(sel("setTexture:"), drawable.Send(sel("texture")))
@@ -289,6 +333,7 @@ func encodeShader(drawable, state objc.ID, buf []byte, textures []objc.ID) {
 	if buffer != 0 {
 		buffer.Send(selRelease)
 	}
+	return cb
 }
 
 // Release lets the layer go, with the view holding it, once its render
@@ -312,16 +357,48 @@ func (l *ShaderLayer) setImages(images []driver.ImageSource) {
 			return
 		}
 	}
-	for _, t := range l.textures {
-		if t != 0 {
-			t.Send(selRelease)
-		}
-	}
+	old, oldTextures, oldSizes := l.sources, l.textures, l.sizes
+	kept := make([]bool, len(oldTextures))
 	l.sources = images
 	l.textures, l.sizes = make([]objc.ID, len(images)), make([][2]float64, len(images))
 	for i, src := range images {
+		if i < len(oldTextures) && oldTextures[i] != 0 && old[i].Same(src) {
+			l.textures[i], l.sizes[i], kept[i] = oldTextures[i], oldSizes[i], true
+			continue
+		}
+		if px := src.Pixels; px != nil {
+			size := [2]float64{float64(px.Rect.Dx()), float64(px.Rect.Dy())}
+			if i < len(oldTextures) && oldTextures[i] != 0 && old[i].Pixels != nil && oldSizes[i] == size {
+				l.textures[i], l.sizes[i], kept[i] = oldTextures[i], size, true
+			} else if t := pixelTexture(px.Rect.Dx(), px.Rect.Dy()); t != 0 {
+				l.textures[i], l.sizes[i] = t, size
+			}
+			if l.textures[i] != 0 {
+				l.render.upload(l.textures[i], px)
+			}
+			continue
+		}
 		l.loadImage(i, src)
 	}
+	for i, t := range oldTextures {
+		if t != 0 && !kept[i] {
+			t.Send(selRelease)
+		}
+	}
+}
+
+// writePixels writes the core's copy px into texture t, which pixelTexture made at its size.
+func writePixels(t objc.ID, px *image.RGBA) {
+	w, h := px.Rect.Dx(), px.Rect.Dy()
+	t.Send(sel("replaceRegion:mipmapLevel:withBytes:bytesPerRow:"), mtlRegion{W: uint(w), H: uint(h), D: 1}, uint(0),
+		unsafe.Pointer(&px.Pix[0]), uint(w*4))
+}
+
+// pixelTexture returns a Metal texture of premultiplied RGBA, w by h, for the core's copies of an image's pixels, or 0.
+func pixelTexture(w, h int) objc.ID {
+	desc := objc.ID(Class("MTLTextureDescriptor")).Send(
+		sel("texture2DDescriptorWithPixelFormat:width:height:mipmapped:"), uint(mtlPixelFormatRGBA8Unorm), uint(w), uint(h), false)
+	return mtlDevice.Send(sel("newTextureWithDescriptor:"), desc)
 }
 
 // loadImage makes image i's texture once it loads.

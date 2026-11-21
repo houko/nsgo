@@ -42,7 +42,7 @@ core.Image{ResizeMode: core.Contain, SourceFunc: func() core.ImageSource {
 }}
 ```
 
-NSGo 在带着新 `Version` 的提交运行时复制像素，所以应用可以在下一次 `RequestAnimationFrame` 回调中写下一帧；在自己的 goroutine 上解码的解码器应写入第二个缓冲区，再把交换投递过来。相同的 `Version` 不会重新绘制。`cx.ImageSize` 对像素来源立即返回缓冲区的尺寸。`core.Canvas` 用 `DrawImage` 绘制像素，复制方式相同，除 Android、HarmonyOS 和小程序外的平台都支持。`core.Shader` 的 `Images` 不接受像素。
+NSGo 在带着新 `Version` 的提交运行时复制像素，所以应用可以在下一次 `RequestAnimationFrame` 回调中写下一帧；在自己的 goroutine 上解码的解码器应写入第二个缓冲区，再把交换投递过来。相同的 `Version` 不会重新绘制。`cx.ImageSize` 对像素来源立即返回缓冲区的尺寸。`core.Canvas` 用 `DrawImage` 绘制像素，复制方式相同，除 Android、HarmonyOS 和小程序外的平台都支持。`core.Shader` 的 `Images` 也以同样的方式接受像素，所以着色器可以处理应用写入的帧（例如模拟器的画面），在所有绘制着色器的平台上都可以。
 
 macOS、iOS、tvOS、watchOS、Windows 和 Linux 直接绘制像素。Android 和 Web 的图片视图通过每个版本生成一次的 PNG 显示像素，并把它当作新图片加载，所以两个版本之间视图会空白，直到新图片加载完成；Web 的画布直接绘制像素。HarmonyOS 和小程序暂不显示像素。
 

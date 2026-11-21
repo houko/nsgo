@@ -3,6 +3,7 @@
 package windows
 
 import (
+	"image"
 	"log"
 	"math"
 	"syscall"
@@ -105,6 +106,14 @@ type shaderView struct {
 	// a WGSL program reads instead, an effect's (effect.go).
 	images   map[string]*d3dImage
 	pictures [4]*pictureTex
+	// pixels are the textures of the images that are pixels, by their place in Images: kept while their size stays and updated in place with each copy the core sends.
+	pixels [4]*pixelImage
+}
+
+// pixelImage is the texture of an image of pixels and the core's copy it holds.
+type pixelImage struct {
+	d3dImage
+	from *image.RGBA
 }
 
 // d3dImage is an image's texture and its view, w by h pixels.
@@ -123,6 +132,12 @@ func (sv *shaderView) release() {
 		releaseAll(&im.srv, &im.tex)
 	}
 	sv.images = nil
+	for i, im := range sv.pixels {
+		if im != nil {
+			releaseAll(&im.srv, &im.tex)
+		}
+		sv.pixels[i] = nil
+	}
 }
 
 // setShader gives v what it draws and binds its animated lanes.
@@ -295,8 +310,30 @@ func (sv *shaderView) render(p *painter, prog *d3dProgram, width, height float32
 	copy(sv.lanes[bridge:], sv.shader.Lanes)
 	w.animator.ShaderLanes(sv.id, sv.lanes[bridge:])
 	sv.lanes[0], sv.lanes[1], sv.lanes[2] = float64(width), float64(height), float64(p.scale)
+	var ctx *comObject
+	g.d3d.call(d3dGetImmediateContext, uintptr(unsafe.Pointer(&ctx)))
+	if ctx == nil {
+		return
+	}
+	defer ctx.release()
 	srvs := make([]uintptr, prog.textures)
 	for i := range prog.textures {
+		var px *image.RGBA
+		if !sv.shader.Program.WGSL && i < len(sv.shader.Images) {
+			px = sv.shader.Images[i].Pixels
+		}
+		if im := sv.pixels[i]; im != nil && px == nil {
+			// The image is no longer pixels.
+			releaseAll(&im.srv, &im.tex)
+			sv.pixels[i] = nil
+		}
+		if px != nil {
+			if im := sv.pixelImage(g, ctx, i, px); im != nil {
+				srvs[i] = im.srv.ptr()
+				sv.lanes[3+2*i], sv.lanes[4+2*i] = im.w, im.h
+			}
+			continue
+		}
 		if sv.shader.Program.WGSL {
 			if pic := sv.pictures[i]; pic != nil && pic.srv != nil {
 				srvs[i] = pic.srv.ptr()
@@ -318,12 +355,6 @@ func (sv *shaderView) render(p *painter, prog *d3dProgram, width, height float32
 	clear(sv.buf)
 	shaderir.PutLanes(sv.buf, prog.offsets, prog.types, sv.lanes, 4)
 
-	var ctx *comObject
-	g.d3d.call(d3dGetImmediateContext, uintptr(unsafe.Pointer(&ctx)))
-	if ctx == nil {
-		return
-	}
-	defer ctx.release()
 	rtv := sv.rtv.ptr()
 	ctx.call(ctxOMSetRenderTargets, 1, uintptr(unsafe.Pointer(&rtv)), 0)
 	vp := d3dViewport{w: float32(sv.pw), h: float32(sv.ph), maxDepth: 1}
@@ -347,6 +378,40 @@ func (sv *shaderView) render(p *painter, prog *d3dProgram, width, height float32
 		clear := make([]uintptr, len(srvs))
 		ctx.call(ctxPSSetShaderResources, 0, uintptr(len(clear)), uintptr(unsafe.Pointer(&clear[0])))
 	}
+}
+
+// pixelImage returns the texture of image i, the core's copy px of the app's pixels (premultiplied RGBA, top row first, as shaders read them): written into the texture the image had with UpdateSubresource when its size and device are the same, and not at all when it holds px already; nil when Direct3D cannot make one.
+func (sv *shaderView) pixelImage(g *gfx, ctx *comObject, i int, px *image.RGBA) *d3dImage {
+	w, h := px.Rect.Dx(), px.Rect.Dy()
+	im := sv.pixels[i]
+	if im != nil && (im.generation != gfxGeneration || im.w != float64(w) || im.h != float64(h)) {
+		releaseAll(&im.srv, &im.tex)
+		im, sv.pixels[i] = nil, nil
+	}
+	if im != nil {
+		if im.from != px {
+			ctx.call(ctxUpdateSubresource, im.tex.ptr(), 0, 0, uintptr(unsafe.Pointer(&px.Pix[0])), uintptr(w*4), 0)
+			im.from = px
+		}
+		return &im.d3dImage
+	}
+	desc := texture2DDesc{width: uint32(w), height: uint32(h), mipLevels: 1, arraySize: 1,
+		format: dxgiFormatRGBA, sampleCount: 1, bindFlags: d3dBindShaderResource}
+	data := struct {
+		mem         uintptr
+		pitch, size uint32
+	}{uintptr(unsafe.Pointer(&px.Pix[0])), uint32(w * 4), 0}
+	im = &pixelImage{d3dImage: d3dImage{w: float64(w), h: float64(h), generation: gfxGeneration}, from: px}
+	if failed(g.d3d.call(d3dCreateTexture2D, uintptr(unsafe.Pointer(&desc)), uintptr(unsafe.Pointer(&data)),
+		uintptr(unsafe.Pointer(&im.tex)))) {
+		return nil
+	}
+	if failed(g.d3d.call(d3dCreateShaderResourceView, im.tex.ptr(), 0, uintptr(unsafe.Pointer(&im.srv)))) {
+		im.tex.release()
+		return nil
+	}
+	sv.pixels[i] = im
+	return &im.d3dImage
 }
 
 // image returns src's texture for the view, loading the image the first

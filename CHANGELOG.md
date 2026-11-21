@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 - Keep an iOS app's engine, state and screens when UIKit disconnects its scene and connects a new one while the process lives, showing the running app in the new window rather than starting a second engine over it (#1030 by @houko).
+- Let a `core.Shader`'s `Images` take an `ImageSource` with `Pixels`, copied once per `Version` and written into a texture each backend keeps, with no upload while the version stays, so a shader can filter a frame the app writes (#1052 by @houko).
 - Add `WebView.UserAgentSuffix`, and `userAgentSuffix` in TSX, to append to the platform's own user agent or to `UserAgent` on macOS, iOS, Android, Windows and Linux (#114 by @houko).
 - Honor every family in a Windows `FontFamily` list when DirectWrite falls back for missing characters (#668 by @houko).
 - Add the `macos_universal` build target, which joins the arm64 and x64 apps, libraries and widgets into one direct-channel disk image and Sparkle feed (#265 by @houko).

@@ -893,7 +893,7 @@ func (t *Tree) emitParts(n *node) bool {
 	case n.shader != nil:
 		if sn := n.shader; sn.fresh {
 			sn.fresh = false
-			add(driver.MountItem{Kind: driver.ItemShader, ID: n.id, Shader: sn.sent})
+			add(driver.MountItem{Kind: driver.ItemShader, ID: n.id, Shader: sn.withFrames()})
 		}
 	case n.web != nil:
 		wn := n.web

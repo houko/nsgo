@@ -29,7 +29,9 @@ import java.util.Map;
  * shader view shares one EGL context on a GL thread of its own, which
  * compiles each program once; the UI thread hands over the uniform block
  * of the latest frame and never waits for the GPU. It draws when its lanes,
- * its size or an image change, never on a timer.
+ * its size or an image change, never on a timer. An image of pixels comes
+ * with the item, its bytes only when Go copied a new version, and goes into
+ * a texture the view keeps and updates in place.
  */
 final class ShaderNode extends TextureView implements TextureView.SurfaceTextureListener {
     private static final String TAG = "nsgo";
@@ -57,6 +59,20 @@ final class ShaderNode extends TextureView implements TextureView.SurfaceTexture
 
     // What a lane holds, as android/shader.go's lane constants.
     private static final int LANE_FLOAT = 0, LANE_INT = 1, LANE_UINT = 2, LANE_BOOL = 3;
+    // What an image is, as android/shader.go's shaderImage constants.
+    private static final int IMAGE_KEY = 0, IMAGE_PIXELS = 1;
+
+    /** A version of an image's pixels: premultiplied RGBA, top row first. */
+    static final class Pixels {
+        final ByteBuffer bytes;
+        final int width, height;
+
+        Pixels(ByteBuffer bytes, int width, int height) {
+            this.bytes = bytes;
+            this.width = width;
+            this.height = height;
+        }
+    }
 
     private static HandlerThread thread;
     private static Handler gl;
@@ -69,6 +85,8 @@ final class ShaderNode extends TextureView implements TextureView.SurfaceTexture
     private double[] lanes = new double[0], values;
     private int[] nodeLanes = new int[0];
     private String[] images = new String[0];
+    /** The latest pixels of the images that are pixels, by their place; null for the others. */
+    private Pixels[] pixels = new Pixels[0];
     private final float density;
     /** The animated nodes the lanes follow, for NsgoView to bind. */
     int[] boundNodes = new int[0];
@@ -79,12 +97,15 @@ final class ShaderNode extends TextureView implements TextureView.SurfaceTexture
     private ByteBuffer frame;
     private Program frameProgram;
     private String[] frameImages;
+    private Pixels[] framePixels;
     private Bitmap[] frameBitmaps;
     private List<CanvasImages<CanvasNode.Picture>.Lease> frameLeases;
     private final CanvasImages<CanvasNode.Picture> pictures;
     private boolean pending;
-    // The GL thread's: the images' textures.
+    // The GL thread's: the images' textures, and those of pixels by their place with the pixels each holds.
     private final Map<String, Integer> textures = new LinkedHashMap<>(64, .75f, true);
+    private final int[] pixelTextures = new int[4];
+    private final Pixels[] uploaded = new Pixels[4];
 
     ShaderNode(Context context, CanvasImages<CanvasNode.Picture> pictures) {
         super(context);
@@ -119,8 +140,27 @@ final class ShaderNode extends TextureView implements TextureView.SurfaceTexture
             nodeLanes[i] = in.readInt();
             nodeIds[i] = in.readInt();
         }
-        images = new String[in.readInt()];
-        for (int i = 0; i < images.length; i++) images[i] = Protocol.readString(in);
+        int count = in.readInt();
+        String[] keys = new String[count];
+        Pixels[] px = new Pixels[count];
+        for (int i = 0; i < count; i++) {
+            int kind = in.readUnsignedByte();
+            if (kind == IMAGE_KEY) {
+                keys[i] = Protocol.readString(in);
+            } else if (kind == IMAGE_PIXELS) {
+                int w = in.readInt(), h = in.readInt();
+                if ((in.readUnsignedByte() & 1) != 0) {
+                    byte[] bytes = new byte[w * h * 4];
+                    in.readFully(bytes);
+                    px[i] = new Pixels(ByteBuffer.wrap(bytes), w, h);
+                } else if (i < pixels.length && pixels[i] != null && pixels[i].width == w && pixels[i].height == h) {
+                    // The same version as before.
+                    px[i] = pixels[i];
+                }
+            }
+        }
+        images = keys;
+        pixels = px;
         boundNodes = nodeIds;
         values = null;
         draw();
@@ -151,6 +191,14 @@ final class ShaderNode extends TextureView implements TextureView.SurfaceTexture
         Bitmap[] bitmaps = new Bitmap[images.length];
         List<CanvasImages<CanvasNode.Picture>.Lease> leases = new ArrayList<>();
         for (int i = 0; i < images.length; i++) {
+            if (pixels[i] != null) {
+                if (i < p.images) {
+                    all[3 + 2 * i] = pixels[i].width;
+                    all[4 + 2 * i] = pixels[i].height;
+                }
+                continue;
+            }
+            if (images[i] == null) continue;
             CanvasImages<CanvasNode.Picture>.Lease lease = pictures.acquire(images[i]);
             if (lease == null) continue;
             leases.add(lease);
@@ -177,6 +225,7 @@ final class ShaderNode extends TextureView implements TextureView.SurfaceTexture
             frame = block;
             frameProgram = p;
             frameImages = images.clone();
+            framePixels = pixels.clone();
             releaseLeases(frameLeases);
             frameLeases = leases;
             frameBitmaps = bitmaps;
@@ -260,6 +309,11 @@ final class ShaderNode extends TextureView implements TextureView.SurfaceTexture
                     GLES30.glDeleteTextures(ids.length, ids, 0);
                 }
                 textures.clear();
+                for (int i = 0; i < pixelTextures.length; i++) {
+                    if (pixelTextures[i] != 0) GLES30.glDeleteTextures(1, pixelTextures, i);
+                    pixelTextures[i] = 0;
+                    uploaded[i] = null;
+                }
                 EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT);
                 EGL14.eglDestroySurface(display, s);
             }
@@ -280,6 +334,7 @@ final class ShaderNode extends TextureView implements TextureView.SurfaceTexture
         EGLSurface s;
         ByteBuffer block;
         String[] imgs;
+        Pixels[] px;
         Bitmap[] bitmaps;
         List<CanvasImages<CanvasNode.Picture>.Lease> leases;
         int w, h;
@@ -290,6 +345,7 @@ final class ShaderNode extends TextureView implements TextureView.SurfaceTexture
             block = frame;
             p = frameProgram;
             imgs = frameImages;
+            px = framePixels;
             bitmaps = frameBitmaps;
             leases = frameLeases;
             frameLeases = null;
@@ -310,7 +366,19 @@ final class ShaderNode extends TextureView implements TextureView.SurfaceTexture
                 GLES30.glUniform1f(p.height, h);
                 for (int i = 0; i < p.images; i++) {
                     GLES30.glActiveTexture(GLES30.GL_TEXTURE0 + i);
-                    GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, i < imgs.length ? texture(imgs[i], bitmaps[i]) : 0);
+                    int t = 0;
+                    if (i < px.length && px[i] != null) {
+                        t = pixelTexture(i, px[i]);
+                    } else {
+                        if (i < pixelTextures.length && pixelTextures[i] != 0) {
+                            // The image is no longer pixels.
+                            GLES30.glDeleteTextures(1, pixelTextures, i);
+                            pixelTextures[i] = 0;
+                            uploaded[i] = null;
+                        }
+                        if (i < imgs.length && imgs[i] != null) t = texture(imgs[i], bitmaps[i]);
+                    }
+                    GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, t);
                 }
                 GLES30.glBindBuffer(GLES30.GL_UNIFORM_BUFFER, p.ubo);
                 block.position(0);
@@ -323,6 +391,34 @@ final class ShaderNode extends TextureView implements TextureView.SurfaceTexture
         } finally {
             releaseLeases(leases);
         }
+    }
+
+    /**
+     * Returns the texture of image i, whose pixels are px: written into the
+     * texture the image had when its size is the same, and not at all when it
+     * holds px already.
+     */
+    private int pixelTexture(int i, Pixels px) {
+        if (i >= pixelTextures.length) return 0;
+        Pixels had = uploaded[i];
+        if (had == px && pixelTextures[i] != 0) return pixelTextures[i];
+        px.bytes.position(0);
+        if (pixelTextures[i] != 0 && had != null && had.width == px.width && had.height == px.height) {
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, pixelTextures[i]);
+            GLES30.glTexSubImage2D(GLES30.GL_TEXTURE_2D, 0, 0, 0, px.width, px.height, GLES30.GL_RGBA,
+                    GLES30.GL_UNSIGNED_BYTE, px.bytes);
+        } else {
+            if (pixelTextures[i] == 0) GLES30.glGenTextures(1, pixelTextures, i);
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, pixelTextures[i]);
+            GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, px.width, px.height, 0, GLES30.GL_RGBA,
+                    GLES30.GL_UNSIGNED_BYTE, px.bytes);
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST);
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST);
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE);
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE);
+        }
+        uploaded[i] = px;
+        return pixelTextures[i];
     }
 
     /** Returns image key's texture, made from bitmap once it decoded; 0 until then. */

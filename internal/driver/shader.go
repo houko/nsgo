@@ -31,9 +31,7 @@ type Shader struct {
 	// Nodes are the lanes animated nodes drive over Lanes, which the
 	// platform reads from its Animator each frame they change.
 	Nodes []ShaderNode
-	// Images are what the program's image0At to image3At read, in order.
-	// The platform loads each as an image view does and draws the view
-	// again once it has them; one it lacks reads as transparent.
+	// Images are what the program's image0At to image3At read, in order. The platform loads each as an image view does and draws the view again once it has them; one it lacks reads as transparent. An image of Pixels is the core's copy, a new one for each version (CopyPixels), which the platform uploads into a texture it keeps for the view and updates in place, uploading nothing while the copy stays the same.
 	Images []ImageSource
 
 	// Role is what the shader draws: a shader view's fill, or over a

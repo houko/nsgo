@@ -3,6 +3,7 @@
 package web
 
 import (
+	goimage "image"
 	"log"
 	"math"
 	"strconv"
@@ -38,6 +39,15 @@ type glShader struct {
 	// ImageSource.Key, and textureCount how many the program reads.
 	textures     map[string]glTexture
 	textureCount int
+	// pixels are the textures of the images that are pixels, by their place in Images: kept while their size stays and updated in place with each copy the core sends.
+	pixels [4]pixelTexture
+}
+
+// pixelTexture is the texture of an image of pixels, the core's copy it holds, and the array the copy goes through to WebGL.
+type pixelTexture struct {
+	glTexture
+	from  *goimage.RGBA
+	bytes js.Value
 }
 
 // glTexture is an image's texture and its size in pixels.
@@ -112,6 +122,44 @@ func (s *surface) texture(v *view, src driver.ImageSource) (glTexture, bool) {
 	return t, true
 }
 
+// pixelTexture returns the texture of image i, the core's copy px of the app's pixels (premultiplied RGBA, top row first, as shaders read them), bound to the active unit: written into the texture the image had with texSubImage2D when its size is the same, and not at all when it holds px already.
+func (g *glShader) pixelTexture(i int, px *goimage.RGBA) glTexture {
+	gl := g.gl
+	p := &g.pixels[i]
+	w, h := px.Rect.Dx(), px.Rect.Dy()
+	if p.from == px {
+		return p.glTexture
+	}
+	target, kind := gl.Get("TEXTURE_2D"), gl.Get("UNSIGNED_BYTE")
+	n := len(px.Pix[:4*w*h])
+	if p.from != nil && (p.w != float64(w) || p.h != float64(h)) {
+		gl.Call("deleteTexture", p.tex)
+		*p = pixelTexture{}
+	}
+	if p.bytes.IsUndefined() || p.bytes.Length() != n {
+		p.bytes = js.Global().Get("Uint8Array").New(n)
+	}
+	js.CopyBytesToJS(p.bytes, px.Pix[:n])
+	// The copy is premultiplied already.
+	gl.Call("pixelStorei", gl.Get("UNPACK_PREMULTIPLY_ALPHA_WEBGL"), false)
+	if p.from == nil {
+		p.tex = gl.Call("createTexture")
+		gl.Call("bindTexture", target, p.tex)
+		gl.Call("texImage2D", target, 0, gl.Get("RGBA"), w, h, 0, gl.Get("RGBA"), kind, p.bytes)
+		for _, name := range []string{"TEXTURE_MIN_FILTER", "TEXTURE_MAG_FILTER"} {
+			gl.Call("texParameteri", target, gl.Get(name), gl.Get("NEAREST"))
+		}
+		for _, name := range []string{"TEXTURE_WRAP_S", "TEXTURE_WRAP_T"} {
+			gl.Call("texParameteri", target, gl.Get(name), gl.Get("CLAMP_TO_EDGE"))
+		}
+	} else {
+		gl.Call("bindTexture", target, p.tex)
+		gl.Call("texSubImage2D", target, 0, 0, 0, w, h, gl.Get("RGBA"), kind, p.bytes)
+	}
+	p.w, p.h, p.from = float64(w), float64(h), px
+	return p.glTexture
+}
+
 // shadeLater draws v in the next animation frame.
 func (s *surface) shadeLater(v *view) {
 	s.queueShader(v)
@@ -154,6 +202,15 @@ func (s *surface) drawShader(v *view) {
 	w := math.Max(float64(v.size.Width-v.border.Left-v.border.Right), 0)
 	h := math.Max(float64(v.size.Height-v.border.Top-v.border.Bottom), 0)
 	s.drawGL(g, v.inner, v.id, w, h, func(i int) (js.Value, float64, float64) {
+		if i < len(g.shader.Images) && g.shader.Images[i].Pixels != nil {
+			t := g.pixelTexture(i, g.shader.Images[i].Pixels)
+			return t.tex, t.w, t.h
+		}
+		if i < len(g.pixels) && g.pixels[i].from != nil {
+			// The image is no longer pixels.
+			g.gl.Call("deleteTexture", g.pixels[i].tex)
+			g.pixels[i] = pixelTexture{}
+		}
 		if i < len(g.shader.Images) {
 			if t, ok := s.texture(v, g.shader.Images[i]); ok {
 				return t.tex, t.w, t.h

@@ -3,6 +3,7 @@
 package linux
 
 import (
+	"image"
 	"log"
 	"strconv"
 	"unsafe"
@@ -45,6 +46,14 @@ type glShaderView struct {
 	// effect's (effect.go).
 	textures map[string]glTexture
 	pictures [4]*glPicture
+	// pixels are the textures of the images that are pixels, by their place in Images: kept while their size stays and updated in place with each copy the core sends.
+	pixels [4]pixelTexture
+}
+
+// pixelTexture is the texture of an image of pixels and the core's copy it holds.
+type pixelTexture struct {
+	glTexture
+	from *image.RGBA
 }
 
 type glTexture struct {
@@ -92,6 +101,7 @@ var (
 	glBindTexture        func(target, id uint32)
 	glActiveTexture      func(unit uint32)
 	glTexImage2D         func(target uint32, level, internal, w, h, border int32, format, typ uint32, data unsafe.Pointer)
+	glTexSubImage2D      func(target uint32, level, x, y, w, h int32, format, typ uint32, data unsafe.Pointer)
 	glTexParameteri      func(target, name uint32, v int32)
 
 	gtkGLAreaNew             func() uintptr
@@ -185,6 +195,7 @@ func loadGL() bool {
 	fn(&glBindTexture, "glBindTexture")
 	fn(&glActiveTexture, "glActiveTexture")
 	fn(&glTexImage2D, "glTexImage2D")
+	fn(&glTexSubImage2D, "glTexSubImage2D")
 	fn(&glTexParameteri, "glTexParameteri")
 	if !ok {
 		log.Printf("nsgo: shader: libepoxy lacks GL functions")
@@ -310,6 +321,12 @@ func (g *glShaderView) deleteGL() {
 			pic.tex = 0
 		}
 	}
+	for i := range g.pixels {
+		if g.pixels[i].id != 0 {
+			glDeleteTextures(1, &g.pixels[i].id)
+		}
+		g.pixels[i] = pixelTexture{}
+	}
 	g.prog, g.ubo, g.vao, g.program, g.textures = 0, 0, 0, nil, nil
 }
 
@@ -344,8 +361,15 @@ func (w *window) drawGL(g *glShaderView, id driver.NodeID, context uintptr) {
 			if pic := g.pictures[i]; pic != nil {
 				t = pic.texture()
 			}
+		case i < len(g.shader.Images) && g.shader.Images[i].Pixels != nil:
+			t = g.pixelTexture(i, g.shader.Images[i].Pixels)
 		case i < len(g.shader.Images):
 			t = w.shaderTexture(w.view(id), g.shader.Images[i])
+		}
+		if p := &g.pixels[i]; p.id != 0 && p.id != t.id {
+			// The image is no longer pixels.
+			glDeleteTextures(1, &p.id)
+			*p = pixelTexture{}
 		}
 		glBindTexture(glTexture2D, t.id)
 		g.lanes[3+2*i], g.lanes[4+2*i] = t.w, t.h
@@ -400,6 +424,33 @@ func (w *window) shaderTexture(v *view, src driver.ImageSource) glTexture {
 	}
 	g.textures[key] = t
 	return t
+}
+
+// pixelTexture returns the texture of image i, the core's copy px of the app's pixels (premultiplied RGBA, top row first, as shaders read them): uploaded into the texture the image had when its size is the same, and not at all when it holds px already.
+func (g *glShaderView) pixelTexture(i int, px *image.RGBA) glTexture {
+	p := &g.pixels[i]
+	if p.from == px {
+		return p.glTexture
+	}
+	w, h := px.Rect.Dx(), px.Rect.Dy()
+	if p.id != 0 && (p.w != float64(w) || p.h != float64(h)) {
+		glDeleteTextures(1, &p.id)
+		p.id = 0
+	}
+	if p.id == 0 {
+		glGenTextures(1, &p.id)
+		glBindTexture(glTexture2D, p.id)
+		glTexImage2D(glTexture2D, 0, glRGBA, int32(w), int32(h), 0, glRGBA, glUnsignedByte, unsafe.Pointer(&px.Pix[0]))
+		glTexParameteri(glTexture2D, glMinFilter, glNearest)
+		glTexParameteri(glTexture2D, glMagFilter, glNearest)
+		glTexParameteri(glTexture2D, glWrapS, glClampToEdge)
+		glTexParameteri(glTexture2D, glWrapT, glClampToEdge)
+	} else {
+		glBindTexture(glTexture2D, p.id)
+		glTexSubImage2D(glTexture2D, 0, 0, 0, int32(w), int32(h), glRGBA, glUnsignedByte, unsafe.Pointer(&px.Pix[0]))
+	}
+	p.w, p.h, p.from = float64(w), float64(h), px
+	return p.glTexture
 }
 
 // link translates p for the area's GL and links it, reporting whether it

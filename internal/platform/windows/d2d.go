@@ -181,6 +181,7 @@ const (
 	d3dVideoSupport            = 0x800
 	d3dSDKVersion              = 7
 	dxgiFormatBGRA             = 87 // DXGI_FORMAT_B8G8R8A8_UNORM
+	dxgiFormatRGBA             = 28 // DXGI_FORMAT_R8G8B8A8_UNORM
 	dxgiUsageTarget            = 0x20
 	dxgiScalingNone            = 1
 	dxgiFlipSequential         = 3

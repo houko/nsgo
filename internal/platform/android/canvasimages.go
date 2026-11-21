@@ -62,7 +62,12 @@ func (c *canvasRequests) update(surface uint32, b *driver.MountBatch) {
 			}
 		}
 		if it.Kind == driver.ItemShader && it.Shader != nil {
-			sources = it.Shader.Images
+			// Pixels go with the item, never through Java's requests.
+			for _, src := range it.Shader.Images {
+				if src.Pixels == nil {
+					sources = append(sources, src)
+				}
+			}
 		}
 		// Add before removing: unchanged sources keep their in-flight load.
 		keys := make([]string, 0, len(sources))

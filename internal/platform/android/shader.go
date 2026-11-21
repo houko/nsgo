@@ -3,10 +3,13 @@
 package android
 
 import (
+	"image"
+	"log"
+	"slices"
+
 	"github.com/nsgo-dev/nsgo/internal/driver"
 	"github.com/nsgo-dev/nsgo/internal/shaderir"
 	"github.com/nsgo-dev/nsgo/internal/shaderir/glsl"
-	"slices"
 )
 
 // Shaders draw with OpenGL ES 3.0 in the Java runtime's ShaderNode, a
@@ -14,7 +17,9 @@ import (
 // its source with the first item that draws it, with where each uniform
 // lane lies in its std140 block; Java compiles it once for its context,
 // writes the lanes, the animated ones each frame they change, and draws
-// when they, the size or an image change.
+// when they, the size or an image change. An image of pixels goes with
+// the item, its bytes only when the core sent a new copy, and Java writes
+// them into a texture the view keeps.
 
 // glProgram is a program translated for Java.
 type glProgram struct {
@@ -36,12 +41,23 @@ const (
 	laneBool
 )
 
-// shaderItem is what an ItemShader sends: its program, and whether the
-// program's source goes with it.
+// shaderItem is what an ItemShader sends: its program, whether the
+// program's source goes with it, and which of its images' pixels do.
 type shaderItem struct {
 	prog   *glProgram
 	source bool
+	pixels []bool
 }
+
+// What an image of an ItemShader is, as ShaderNode.set reads it: a source Java loads by its key, pixels, or nothing.
+const (
+	shaderImageKey byte = iota
+	shaderImagePixels
+	shaderImageNone
+)
+
+// maxShaderPixels is the most bytes an image of pixels takes, leaving room in a message for the rest of its batch (maxMessage).
+const maxShaderPixels = maxMessage / 2
 
 // glMain is the fragment stage around the program's function: the
 // position counts down from the top, as the program's does.
@@ -55,11 +71,14 @@ void main() {
 }
 `
 
-// trackShaders translates the programs a batch's shader items draw, on the engine goroutine.
-func (s *surface) trackShaders(b *driver.MountBatch) []shaderItem {
+// trackShaders translates the programs a batch's shader items draw, and says which of their pixels Java lacks, on the engine goroutine.
+func (s *surface) trackShaders(tv *treeView, b *driver.MountBatch) []shaderItem {
 	var out []shaderItem
 	for i := range b.Items {
 		it := &b.Items[i]
+		if it.Kind == driver.ItemCreate || it.Kind == driver.ItemDelete {
+			delete(tv.shaderPixels, it.ID)
+		}
 		if it.Kind != driver.ItemShader || it.Shader == nil {
 			continue
 		}
@@ -73,7 +92,19 @@ func (s *surface) trackShaders(b *driver.MountBatch) []shaderItem {
 			}
 			s.programs[it.Shader.Program] = p
 		}
-		out = append(out, shaderItem{prog: p, source: !p.sent})
+		// The core sends the same copy while the version stays, which Java has.
+		sent := tv.shaderPixels[it.ID]
+		pixels := make([]bool, len(it.Shader.Images))
+		now := make([]*image.RGBA, len(it.Shader.Images))
+		for j, img := range it.Shader.Images {
+			now[j] = img.Pixels
+			pixels[j] = img.Pixels != nil && (j >= len(sent) || sent[j] != img.Pixels)
+		}
+		if tv.shaderPixels == nil {
+			tv.shaderPixels = map[driver.NodeID][]*image.RGBA{}
+		}
+		tv.shaderPixels[it.ID] = now
+		out = append(out, shaderItem{prog: p, source: !p.sent, pixels: pixels})
 		p.sent = true
 	}
 	return out
@@ -130,8 +161,31 @@ func writeShader(w *writer, sh *driver.Shader, it shaderItem) {
 		w.u32(n.Node)
 	}
 	w.u32(uint32(len(sh.Images)))
-	for _, img := range sh.Images {
-		w.str(img.Key())
+	for i, img := range sh.Images {
+		px := img.Pixels
+		if px == nil {
+			w.byte(shaderImageKey)
+			w.str(img.Key())
+			continue
+		}
+		width, height := px.Rect.Dx(), px.Rect.Dy()
+		n := 4 * width * height
+		if n > maxShaderPixels {
+			if i < len(it.pixels) && it.pixels[i] {
+				log.Printf("nsgo: shader: an image of %d by %d pixels is over the %d MiB the Android runtime takes", width, height, maxShaderPixels>>20)
+			}
+			w.byte(shaderImageNone)
+			continue
+		}
+		fresh := i < len(it.pixels) && it.pixels[i]
+		w.byte(shaderImagePixels)
+		w.u32(uint32(width))
+		w.u32(uint32(height))
+		w.flags(fresh)
+		if fresh {
+			// Premultiplied RGBA, top row first, as GLES takes it.
+			w.buf = append(w.buf, px.Pix[:n]...)
+		}
 	}
 }
 
