@@ -29,9 +29,7 @@ import (
 type Limits struct {
 	// Load limits the entry script and Call limits each slice of JS. On goja, a Plugin.Call whose slice is cut fails with ErrBudget even after it has awaited. CallTotal limits the wall time of a plugin call and the work it starts; at that deadline its pending work is dropped and a call still waiting fails with ErrBudget. The entry module's work is held to Load and standalone host events to CallTotal when CallTotal is set. Zero leaves a budget unlimited.
 	Load, Call, CallTotal time.Duration
-	// Stack is the call depth in frames on native targets. Values at or
-	// below zero or above 10,000 use 10,000. DefaultLimits uses 1,000.
-	// The web uses the browser's stack limit.
+	// Stack is the call depth in frames on native targets. Values at or below zero or above 10,000 use 10,000, so a plugin's recursion throws a catchable RangeError rather than overflowing the goroutine's stack. DefaultLimits uses 1,000. The web uses the browser's stack limit.
 	Stack int
 	// Harden deletes eval, has the Function constructors throw and
 	// freezes the built-in prototypes, so code cannot be made from
