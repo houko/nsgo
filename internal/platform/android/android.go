@@ -1284,6 +1284,7 @@ func encode(w *writer, b *driver.MountBatch, first bool, requests []uint32, nati
 			w.float(c.MaxZoomScale)
 			w.float(c.ZoomScale)
 			w.points(b.RefreshIndicator)
+			w.points(c.HeaderInset)
 		case driver.ItemScrollContent:
 			w.points(it.Size.Width)
 			w.points(it.Size.Height)

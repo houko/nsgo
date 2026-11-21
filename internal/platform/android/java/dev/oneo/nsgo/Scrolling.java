@@ -50,6 +50,8 @@ final class Scrolling {
         int alignment, dismiss, taps;
         float[] offsets = new float[0];
         float insetTop, insetRight, insetBottom, insetLeft;
+        /** The part of insetTop a transparent or large system header covers. */
+        float headerInset;
         float minZoom = 1, maxZoom = 1, zoom = 1;
         /** The height of the app's own refresh indicator; 0 shows the spinner. */
         float refreshIndicator;
@@ -104,6 +106,7 @@ final class Scrolling {
             c.maxZoom = in.readFloat();
             c.zoom = in.readFloat();
             c.refreshIndicator = in.readFloat();
+            c.headerInset = in.readFloat();
             return c;
         }
     }

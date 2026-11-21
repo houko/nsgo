@@ -2540,6 +2540,8 @@ public class NsgoView extends FrameLayout implements NsgoEngine.Listener {
                 Scrolling.Config c = Scrolling.Config.read(in);
                 scroller(n, c.horizontal, c.zooms());
                 ((Scrolling.Scroller) n.scroller).configure(c);
+                n.insetTop = c.insetTop;
+                n.headerInset = c.horizontal ? 0 : c.headerInset;
                 break;
             }
             case Protocol.ITEM_SCROLL_CONTENT: {
@@ -5423,14 +5425,11 @@ public class NsgoView extends FrameLayout implements NsgoEngine.Listener {
 
             @Override
             public void scrolled(float x, float y, float zoom) {
-                Node screen = n;
-                while (screen != null && screen.header == null) screen = screen.up;
-                if (screen != null && screen.header != null) {
-                    float header = screen.header.scroll(y);
-                    if (header != screen.header.reported) {
-                        screen.header.reported = header;
-                        event(Protocol.EVENT_SCREEN_HEADER, screen.id, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, header, null);
-                    }
+                // A scroll view the core insets below a large title collapses it, as on iOS.
+                if (n.headerInset > 0) {
+                    Node screen = n.up;
+                    while (screen != null && screen.header == null) screen = screen.up;
+                    if (screen != null) screen.header.follow(y + n.insetTop);
                 }
                 // Values following the offset move in the same frame, and
                 // so do sticky cells.
@@ -5547,6 +5546,8 @@ public class NsgoView extends FrameLayout implements NsgoEngine.Listener {
         /** Where children go: the view, or a scroll view's content. */
         ViewGroup children;
         FrameLayout scroller;
+        /** A scroll view's top content inset, and the part of it a transparent or large system header covers, in points. */
+        float insetTop, headerInset;
         /** The id of the text layout a text node shows. */
         int laid;
         InputField field;

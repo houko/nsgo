@@ -29,7 +29,7 @@ return nav.Stack(core.Style{FlexGrow: 1}, func(cx *core.Scope, route string, dep
 
 在 iOS 和 Android 上，平台根据页面标题和标题栏的按钮绘制系统标题栏，带返回按钮和转场；在 macOS、Windows、Linux 和 Web 上由 `ui` 绘制。
 
-Android 使用 Material 3 顶部应用栏。普通应用栏高 64 dp，标题为 22 sp。`HeaderLargeTitle` 会给出高 152 dp 的大标题栏，首个垂直滚动视图滚动时收缩到普通高度，回到顶部时展开。
+Android 使用 Material 3 顶部应用栏。普通应用栏高 64 dp，标题为 22 sp。`HeaderLargeTitle` 会给出高 152 dp、标题为 28 sp 的大标题栏，页面顶部的滚动视图把内容滚到它下面时收缩成普通应用栏，内容回到顶部时展开。
 
 给页面设置自己的 `Header` 即可取代 `ui.NavHeader`。在 iOS 和 Android 上，它成为系统标题栏的标题视图，取代 `HeaderTitle`，旁边保留页面的 `HeaderLeft`、`HeaderRight` 和返回按钮；它在那里按内容大小显示，所以搜索框等会伸展的视图要给出宽度。在其他平台上，它绘制在内容上方。`ui.NavHeader.Scroll` 仍然把 iOS 页面的滚动连接到标题栏的模糊效果。
 

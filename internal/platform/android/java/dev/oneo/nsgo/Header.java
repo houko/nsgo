@@ -25,19 +25,23 @@ import java.util.function.IntFunction;
  * toolbar's arrow reports back for the screen.
  */
 final class Header {
-    /** The toolbar's height, in points. */
-    /** Material 3's standard top app bar height. */
+    /** Material 3's top app bar height, in points. */
     static final float BAR = 64;
-    /** Material 3's large top app bar height before it collapses. */
+    /** Material 3's large top app bar height before it collapses, in points. */
     static final float LARGE_BAR = 152;
+    /** Material 3's title sizes in the bar and in a large bar, in sp. */
+    private static final float TITLE = 22, LARGE_TITLE = 28;
 
     final Toolbar toolbar;
     private final BackArrow arrow;
     private final float density;
     /** The bar's height last reported to the engine, in points. */
     float reported;
+    /** Whether the screen asked for a large title, and how far it collapsed, in points. */
     private boolean large;
-    private float largeOffset;
+    private float collapsed;
+    /** The header area's height the core set, status bar included, in pixels. */
+    private int full;
 
     Header(Context context, float density, Runnable back) {
         this.density = density;
@@ -90,11 +94,10 @@ final class Header {
         colors(dark);
         toolbar.setVisibility(hidden ? View.GONE : View.VISIBLE);
         toolbar.setTitle(titleView != 0 ? null : title);
-        largeOffset = 0;
-        int h = Math.round(height * density);
-        applyTitleSize();
-        toolbar.setPadding(0, Math.max(0, h - Math.round(BAR * density)), 0, 0);
-        toolbar.setLayoutParams(new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, h, Gravity.TOP));
+        if (!large) collapsed = 0;
+        full = Math.round(height * density);
+        toolbar.setLayoutParams(new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, full, Gravity.TOP));
+        collapse();
         boolean back = canGoBack && !backHidden;
         toolbar.setNavigationIcon(back ? arrow : null);
         toolbar.setNavigationContentDescription(back ? upDescription(backTitle) : null);
@@ -107,39 +110,39 @@ final class Header {
         add(wrap, right, Gravity.END);
     }
 
-    /** Follows the first scroll view under a large title and reports its collapsed height. */
-    float scroll(float offset) {
-        if (!large || toolbar.getVisibility() != View.VISIBLE) return reported;
-        largeOffset = Math.max(0, Math.min(offset, LARGE_BAR - BAR));
-        int h = Math.round((LARGE_BAR - largeOffset) * density);
+    /** Collapses a large title as the scroll view at the top of the screen moves its content scrolled points under the header, as Material's large top app bar does: the bar shrinks with the content, so the core keeps the expanded height and the content's inset. */
+    void follow(float scrolled) {
+        if (!large) return;
+        float c = Math.max(0, Math.min(scrolled, LARGE_BAR - BAR));
+        if (c == collapsed) return;
+        collapsed = c;
+        collapse();
+    }
+
+    /** Sizes the toolbar to the header area less what the large title collapsed, its bar at the bottom. */
+    private void collapse() {
+        int h = Math.max(full - Math.round(collapsed * density), 0);
         ViewGroup.LayoutParams p = toolbar.getLayoutParams();
         if (p != null && p.height != h) {
             p.height = h;
             toolbar.setLayoutParams(p);
-            toolbar.setPadding(0, Math.max(0, h - Math.round(BAR * density)), 0, 0);
-            toolbar.requestLayout();
         }
-        return h / density;
-    }
-
-    private void applyTitleSize() {
+        toolbar.setPadding(0, Math.max(0, h - Math.round(BAR * density)), 0, 0);
+        float size = large ? LARGE_TITLE - (LARGE_TITLE - TITLE) * collapsed / (LARGE_BAR - BAR) : TITLE;
         for (int i = 0; i < toolbar.getChildCount(); i++) {
             View child = toolbar.getChildAt(i);
             if (child instanceof android.widget.TextView) {
-                ((android.widget.TextView) child).setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+                ((android.widget.TextView) child).setTextSize(TypedValue.COMPLEX_UNIT_SP, size);
             }
         }
     }
 
-    /**
-     * The bar's height as the toolbar lays its title and header views out
-     * across width pixels, in points: at least BAR.
-     */
+    /** The bar's height as the toolbar lays its title and header views out across width pixels, in points: at least BAR, and LARGE_BAR with a large title, which the core keeps as the bar collapses. */
     float measure(int width) {
         int top = toolbar.getPaddingTop();
         toolbar.measure(View.MeasureSpec.makeMeasureSpec(Math.max(width, 1), View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-        return Math.max(BAR, Math.round((toolbar.getMeasuredHeight() - top) / density));
+        return Math.max(large ? LARGE_BAR : BAR, Math.round((toolbar.getMeasuredHeight() - top) / density));
     }
 
     private void add(IntFunction<View> wrap, int id, int gravity) {

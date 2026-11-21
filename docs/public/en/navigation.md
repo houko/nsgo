@@ -29,7 +29,7 @@ return nav.Stack(core.Style{FlexGrow: 1}, func(cx *core.Scope, route string, dep
 
 On iOS and Android the platform draws the system's header from the page's title and the header's buttons, with its back button and its transition; on macOS, Windows, Linux and the web `ui` draws it.
 
-Android uses a Material 3 top app bar. A regular bar is 64 dp with a 22 sp title. `HeaderLargeTitle` gives a 152 dp large bar that collapses to the regular bar as its first vertical scroll view moves, and expands when that view returns to the top.
+Android uses a Material 3 top app bar. A regular bar is 64 dp with a 22 sp title. `HeaderLargeTitle` gives a 152 dp large bar with a 28 sp title that collapses into the regular bar as the scroll view at the top of the page scrolls its content under it, and expands as the content returns to the top.
 
 Give a page its own `Header` to replace `ui.NavHeader`. On iOS and Android it becomes the system header's title view, in place of `HeaderTitle`, beside the page's `HeaderLeft`, `HeaderRight` and the back button; it takes its content's size there, so give a search field or other growing view a width. Elsewhere it is drawn above the content. `ui.NavHeader.Scroll` still connects an iOS page's scrolling to its header's blur.
 
