@@ -732,7 +732,7 @@ func (t *target) scroll(v *View, d driver.Points) {
 	t.check(t.surface.Scroll(at, delta))
 }
 
-// CapturePNG captures the app as the platform shows it and returns its PNG. On macOS its pixels are sRGB, converted from the display's colour space. Headless runs skip the test because they have no native pixels.
+// CapturePNG captures the app as the platform shows it and returns its PNG. On macOS, iOS and tvOS its pixels are sRGB. Headless runs skip the test because they have no native pixels.
 func (a *App) CapturePNG() []byte {
 	a.t.Helper()
 	if a.target == nil {
@@ -745,7 +745,7 @@ func (a *App) CapturePNG() []byte {
 	return append([]byte(nil), png...)
 }
 
-// Capture captures the app as the platform shows it and decodes its PNG. On macOS its pixels are sRGB, converted from the display's colour space, so a colour read from the image matches the one the app set whatever display ran the test. Headless runs skip the test because they have no native pixels.
+// Capture captures the app as the platform shows it and decodes its PNG. On macOS, iOS and tvOS its pixels are sRGB, regardless of the display's color space. Headless runs skip the test because they have no native pixels.
 func (a *App) Capture() image.Image {
 	a.t.Helper()
 	pngData := a.CapturePNG()

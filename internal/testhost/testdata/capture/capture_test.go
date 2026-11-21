@@ -85,3 +85,20 @@ func TestCaptureIsSRGB(t *testing.T) {
 		t.Errorf("the capture shows #%02x%02x%02x, want #2b7766", r>>8, g>>8, bl>>8)
 	}
 }
+
+func TestIOSCaptureIsSRGB(t *testing.T) {
+	switch nsgotest.Target() {
+	case "ios", "ios_simulator", "tvos_simulator":
+	default:
+		t.Skip("checks the UIKit test host's capture")
+	}
+	app := nsgotest.Start(t, func(*core.Scope) core.Node {
+		return core.View{Style: core.Style{FlexGrow: 1, Background: core.RGB(0xff0000)}}
+	})
+	img := app.Capture()
+	b := img.Bounds()
+	r, g, bl, a := img.At(b.Min.X+b.Dx()/2, b.Min.Y+b.Dy()/2).RGBA()
+	if r != 0xffff || g != 0 || bl != 0 || a != 0xffff {
+		t.Errorf("the capture shows #%02x%02x%02x%02x, want #ff0000ff", r>>8, g>>8, bl>>8, a>>8)
+	}
+}

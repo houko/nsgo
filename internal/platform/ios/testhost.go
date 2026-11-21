@@ -543,7 +543,10 @@ func (t *testSurface) Screenshot() ([]byte, error) {
 	var png []byte
 	onMainSync(func() {
 		bounds := objc.Send[apple.CGRect](t.s.window, selBounds)
-		renderer := objc.ID(apple.Class("UIGraphicsImageRenderer")).Send(selAlloc).Send(sel("initWithBounds:"), bounds)
+		format := objc.ID(apple.Class("UIGraphicsImageRendererFormat")).Send(sel("preferredFormat"))
+		const standardRange = 2 // UIGraphicsImageRendererFormatRangeStandard
+		format.Send(sel("setPreferredRange:"), standardRange)
+		renderer := objc.ID(apple.Class("UIGraphicsImageRenderer")).Send(selAlloc).Send(sel("initWithBounds:format:"), bounds, format)
 		draw := objcblock.New(func(_ objc.Block, _ objc.ID) {
 			objc.Send[bool](t.s.window, sel("drawViewHierarchyInRect:afterScreenUpdates:"), bounds, true)
 		})
