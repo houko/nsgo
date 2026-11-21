@@ -646,7 +646,7 @@ func (w *node) firstTextBaseline() (Points, bool) {
 		if tn := n.text; tn != nil && tn.prepared != nil {
 			l := tn.layout
 			shownY := tn.shownBox.Origin.Y
-			if l == nil {
+			if l == nil || tn.resent || tn.box != tn.sentBox {
 				box := tn.box
 				if f := tn.alignV.fraction(); f > 0 {
 					if h := tn.size(box.Size.Width).Height; h < box.Size.Height {
