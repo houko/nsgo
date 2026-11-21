@@ -10,7 +10,7 @@ Every place a component in `base` or `ui` changes on its own by device, without 
 - Never branch by device in `core` or `base` ([principles](../../AGENTS.md#principles)); the branches of `base` below follow what an input can do, such as hover or a held finger.
 - Use `ui.Touch` for a branch on input. Use `Env.Idiom` or `Env.OS` only when touch is not the reason. A TV takes no touches: its remote moves a focus, so `ui.Touch` is false there and `ui` presents as on a desktop.
 
-Other sizes are constants: `ui.ButtonHeight` is a desktop button's 28 points, [`Button` and `Tabs`](themes.md#variants-and-sizes) taking another size when an app asks for one, and `ui.RowHeight` 36 on every device. `ui.Input`, `ui.Select` and the other fields stay 28 points tall on phones, so a field beside a button is shorter than the button there unless the app sizes one of them; `Button.Style` and `OtpInput.Size` take an app's own size on any device.
+Other sizes are constants: `ui.ButtonHeight` is a desktop button's 28 points, [`Button` and `Tabs`](themes.md#variants-and-sizes) taking another size when an app asks for one, and `ui.RowHeight` 36 on every device. `ui.Input`, `ui.Select` and the other fields stay 28 points tall on phones, so a field beside a button is shorter than the button there unless the app sizes one of them; `Button.Style` and `OtpInput`’s `Size`, `CellWidth` and `CellHeight` take the app’s dimensions on any device.
 
 ## Presentation
 

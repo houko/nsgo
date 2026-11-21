@@ -106,7 +106,7 @@ import { Button, OtpInput } from "nsgo/ui";
 mount(() => <View style={{width: 320, alignItems: "flex-start"}}>
     <Button testID="action" size="large" style={{width: "100%"}}>Continue</Button>
     <Button testID="custom" style={{width: "50%", height: 50}}>Custom</Button>
-    <OtpInput testID="code" length={4} size={50} label="Code" />
+    <OtpInput testID="code" length={4} size={50} cellHeight={52} cornerRadius={10} label="Code" />
 </View>);`)}}
 	for _, os := range []core.OS{core.OSIOS, core.OSAndroid} {
 		t.Run(string(os), func(t *testing.T) {
@@ -121,8 +121,9 @@ mount(() => <View style={{width: 320, alignItems: "flex-start"}}>
 					t.Fatalf("%s button and face = %v, %v; want %v x %v", c.id, got, button.Children[0].Frame.Size, c.width, c.height)
 				}
 			}
-			if got := app.Find("code").Children[0].Children[0].Frame.Size; got.Width != 50 || got.Height != 50 {
-				t.Fatalf("OTP size prop was lost: %v", got)
+			cell := app.Find("code").Children[0].Children[0]
+			if got := cell.Frame.Size; got.Width != 50 || got.Height != 52 || cell.Style.CornerRadius != 10 {
+				t.Fatalf("OTP cell = %v with radius %v, want 50 x 52 with radius 10", got, cell.Style.CornerRadius)
 			}
 		})
 	}

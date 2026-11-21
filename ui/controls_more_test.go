@@ -154,6 +154,42 @@ func TestOtpInput(t *testing.T) {
 	})
 }
 
+func TestOtpInputCellStyles(t *testing.T) {
+	app, palette := start(t, core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}, func(*core.Scope) core.Node {
+		return core.View{Style: core.Style{Gap: 12}, Children: []core.Node{
+			OtpInput{Length: 2, TestID: "plain", Label: "Plain code", Size: 40},
+			OtpInput{Length: 2, TestID: "styled", Label: "Styled code", CellWidth: 44, CellHeight: 52, CornerRadius: 10,
+				TextStyle: core.Style{FontSize: 22, FontWeight: Semibold, FontVariant: core.FontTabularNums, LineHeight: 28}},
+			OtpInput{Length: 2, TestID: "caret", Label: "Custom caret", Size: 46, CellHeight: 54, CaretHeight: 24},
+		}}
+	})
+	for _, c := range []struct {
+		id, label string
+		size      core.Size
+		radius    core.Points
+		caret     core.Points
+	}{
+		{"plain", "Plain code", core.Size{Width: 40, Height: 40}, RadiusControl, 16},
+		{"styled", "Styled code", core.Size{Width: 44, Height: 52}, 10, 26},
+		{"caret", "Custom caret", core.Size{Width: 46, Height: 54}, RadiusControl, 24},
+	} {
+		app.Focus("label:" + c.label)
+		cell := app.Find(c.id).Children[0].Children[0]
+		if cell.Frame.Size != c.size || cell.Style.CornerRadius != c.radius || cell.Style.BorderColor != palette.Accent {
+			t.Fatalf("%s cell: size %v, radius %v, border %v; want %v, %v, accent", c.id, cell.Frame.Size, cell.Style.CornerRadius, cell.Style.BorderColor, c.size, c.radius)
+		}
+		if len(cell.Children) != 1 || cell.Children[0].Frame.Size.Height != c.caret {
+			t.Fatalf("%s cell lacks its %v point caret", c.id, c.caret)
+		}
+	}
+	app.Type("label:Styled code", "1")
+	digit := app.Find("styled").Children[0].Children[0].Children[0]
+	text := digit.TextStyle
+	if digit.Text != "1" || text.Font.Size != 22 || text.Font.Weight != Semibold || text.Font.Variant != core.FontTabularNums || text.LineHeight != 28 {
+		t.Fatalf("digit typography = %+v", text)
+	}
+}
+
 // TestTouchControlSizes lays out a full-width Button, OtpInputs and form rows on phones and tablets of both mobile platforms, where they reach touch sizes and a six-digit code fits a phone's column, and on desktops and a TV, which keep the compact sizes; each still takes presses and typing.
 func TestTouchControlSizes(t *testing.T) {
 	headless(t)

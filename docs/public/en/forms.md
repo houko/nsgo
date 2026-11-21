@@ -75,7 +75,9 @@ ui.Select[string]{
 }
 ```
 
-`ui.NumberInput` steps and scrubs a number with bounds, `ui.DatePicker` and `ui.TimeField` edit dates and times, `ui.ColorPicker` edits a color, `ui.OtpInput` takes a one-time code in square cells, 36 points on desktops and 44 on touch screens unless its `Size` says otherwise, and `ui.TagInput` edits a list of tags.
+`ui.NumberInput` steps and scrubs a number with bounds, `ui.DatePicker` and `ui.TimeField` edit dates and times, `ui.ColorPicker` edits a color, and `ui.TagInput` edits a list of tags.
+
+`ui.OtpInput` takes a one-time code in cells. `Size` sets the default height and width, 36 points on desktops and TVs and 44 on touch devices. `CellWidth` and `CellHeight` override either dimension independently. `TextStyle` overrides the cell typography, `CornerRadius` changes its corners, and `CaretHeight` overrides the height derived from the line height.
 
 ```go
 quantity := core.NewSignal(cx, 1.0)

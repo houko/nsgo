@@ -75,7 +75,9 @@ ui.Select[string]{
 }
 ```
 
-`ui.NumberInput` 带边界地步进和拖动数字，`ui.DatePicker` 和 `ui.TimeField` 编辑日期和时间，`ui.ColorPicker` 编辑颜色，`ui.OtpInput` 在方格中输入一次性验证码，方格边长在桌面上为 36 点、在触屏上为 44 点，可用 `Size` 另行指定，`ui.TagInput` 编辑一组标签。
+`ui.NumberInput` 带边界地步进和拖动数字，`ui.DatePicker` 和 `ui.TimeField` 编辑日期和时间，`ui.ColorPicker` 编辑颜色，`ui.TagInput` 编辑一组标签。
+
+`ui.OtpInput` 在格子中输入一次性验证码。`Size` 设置格子的默认宽度和高度，在桌面和电视上为 36 点，在触屏设备上为 44 点。`CellWidth` 和 `CellHeight` 可分别覆盖宽度和高度。`TextStyle` 设置格子的文字样式，`CornerRadius` 设置圆角，`CaretHeight` 可覆盖根据行高计算的光标高度。
 
 ```go
 quantity := core.NewSignal(cx, 1.0)
