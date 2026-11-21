@@ -628,6 +628,7 @@ const (
 	DrawImage          = driver.DrawImage
 	DrawTextAlign      = driver.DrawTextAlign
 	DrawTextBaseline   = driver.DrawTextBaseline
+	DrawVertices       = driver.DrawVertices
 )
 
 const (
