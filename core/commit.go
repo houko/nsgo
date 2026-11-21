@@ -613,9 +613,7 @@ func (t *Tree) sizeAttachments(n *node, inherited textFields, scale float32, for
 	return changed
 }
 
-// baselineDescent is how far attachment view w, aligned as align says, reaches
-// below the line's baseline. Text inside an attachment supplies the baseline
-// of its first line, while an Em canvas supplies its declared descent.
+// baselineDescent is how far attachment view w, aligned as align says, reaches below the line's baseline. Text inside an attachment supplies the baseline of its first line, while an Em canvas supplies its declared descent.
 func (t *Tree) baselineDescent(w *node, align VerticalAlign) Points {
 	if align != 0 && align != VerticalAlignBaseline {
 		return 0
@@ -640,9 +638,7 @@ func (t *Tree) baselineDescent(w *node, align VerticalAlign) Points {
 	return c.canvas.em.descent(h)
 }
 
-// firstTextBaseline returns the first laid-out text baseline in w's subtree,
-// measured from w's top. It lets an inline view containing text participate
-// in its surrounding line's baseline alignment.
+// firstTextBaseline returns the first laid-out text baseline in n's subtree, measured from n's top. It lets an inline view containing text participate in its surrounding line's baseline alignment.
 func (t *Tree) firstTextBaseline(n *node) (Points, bool) {
 	if n.style.Display == DisplayNone || n.style.Visibility == VisibilityHidden {
 		return 0, false
@@ -1001,8 +997,7 @@ func (t *Tree) emitParts(n *node) bool {
 	return styled
 }
 
-// layoutText places text in its content box, taking its vertical alignment
-// and fitting into account.
+// layoutText places text in its content box, taking its vertical alignment and fitting into account.
 func (t *Tree) layoutText(n *node) *driver.TextContent {
 	tn := n.text
 	box := tn.box

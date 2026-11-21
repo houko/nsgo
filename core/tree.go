@@ -406,8 +406,7 @@ type textNode struct {
 	sentBox  Bounds
 	shownBox Bounds // where the layout went: box, moved by its vertical alignment
 	resent   bool   // a new prepared text needs a new layout
-	// An attachment reads the line's baseline before the text is sent.
-	// Keep that layout for emission, and its baseline for later commits.
+	// An attachment reads the line's baseline before the text is sent. Keep that layout for emission, and its baseline for later commits.
 	pending  *driver.TextContent
 	baseline *textBaseline
 	// attachments counts the spans that are attachments.

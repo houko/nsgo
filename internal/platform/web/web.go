@@ -1102,9 +1102,7 @@ func (p *preparedText) unclamped() driver.Points {
 	return driver.Points(m.Call("getBoundingClientRect").Get("width").Float())
 }
 
-// FirstBaseline measures the actual browser line baseline, including the
-// metrics of any fallback fonts. The bottom of an empty inline block
-// with baseline alignment sits on that baseline.
+// FirstBaseline measures the actual browser line baseline, including the metrics of any fallback fonts. The bottom of an empty inline block with baseline alignment sits on that baseline.
 func (l *textLayout) FirstBaseline() (driver.Points, bool) {
 	p := &preparedText{s: l.s, richText: l.richText}
 	m := p.hold()
