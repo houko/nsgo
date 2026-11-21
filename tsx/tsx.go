@@ -141,7 +141,7 @@ type runtime struct {
 	exportView bool
 }
 
-// maxCallStack is how deep JS calls nest in any app.
+// maxCallStack is the native runtime's default and maximum call depth.
 const maxCallStack = 10000
 
 // continuations restores the owner of a promise reaction and runs it untracked, even if a different call settled the promise.
@@ -182,9 +182,7 @@ func newRuntime(cx *core.Scope) *runtime {
 	r := &runtime{vm: js.New(), cx: cx, modules: map[string]*js.Object{}, warned: map[string]bool{}, origin: cx.Now()}
 	r.root = &node{r: r, kind: kindRegion, elem: core.NewElement(cx, nil)}
 	r.vm.SetFieldNameMapper(js.UncapFieldNameMapper())
-	// A runaway recursion throws a RangeError rather than overflowing the
-	// goroutine's stack, which would end the process; Sandboxed's limits
-	// set it lower.
+	// Bound recursion in the VM to protect the goroutine's stack.
 	r.vm.SetMaxCallStackSize(maxCallStack)
 	// Date reads the app's clock, a test's manual one included.
 	r.vm.SetTimeSource(cx.WallTime)

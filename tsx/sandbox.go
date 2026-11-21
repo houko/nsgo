@@ -25,11 +25,13 @@ import (
 // the capabilities where requests are made (core.Access), the runtime
 // where only it makes them: fetch, the clipboard, the pickers, speech.
 
-// Limits are what a bundle may use. Zero fields leave that unlimited.
+// Limits are what a bundle may use. Zero time budgets and quotas leave them unlimited.
 type Limits struct {
 	// Load limits the entry script and Call limits each slice of JS. On goja, a Plugin.Call whose slice is cut fails with ErrBudget even after it has awaited. CallTotal limits the wall time of a plugin call and the work it starts; at that deadline its pending work is dropped and a call still waiting fails with ErrBudget. The entry module's work is held to Load and standalone host events to CallTotal when CallTotal is set. Zero leaves a budget unlimited.
 	Load, Call, CallTotal time.Duration
-	// Stack is how deep JS calls may nest.
+	// Stack is the call depth in frames on native targets. Values at or
+	// below zero or above 10,000 use 10,000. DefaultLimits uses 1,000.
+	// The web uses the browser's stack limit.
 	Stack int
 	// Harden deletes eval, has the Function constructors throw and
 	// freezes the built-in prototypes, so code cannot be made from
@@ -239,6 +241,9 @@ func (s Sandbox) start(cx *core.Scope, name, src string) *runtime {
 	if s.Limits != nil {
 		limits = *s.Limits
 	}
+	if limits.Stack <= 0 || limits.Stack > maxCallStack {
+		limits.Stack = maxCallStack
+	}
 	for _, c := range []*pkg.Capabilities{s.Capabilities, s.Grant} {
 		if c != nil {
 			cx.ProvideAccess(access{c})
@@ -260,7 +265,7 @@ func (s Sandbox) start(cx *core.Scope, name, src string) *runtime {
 	}
 	r.sandbox = &sandboxed{caps: s.Capabilities != nil || s.Grant != nil, modules: s.Modules}
 	r.exportView = s.exportView
-	if limits.Stack > 0 {
+	if limits.Stack < maxCallStack {
 		r.vm.SetMaxCallStackSize(limits.Stack)
 	}
 	if limits.Memory > 0 {
