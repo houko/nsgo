@@ -17,7 +17,7 @@ permissions:
 jobs:
   notes:
     name: Check the tag and its notes
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
     outputs:
       version: ${{ steps.notes.outputs.version }}
@@ -64,7 +64,7 @@ jobs:
   publish:
     name: Publish the release
     needs: [notes, test]
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write

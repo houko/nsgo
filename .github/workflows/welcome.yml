@@ -19,7 +19,7 @@ jobs:
     if: >-
       ${{ !endsWith(github.actor, '[bot]')
       && !contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association || github.event.pull_request.author_association) }}
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
     steps:
       # actions/first-interaction greets anyone who has not opened an issue or a pull request, whichever this event is, so a contributor who only opens pull requests is welcomed on every one. Count instead the author's earlier items of the same kind as this one.
