@@ -50,7 +50,7 @@ func TestRefFocusInUnplacedHolder(t *testing.T) {
 	}
 }
 
-// As macOS, Windows, Linux, Android and the web do, content that shrinks under a scroll at its end, or a viewport that grows past it, pulls the offset back to the new end, and the app hears where it went.
+// Every target pulls a resting scroll view back when content shrinks under its end or the viewport grows past it, and the app hears where it went.
 func TestScrollPastItsEndComesBackToIt(t *testing.T) {
 	scroll := &core.Ref{}
 	var content, viewport *core.Signal[core.Points]

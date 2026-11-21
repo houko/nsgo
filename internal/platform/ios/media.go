@@ -320,6 +320,9 @@ func (v *view) place(f driver.Bounds) {
 		v.componentView.Send(selSetFrame, apple.Rect(0, 0, float64(f.Size.Width), float64(f.Size.Height)))
 	}
 	v.sizeContent()
+	if resized && v.sc != nil {
+		v.pullBackAtRest()
+	}
 	if resized && v.sc != nil && v.hasEdges() {
 		// Each step of a layout animation, as the keyboard moves a composer.
 		v.placeEdges()

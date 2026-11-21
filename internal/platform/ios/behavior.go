@@ -311,9 +311,33 @@ func (v *view) setContent(size driver.Size) {
 	v.sc.content = size
 	if v.sc.zoom != 0 {
 		v.layoutZoom()
+		v.pullBackAtRest()
 		return
 	}
 	v.native.Send(selSetContentSize, apple.CGSize{Width: float64(size.Width), Height: float64(size.Height)})
+	v.pullBackAtRest()
+}
+
+// pullBackAtRest clamps an offset left past the new content end. UIKit keeps
+// that offset until the next touch, so do the same pull-back other backends
+// perform when a content or viewport size changes.
+func (v *view) pullBackAtRest() {
+	if v.native == 0 || objc.Send[bool](v.native, sel("isTracking")) ||
+		objc.Send[bool](v.native, sel("isDragging")) || objc.Send[bool](v.native, sel("isDecelerating")) {
+		return
+	}
+	size := objc.Send[apple.CGSize](v.native, sel("contentSize"))
+	in := objc.Send[edgeInsets](v.native, sel("adjustedContentInset"))
+	seen := objc.Send[apple.CGRect](v.native, selBounds).Size
+	o := objc.Send[apple.CGPoint](v.native, selContentOffset)
+	to := apple.CGPoint{
+		X: min(max(o.X, -in.Left), max(size.Width-seen.Width+in.Right, -in.Left)),
+		Y: min(max(o.Y, -in.Top), max(size.Height-seen.Height+in.Bottom, -in.Top)),
+	}
+	if to == o {
+		return
+	}
+	v.native.Send(sel("setContentOffset:"), to)
 }
 
 // setZoomable gives the view a zoom view, moving its children into it,
