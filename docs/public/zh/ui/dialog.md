@@ -36,6 +36,8 @@ ui.Dialog{
 
 `ui.Sheet` 是覆盖在变暗背景上的底部面板；点击背景、Escape 或返回会调用 `OnClose`。
 
+设置 `Style` 或 `StyleFunc` 可以自定义表面的背景、圆角和内边距，同时保留拖拽条和安全区域处理。`StyleFunc` 会跟随它读取的 signal 更新。
+
 ```go preview=dialog/sheet height=320
 ui.Sheet{Open: filters.Get, OnClose: func() { filters.Set(false) }, Children: filterControls}
 ```

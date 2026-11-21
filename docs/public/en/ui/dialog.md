@@ -36,6 +36,8 @@ On touch sheets, `Bare` now removes the default grabber and content padding so `
 
 `ui.Sheet` is a panel at the bottom over a dimmed backdrop; a press on the backdrop, Escape or back calls `OnClose`.
 
+Set `Style` or `StyleFunc` to customize the surface's background, corner radii and padding while keeping the grabber and safe-area handling. `StyleFunc` follows the signals it reads.
+
 ```go preview=dialog/sheet height=320
 ui.Sheet{Open: filters.Get, OnClose: func() { filters.Set(false) }, Children: filterControls}
 ```
