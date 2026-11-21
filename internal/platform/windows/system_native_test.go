@@ -428,6 +428,11 @@ func TestCaptionButtonsAndMaterialFollowTheApp(t *testing.T) {
 	})
 	cx.Post(func() { cx.SetWindowControls(core.WindowControls{}) })
 	until("showing them again", func(w *window) bool { return w.captionAt(closeButton) == htClose })
+	cx.Post(func() { cx.SetWindowControls(core.WindowControls{Style: core.WindowControlsSystem}) })
+	systemClose := driver.Point{X: width - systemCaptionButtonWidth/2, Y: 20}
+	until("the Windows system caption buttons", func(w *window) bool {
+		return w.titleBarArea() == driver.Edges{Top: 40, Right: 3 * systemCaptionButtonWidth} && w.captionAt(systemClose) == htClose
+	})
 
 	backdrops := false
 	onMain(t, hwnd, func(w *window) { backdrops = w.material == driver.WindowMaterialMica })

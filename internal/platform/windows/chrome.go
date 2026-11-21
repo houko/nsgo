@@ -114,6 +114,9 @@ const (
 	captionGlyphSize     driver.Points = 10
 	// captionRight is how far the buttons reach in from the right edge.
 	captionRight = captionMargin + 3*captionButtonSize + 2*captionButtonGap
+	// Windows 11's caption buttons are full-height rectangles at the window's
+	// edge, each 46 points wide at 96 DPI.
+	systemCaptionButtonWidth driver.Points = 46
 )
 
 type ncCalcSizeParams struct {
@@ -155,6 +158,7 @@ type monitorInfo struct {
 type chrome struct {
 	titleBar driver.TitleBarStyle
 	height   driver.Points // the app's title bar height; 0 for the default
+	controls driver.WindowControlsStyle
 	// noButtons is set while the app draws its own caption buttons.
 	noButtons bool
 	hover     uint32 // the caption button under the mouse (HT*), 0 for none
@@ -206,7 +210,14 @@ func (w *window) titleBarArea() driver.Edges {
 	if w.chrome.noButtons {
 		return driver.Edges{Top: w.captionHeight()}
 	}
-	return driver.Edges{Top: w.captionHeight(), Right: captionRight}
+	return driver.Edges{Top: w.captionHeight(), Right: w.captionRight()}
+}
+
+func (w *window) captionRight() driver.Points {
+	if w.chrome.controls == driver.WindowControlsSystem {
+		return 3 * systemCaptionButtonWidth
+	}
+	return captionRight
 }
 
 // buttons reports whether the caption buttons show: in a hidden title
@@ -308,8 +319,9 @@ func (w *window) windowCommand(c *driver.WindowCommand) {
 	case driver.WindowSetMenuBar:
 		w.setMenuBar(c.MenuBar)
 	case driver.WindowSetControls:
-		if c.Controls.Hidden != w.chrome.noButtons {
+		if c.Controls.Hidden != w.chrome.noButtons || c.Controls.Style != w.chrome.controls {
 			w.chrome.noButtons = c.Controls.Hidden
+			w.chrome.controls = c.Controls.Style
 			w.chrome.hover, w.chrome.pressed = 0, 0
 			w.chromeChanged()
 		}
@@ -497,16 +509,24 @@ func (w *window) ncCalcSize(wParam, lParam uintptr) (uintptr, bool) {
 // test code, or 0.
 func (w *window) captionAt(p driver.Point) uint32 {
 	height := w.captionHeight()
-	top := (height - captionButtonSize) / 2
-	if !w.buttons() || p.Y < top || p.Y >= top+captionButtonSize {
+	buttonHeight := captionButtonSize
+	top := (height - buttonHeight) / 2
+	width := captionButtonSize
+	gap := captionButtonGap
+	margin := captionMargin
+	if w.chrome.controls == driver.WindowControlsSystem {
+		buttonHeight, width, gap, margin = height, systemCaptionButtonWidth, 0, 0
+		top = 0
+	}
+	if !w.buttons() || p.Y < top || p.Y >= top+buttonHeight {
 		return 0
 	}
 	var client rect
 	getClientRect.Call(w.hwnd, uintptr(unsafe.Pointer(&client)))
-	width := w.point(client.Right, 0).X
+	clientWidth := w.point(client.Right, 0).X
 	for i, code := range []uint32{htClose, htMaxButton, htMinButton} {
-		right := width - captionMargin - driver.Points(i)*(captionButtonSize+captionButtonGap)
-		if p.X >= right-captionButtonSize && p.X < right {
+		right := clientWidth - margin - driver.Points(i)*(width+gap)
+		if p.X >= right-width && p.X < right {
 			if !w.captionEnabled(code) {
 				return 0
 			}
@@ -644,10 +664,19 @@ func (p *painter) drawCaptionButtons(width int32) {
 	dark := w.shownDark()
 	button, gap, margin := w.px(captionButtonSize), w.px(captionButtonGap), w.px(captionMargin)
 	height := w.px(w.captionHeight())
-	top := (height - button) / 2
+	buttonHeight := button
+	top := (height - buttonHeight) / 2
+	system := w.chrome.controls == driver.WindowControlsSystem
+	if system {
+		button, buttonHeight, gap, margin = w.px(systemCaptionButtonWidth), height, 0, 0
+		top = 0
+	}
 	glyph := w.px(captionGlyphSize)
 	stroke := float32(max(w.px(1), 1))
-	radius := float32(w.px(8))
+	radius := float32(0)
+	if !system {
+		radius = float32(w.px(8))
+	}
 	for i, code := range []uint32{htClose, htMaxButton, htMinButton} {
 		right := width - margin - int32(i)*(button+gap)
 		r := rect{right - button, top, right, top + button}
@@ -660,6 +689,14 @@ func (p *painter) drawCaptionButtons(width int32) {
 			bg = 0xc42b1cff
 		case code == htClose:
 			bg = 0xe81123ff
+		case system && pressed && !dark:
+			bg = 0x00000024
+		case system && pressed:
+			bg = 0xffffff24
+		case system && !dark:
+			bg = 0x00000014
+		case system:
+			bg = 0xffffff14
 		case !dark && pressed:
 			bg = 0x33333324
 		case !dark:
@@ -682,7 +719,7 @@ func (p *painter) drawCaptionButtons(width int32) {
 		case c.inactive && !hovered:
 			fg = fg&^0xff | 0x70
 		}
-		left, glyphTop := float32(r.Left+(button-glyph)/2), float32(top+(button-glyph)/2)
+		left, glyphTop := float32(r.Left+(button-glyph)/2), float32(top+(buttonHeight-glyph)/2)
 		if code == htMinButton {
 			// The minus sits a little low, as its glyph reads.
 			glyphTop += float32(w.px(2))

@@ -384,6 +384,8 @@ type (
 	// WindowControls is how a hidden title bar shows the system's window
 	// controls: hidden, or macOS's traffic lights moved.
 	WindowControls = driver.WindowControls
+	// WindowControlsStyle chooses the appearance of Windows caption buttons.
+	WindowControlsStyle = driver.WindowControlsStyle
 	// MenuBarMode says when Windows and Linux show the menu bar.
 	MenuBarMode = driver.MenuBarMode
 	// Appearance is the light or dark appearance an app asks for, or the
@@ -878,6 +880,11 @@ const (
 const (
 	TitleBarDefault = driver.TitleBarDefault
 	TitleBarHidden  = driver.TitleBarHidden
+)
+
+const (
+	WindowControlsDefault = driver.WindowControlsDefault
+	WindowControlsSystem  = driver.WindowControlsSystem
 )
 
 const (

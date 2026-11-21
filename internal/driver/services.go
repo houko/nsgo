@@ -289,6 +289,17 @@ type WindowCommand struct {
 	On bool
 }
 
+// WindowControlsStyle chooses the appearance of caption buttons a desktop
+// backend draws in a hidden title bar.
+type WindowControlsStyle uint8
+
+const (
+	// WindowControlsDefault keeps NSGo's compact caption buttons.
+	WindowControlsDefault WindowControlsStyle = iota
+	// WindowControlsSystem uses the host desktop's full-width caption buttons.
+	WindowControlsSystem
+)
+
 // WindowControls is how a hidden title bar shows the system's window
 // controls: macOS's traffic lights and the caption buttons NSGo draws on
 // Windows. Linux draws none.
@@ -297,6 +308,9 @@ type WindowControls struct {
 	// call MinimizeWindow, ToggleMaximize and CloseWindow; Env.TitleBar
 	// then reports no width at its ends.
 	Hidden bool
+	// Style chooses Windows' caption-button geometry and colors. It is ignored
+	// on macOS and Linux.
+	Style WindowControlsStyle
 	// TrafficLights puts the top left corner of macOS's close button
 	// this far from the window's top left corner, in points, the other
 	// two after it. A zero X keeps them 16 points in, and a zero Y
