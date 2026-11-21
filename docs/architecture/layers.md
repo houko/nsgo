@@ -42,6 +42,7 @@ nsgo
 │   │   └── internal/                    What they share
 │   ├── mobile                           What only phones have
 │   ├── audio                            Sounds and players, on core's part
+│   ├── gpu                              GPU surfaces and render passes
 │   ├── desktop                          What only desktops have
 │   │   └── locales                      Its menus' and permission guide's words, which backends read
 │   ├── updater                          Updating the app the platform's way

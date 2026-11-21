@@ -44,6 +44,8 @@ const (
 	// KindShader fills itself with a fragment shader on the GPU
 	// (ItemShader).
 	KindShader
+	// KindGPU is a surface of package gpu's, configured by ItemGPU.
+	KindGPU
 )
 
 // ItemKind is what a mount item does.
@@ -380,6 +382,8 @@ const (
 	ItemReleaseImage
 	// ItemReleaseOffscreen releases the cached offscreen surface for OffscreenID.
 	ItemReleaseOffscreen
+	// ItemGPU configures the GPU view named by ID (GPU).
+	ItemGPU
 )
 
 // AppleSignInRequest is an ItemSignInWithApple's request, as core.AppleSignInOptions: the scopes it asks for and Nonce, which the core hashes as the request carries it, "" for none.
@@ -502,6 +506,7 @@ const (
 // MountItem is one change to the native views. Kind says which fields
 // are set; the large groups are pointers so items stay small.
 type MountItem struct {
+	GPU    *GPUView
 	Kind   ItemKind
 	ID     NodeID
 	View   ViewKind // ItemCreate

@@ -939,6 +939,10 @@ func (t *Tree) emitParts(n *node) bool {
 			cn.fresh = false
 			add(driver.MountItem{Kind: driver.ItemCanvas, ID: n.id, Drawing: cn.withFrames(cn.drawing.Painted(&cn.paint, cn.color))})
 		}
+	case n.gpu != nil:
+		if first {
+			add(driver.MountItem{Kind: driver.ItemGPU, ID: n.id, GPU: &n.gpu.config})
+		}
 	case n.shader != nil:
 		if sn := n.shader; sn.fresh {
 			sn.fresh = false

@@ -94,6 +94,8 @@ type RootOptions struct {
 	Report func(error)
 	// RequestFrame tells the host that the app waits for the next display frame: it calls Scope.RunFrame, or Scope.RunFrameAt with the display's time for the frame, when that frame begins, and is not asked again until then. It runs on the graph's goroutine, so it must not block. A host without display frames leaves it nil, and the callbacks wait.
 	RequestFrame func()
+	// SubmitGPU sends package gpu's commands directly to the host.
+	SubmitGPU func(uint32, driver.NodeID, uint64, []driver.GPUCommand)
 	// Storage keeps the app's entries; a store in memory when nil.
 	Storage *Store
 	// Secrets is the platform's secure store, which Scope.Secrets keeps secrets in; nil where there is none, so Secrets fails with ErrSecretsUnavailable.
@@ -122,7 +124,7 @@ func NewRoot(opts RootOptions) *Scope {
 	}
 	rt := &runtime{graphOwner: newGraphOwner(opts.CheckCommits), post: opts.Post, clock: opts.Clock, report: opts.Report, checkCommits: opts.CheckCommits,
 		store: opts.Storage, secrets: opts.Secrets, dataDir: opts.DataDir, cacheDir: opts.CacheDir, logsDir: opts.LogsDir,
-		requestFrame: opts.RequestFrame, windows: opts.Windows, takesHotKeys: opts.HotKeys, tray: opts.Tray}
+		requestFrame: opts.RequestFrame, submitGPU: opts.SubmitGPU, windows: opts.Windows, takesHotKeys: opts.HotKeys, tray: opts.Tray}
 	rt.root = &Scope{rt: rt}
 	if devtools.Enabled {
 		rt.dev = newDevState()
@@ -136,6 +138,8 @@ func NewRoot(opts RootOptions) *Scope {
 const maxRuns = 1_000_000
 
 type runtime struct {
+	submitGPU     func(uint32, driver.NodeID, uint64, []driver.GPUCommand)
+	gpuGeneration uint64
 	graphOwner
 	aborted      bool // fault recovery must never schedule another computation
 	checkCommits bool

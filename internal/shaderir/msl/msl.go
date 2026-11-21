@@ -44,6 +44,7 @@ type compileContext struct {
 	// library is set for a fragment library (Fragment), whose functions take no front_facing:
 	// MyGo's renderers draw only front faces.
 	library bool
+	gpu     bool
 }
 
 func (c *compileContext) isVertexFunc(index int) bool {
@@ -121,8 +122,14 @@ const (
 	FragmentName = "Fragment"
 )
 
-func Compile(p *shaderir.Program) (shader string) {
+func Compile(p *shaderir.Program) string { return compile(p, false) }
+
+// CompileGPU emits stage inputs for Metal vertex descriptors and explicit samplers.
+func CompileGPU(p *shaderir.Program) string { return compile(p, true) }
+
+func compile(p *shaderir.Program, gpu bool) (shader string) {
 	c := &compileContext{
+		gpu:                gpu,
 		structNames:        map[string]string{},
 		assignedAttributes: p.AssignedAttributes(),
 		vertexFuncIndices:  map[int]struct{}{},
@@ -154,7 +161,11 @@ func Compile(p *shaderir.Program) (shader string) {
 		lines = append(lines, "")
 		lines = append(lines, "struct Attributes {")
 		for i, a := range p.Attributes {
-			lines = append(lines, fmt.Sprintf("\t%s;", c.varDecl(p, &a, fmt.Sprintf("M%d", i), false)))
+			decl := c.varDecl(p, &a, fmt.Sprintf("M%d", i), false)
+			if gpu {
+				decl += fmt.Sprintf(" [[attribute(%d)]]", i)
+			}
+			lines = append(lines, "\t"+decl+";")
 		}
 		lines = append(lines, "};")
 	}
@@ -184,17 +195,29 @@ func Compile(p *shaderir.Program) (shader string) {
 
 	if hasVertex {
 		lines = append(lines, "")
-		lines = append(lines,
-			fmt.Sprintf("vertex Varyings %s(", VertexName),
-			"\tuint vid [[vertex_id]],",
-			"\tconst device Attributes* attributes [[buffer(0)]]")
+		lines = append(lines, fmt.Sprintf("vertex Varyings %s(", VertexName), "\tuint vid [[vertex_id]]")
+		if !gpu {
+			lines[len(lines)-1] += ","
+			lines = append(lines, "\tconst device Attributes* attributes [[buffer(0)]]")
+		} else if len(p.Attributes) != 0 {
+			lines[len(lines)-1] += ","
+			lines = append(lines, "\tAttributes attributes [[stage_in]]")
+		}
 		if len(p.Uniforms) > 0 {
 			lines[len(lines)-1] += ","
-			lines = append(lines, "\tconstant Uniforms& uniforms [[buffer(1)]]")
+			slot := 1
+			if gpu {
+				slot = 16
+			}
+			lines = append(lines, fmt.Sprintf("\tconstant Uniforms& uniforms [[buffer(%d)]]", slot))
 		}
 		for i := 0; i < p.TextureCount; i++ {
 			lines[len(lines)-1] += ","
 			lines = append(lines, fmt.Sprintf("\ttexture2d<float> T%[1]d [[texture(%[1]d)]]", i))
+			if gpu {
+				lines[len(lines)-1] += ","
+				lines = append(lines, fmt.Sprintf("\tsampler S%[1]d [[sampler(%[1]d)]]", i))
+			}
 		}
 		lines[len(lines)-1] += ") {"
 		lines = append(lines, fmt.Sprintf("\tVaryings %s = {};", vertexOut))
@@ -202,7 +225,7 @@ func Compile(p *shaderir.Program) (shader string) {
 			if !c.assignedAttributes[i] {
 				continue
 			}
-			lines = append(lines, fmt.Sprintf("\t%s = %s;", c.varDecl(p, &a, attributeCopyName(i), false), attributeName(i)))
+			lines = append(lines, fmt.Sprintf("\t%s = %s;", c.varDecl(p, &a, attributeCopyName(i), false), c.attributeName(i)))
 		}
 		lines = append(lines, c.block(p, p.VertexFunc.Block, p.VertexFunc.Block, 0)...)
 		if last := fmt.Sprintf("\treturn %s;", vertexOut); lines[len(lines)-1] != last {
@@ -218,11 +241,19 @@ func Compile(p *shaderir.Program) (shader string) {
 			"\tVaryings varyings [[stage_in]]")
 		if len(p.Uniforms) > 0 {
 			lines[len(lines)-1] += ","
-			lines = append(lines, "\tconstant Uniforms& uniforms [[buffer(0)]]")
+			slot := 0
+			if gpu {
+				slot = 16
+			}
+			lines = append(lines, fmt.Sprintf("\tconstant Uniforms& uniforms [[buffer(%d)]]", slot))
 		}
 		for i := 0; i < p.TextureCount; i++ {
 			lines[len(lines)-1] += ","
 			lines = append(lines, fmt.Sprintf("\ttexture2d<float> T%[1]d [[texture(%[1]d)]]", i))
+			if gpu {
+				lines[len(lines)-1] += ","
+				lines = append(lines, fmt.Sprintf("\tsampler S%[1]d [[sampler(%[1]d)]]", i))
+			}
 		}
 		lines[len(lines)-1] += ","
 		lines = append(lines, "\tbool front_facing [[front_facing]]")
@@ -316,6 +347,9 @@ func (c *compileContext) function(p *shaderir.Program, f *shaderir.Func, prototy
 	}
 	for i := 0; i < p.TextureCount; i++ {
 		args = append(args, fmt.Sprintf("texture2d<float> T%d", i))
+		if c.gpu {
+			args = append(args, fmt.Sprintf("sampler S%d", i))
+		}
 	}
 	if !c.isVertexFunc(f.Index) {
 		args = append(args, "bool front_facing")
@@ -378,7 +412,10 @@ func numberLiteral(v constant.Value, unsigned bool) string {
 	return fmt.Sprintf("?(unexpected literal: %s)", v)
 }
 
-func attributeName(idx int) string {
+func (c *compileContext) attributeName(idx int) string {
+	if c.gpu {
+		return fmt.Sprintf("attributes.M%d", idx)
+	}
 	return fmt.Sprintf("attributes[vid].M%d", idx)
 }
 
@@ -398,7 +435,7 @@ func (c *compileContext) localVariableName(p *shaderir.Program, topBlock *shader
 			if c.assignedAttributes[idx] {
 				return attributeCopyName(idx)
 			}
-			return attributeName(idx)
+			return c.attributeName(idx)
 		case idx == na:
 			return fmt.Sprintf("%s.Position", vertexOut)
 		case idx < na+nv+1:
@@ -502,6 +539,9 @@ func (c *compileContext) block(p *shaderir.Program, topBlock, block *shaderir.Bl
 				}
 				for i := 0; i < p.TextureCount; i++ {
 					args = append(args, fmt.Sprintf("T%d", i))
+					if c.gpu {
+						args = append(args, fmt.Sprintf("S%d", i))
+					}
 				}
 				if !c.isVertexFunc(callee.Index) {
 					args = append(args, "front_facing")
@@ -511,6 +551,9 @@ func (c *compileContext) block(p *shaderir.Program, topBlock, block *shaderir.Bl
 				args = append(args, expr(&exp))
 			}
 			if callee.Type == shaderir.BuiltinFuncExpr && callee.BuiltinFunc == shaderir.TexelAt {
+				if c.gpu {
+					return fmt.Sprintf("%s.sample(S%d, %s, level(0))", args[0], e.Exprs[1].Index, args[1])
+				}
 				// Floor the position so that a negative position is out of the texture.
 				// Without this, the nearest filter rounds the position to the nearest texel.
 				return fmt.Sprintf("%s.sample(__texelSampler, floor(%s))", args[0], strings.Join(args[1:], ", "))

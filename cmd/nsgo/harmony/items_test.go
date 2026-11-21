@@ -28,6 +28,7 @@ var (
 // and the rest are desktop-only or unimplemented on every mobile backend.
 var unsupportedItems = map[string]string{
 	"overlays and navigation": `ItemBackPreview ItemHistory`,
+	"GPU view":                `ItemGPU`,
 	"platform limits": `ItemPickScreenColor
 		ItemSpeech ItemCanInstallPackages ItemInstallPackage ItemInstallSettings
 		ItemInputSource ItemNative
@@ -53,6 +54,7 @@ var unsupportedItems = map[string]string{
 
 // unsupportedEvents are the events no HarmonyOS code reads or dispatches.
 var unsupportedEvents = map[string]string{
+	"GPU view": `EventGPUDeviceReady EventGPUResize EventGPUDeviceLost EventGPUError EventGPUReadback`,
 	"pointers, gestures and drops": `EventMouseEnter EventMouseLeave EventMouseMove EventMouseUp
 		EventPan EventPinch EventRotation EventWheel EventPressOutside
 		EventContextMenu EventFileDragEnter EventFileDragLeave EventFileDrop`,
@@ -83,7 +85,7 @@ var unsupportedEvents = map[string]string{
 // KindView is the default branch of NodeView, so it needs no constant of
 // its own but still has no dedicated renderer.
 var unsupportedKinds = map[string]string{
-	"no view drawn yet": `KindNative KindShader`,
+	"no view drawn yet": `KindNative KindShader KindGPU`,
 	"default branch":    `KindView`,
 }
 

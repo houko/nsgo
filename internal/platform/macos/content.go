@@ -266,6 +266,9 @@ func (v *view) contentFrame() apple.CGRect {
 // rescale draws every content layer again at the window's backing scale.
 func (s *surface) rescale() {
 	for _, v := range s.views {
+		if v != nil && v.gpu != nil {
+			v.sizeGPU()
+		}
 		if v != nil && v.shader != nil {
 			v.sizeShader()
 		}

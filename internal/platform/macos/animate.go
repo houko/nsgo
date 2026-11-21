@@ -441,6 +441,9 @@ func (v *view) place(f driver.Bounds) {
 	if v.backdrop != 0 && !v.glass {
 		v.fitBackdrop(&v.style)
 	}
+	if v.gpu != nil {
+		v.sizeGPU()
+	}
 	if resized {
 		v.sizeContent()
 		if v.sc != nil {

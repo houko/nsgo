@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -146,10 +147,11 @@ type view struct {
 	drawing   *driver.Drawing       // a canvas's
 	played    []driver.DrawOp       // the ops it last drew, its bound arguments' values in place
 	canvas    canvasPaint           // how it paints (content.go)
-	shader    *apple.ShaderLayer    // a shader view's (shader.go)
-	fx        *effect               // its effect, transition or navigation shader (effect.go)
-	web       *apple.Web            // a web view's
-	video     *apple.Video          // a video's
+	gpu       *apple.GPULayer
+	shader    *apple.ShaderLayer // a shader view's (shader.go)
+	fx        *effect            // its effect, transition or navigation shader (effect.go)
+	web       *apple.Web         // a web view's
+	video     *apple.Video       // a video's
 
 	// frame is where the view shows now; style its own style, which its
 	// animated values and a layout animation draw over.
@@ -190,7 +192,8 @@ type view struct {
 }
 
 type surface struct {
-	sensors apple.Sensors
+	gpuLayers sync.Map // node ID to GPU layer, shared with the engine
+	sensors   apple.Sensors
 
 	// openFrame is the frame the window opened at, until its first batch,
 	// whose title bar would change it.
@@ -1161,6 +1164,7 @@ func (s *surface) environment() driver.Environment {
 		SignInWithApple:  apple.AppleSignInAvailable(),
 		Purchases:        apple.PurchasesAvailable(),
 		RTL:              rtl,
+		SupportsGPU:      apple.GPUSupported(),
 		PixelRatio:       s.backingScale(),
 		Locale:           locale,
 		LocaleSettings:   apple.LocaleSettings(),
@@ -2289,6 +2293,8 @@ func (s *surface) apply(b *driver.MountBatch) {
 			s.animator.BindCanvas(v.id, it.Drawing.Slots)
 			v.setCanvasNodes(it.Drawing.Nodes)
 			v.redraw()
+		case driver.ItemGPU:
+			v.newGPU(*it.GPU)
 		case driver.ItemShader:
 			if v.kind == driver.KindShader && it.Shader != nil && it.Shader.Role == driver.ShaderFill {
 				s.setShader(v, it.Shader)
@@ -2495,6 +2501,10 @@ func (s *surface) delete(v *view, kept bool) {
 	v.releaseAXBar()
 	if v.shader != nil {
 		v.shader.Release()
+	}
+	if v.gpu != nil {
+		s.gpuLayers.Delete(v.id)
+		v.gpu.Release()
 	}
 	s.endEffect(v)
 	if v.content != v.native {

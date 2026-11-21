@@ -106,6 +106,14 @@ A Go shader receives the pixel's center in `dst` and the same point in points in
 
 `core.ShaderEffect` draws a view, a page or a dialog through a shader, and `core.TransitionShader` uses one for a page's transition. `core.Canvas` and `core.Shader` both take `Label` and their children draw over them.
 
+## GPU meshes and render passes
+
+`gpu.View` draws a vertex and fragment pipeline on macOS and iOS, with persistent vertex, index and uniform buffers, 2D textures, depth and offscreen readback. Check `cx.Env().SupportsGPU()` for the active device. On an unsupported target the view mounts its ordinary children and reports `gpu.ErrUnsupported`. Those children draw as overlays on Metal.
+
+Create resources with the view's scope in `OnReady`. Use `gpu.CompileKage` with `Vertex` and `Fragment` entry points. The vertex parameters match the pipeline's numbered attributes, the first return value is clip position with depth in `[0, 1]`, and the remaining return values feed the fragment after its position parameter. Up to four texture and sampler pairs can supply `Texture0At` through `Texture3At`, sampled using normalized UVs with a top-left origin. Place shader uniforms together in one buffer in Metal's struct layout.
+
+Start an encoder with `Device.BeginEncoder`, record a render pass, and call `Device.Submit` on its finished buffer. For continuous drawing, reschedule `cx.RequestAnimationFrame` from each frame. GPU submissions run independently of UI commits. The surface size is in pixels and the surface color format is BGRA8. See [the mesh example](https://github.com/nsgo-dev/nsgo/tree/main/examples/gpu) for a complete application.
+
 ## Next
 
 - [Images and icons](images.md): the pictures a canvas draws.

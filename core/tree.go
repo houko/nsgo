@@ -237,6 +237,7 @@ type report struct {
 func (t *Tree) after(n *node, fn func()) { t.reports = append(t.reports, report{n, fn}) }
 
 type node struct {
+	gpu      *gpuNode
 	id       NodeID          // 0 for regions
 	kind     driver.ViewKind // 0 for regions
 	parent   *node
@@ -1085,6 +1086,9 @@ func (t *Tree) discard(n *node) {
 		return
 	}
 	n.deleted = true
+	if n.gpu != nil && n.gpu.device != nil {
+		n.gpu.device.active = false
+	}
 	if n.ink != nil {
 		delete(n.ink.nodes, n)
 	}
@@ -2282,6 +2286,9 @@ func (t *Tree) Dispatch(ev driver.Event) {
 		return
 	}
 	switch ev.Kind {
+	case GPUReady, GPUResize, GPULost, GPUError, GPUReadback:
+		t.gpuEvent(ev)
+		return
 	case driver.EventTouch:
 		t.touched(ev)
 		return

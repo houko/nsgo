@@ -1,8 +1,16 @@
 # GPU view
 
-This is the architecture design for issues [#1104](https://github.com/nsgo-dev/nsgo/issues/1104) and [#1059](https://github.com/nsgo-dev/nsgo/issues/1059). It is not an implemented API yet; it settles the four design choices that gate NSGo's Stage 1 3D GPU view so the public API, shader IR extensions, and target backends can be built in parallel. Read this alongside [shaders](shaders.md), [package layers](layers.md), [frames](animation.md#frames), and the [games roadmap](../roadmap.md#games) before implementing any part of the GPU view.
+This subject covers the implementation of [#1105](https://github.com/nsgo-dev/nsgo/issues/1105) and the Stage 1 design for [#1104](https://github.com/nsgo-dev/nsgo/issues/1104) and [#1059](https://github.com/nsgo-dev/nsgo/issues/1059). Read it alongside [shaders](shaders.md), [package layers](layers.md), [frames](animation.md#frames), and the [games roadmap](../roadmap.md#games).
 
 `core.Shader` draws fragment-only shaders, view effects, and transitions using uniform lanes and up to four sampled images. A 3D game or data visualization needs persistent GPU resources (vertex, index, and uniform buffers, 2D/cube/depth/array textures, samplers, offscreen render targets, and immutable render pipelines with vertex and fragment stages) and per-frame command recording that does not trigger a UI view-tree commit on every frame.
+
+## Apple implementation
+
+On macOS and iOS a `gpu.View` sizes a BGRA8 Metal drawable below its native children. The graph receives its initial pixel size in `OnReady` and subsequent changes in `OnResize`. The device's render goroutine runs its typed sideband commands on a Metal command queue. It keeps buffers, textures, samplers and pipelines alive until released. Buffer uploads use ordered blits, and offscreen RGBA8 or BGRA8 readbacks return tightly packed RGBA bytes.
+
+`gpu.CompileKage` uses the existing vertex and fragment IR. Metal's vertex descriptors take attributes in `Vertex` parameter order, and the shader binds one Metal-layout uniform block and up to four pairs of 2D textures and samplers. `Texture0At` through `Texture3At` sample normalized, top-left UVs. Use `Depth32Float` or `Depth24Plus` for depth, which both map to Metal's 32-bit float attachment. `examples/gpu` draws a textured, lit 100,000-triangle mesh.
+
+The sections below describe the broader design. WGSL pipelines, additional attachments and texture dimensions, device-loss recovery, and the other rendering backends are planned.
 
 ## Decisions
 

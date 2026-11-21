@@ -33,6 +33,7 @@ type Env struct {
 	level, place            *Signal[bool]
 	workspaces              *Signal[bool]
 	hasWebView              *Signal[bool]
+	supportsGPU             *Signal[bool]
 	appleSignIn             *Signal[bool]
 	purchases               *Signal[bool]
 	scheduled               *Signal[bool]
@@ -113,6 +114,7 @@ func newEnv(cx *Scope, app *Env) *Env {
 		place:            NewSignal(cx, false),
 		workspaces:       NewSignal(cx, false),
 		hasWebView:       NewSignal(cx, false),
+		supportsGPU:      NewSignal(cx, false),
 		appleSignIn:      NewSignal(cx, false),
 		purchases:        NewSignal(cx, false),
 		scheduled:        NewSignal(cx, false),
@@ -232,6 +234,7 @@ func (e *Env) set(v Environment) {
 	e.place.Set(v.CanPlaceWindows)
 	e.workspaces.Set(v.CanSetWindowWorkspaces)
 	e.hasWebView.Set(v.HasWebView)
+	e.supportsGPU.Set(v.SupportsGPU)
 	e.appleSignIn.Set(v.SignInWithApple)
 	e.purchases.Set(v.Purchases)
 	e.scheduled.Set(v.ScheduledNotifications)
@@ -388,6 +391,9 @@ func (e *Env) CanLookUp() bool { return e.canLookUp.Get() }
 
 // CanQuickLook reports whether desktop.QuickLook can show the system's file preview panel.
 func (e *Env) CanQuickLook() bool { return e.canQuickLook.Get() }
+
+// SupportsGPU reports whether this device can host a gpu.View.
+func (e *Env) SupportsGPU() bool { return e.supportsGPU.Get() }
 
 // HasWebView reports whether this target provides the native or browser web
 // view host used by WebView.

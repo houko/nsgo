@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"structs"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -82,8 +83,9 @@ type view struct {
 	bar         *navBar // a screen's system header
 	// headerWrap holds a header view in its screen's bar.
 	headerWrap objc.ID
-	drawing    *driver.Drawing    // a canvas's
-	played     []driver.DrawOp    // the ops it last drew, its bound arguments' values in place
+	drawing    *driver.Drawing // a canvas's
+	played     []driver.DrawOp // the ops it last drew, its bound arguments' values in place
+	gpu        *apple.GPULayer
 	shader     *apple.ShaderLayer // a shader view's (shader.go)
 	fx         *effect            // its effect, transition or navigation shader (effect.go)
 	container  objc.ID            // what holds its children under an effect or for its clip, once it has one
@@ -142,7 +144,8 @@ type view struct {
 }
 
 type surface struct {
-	sensors apple.Sensors
+	gpuLayers sync.Map // node ID to GPU layer, shared with the engine
+	sensors   apple.Sensors
 
 	batch uint64 // batches applied
 	// hinge is the latest a UIHingeInteraction reported (watchHinge).
@@ -796,6 +799,7 @@ func (s *surface) environment() driver.Environment {
 		IncreaseContrast: uiDarkerColors(),
 		ScreenReader:     uiVoiceOver(),
 		RTL:              rtl,
+		SupportsGPU:      idiom != driver.IdiomTV && apple.GPUSupported(),
 		PixelRatio:       float32(scale),
 		Locale:           locale,
 		LocaleSettings:   apple.LocaleSettings(),
@@ -1433,6 +1437,8 @@ func (s *surface) apply(b *driver.MountBatch) {
 			s.animator.BindCanvas(v.id, it.Drawing.Slots)
 			v.setCanvasNodes(it.Drawing.Nodes)
 			v.redraw()
+		case driver.ItemGPU:
+			v.newGPU(*it.GPU)
 		case driver.ItemShader:
 			if v.kind == driver.KindShader && it.Shader != nil && it.Shader.Role == driver.ShaderFill {
 				s.setShader(v, it.Shader)
@@ -1709,6 +1715,10 @@ func (s *surface) delete(v *view, kept bool) {
 	}
 	if v.shader != nil {
 		v.shader.Release()
+	}
+	if v.gpu != nil {
+		s.gpuLayers.Delete(v.id)
+		v.gpu.Release()
 	}
 	delete(views, v.native)
 	if v.input != nil {

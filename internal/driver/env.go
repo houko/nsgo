@@ -73,6 +73,8 @@ type Environment struct {
 	CanSetWindowWorkspaces bool
 	// HasWebView says this target provides a web view host.
 	HasWebView bool
+	// SupportsGPU says the platform and device can host a GPU view.
+	SupportsGPU bool
 	// SignInWithApple says ItemSignInWithApple and ItemAppleCredentialState reach Sign in with Apple here.
 	SignInWithApple bool
 	// Purchases says ItemPurchase reaches the platform's store here.

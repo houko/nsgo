@@ -53,6 +53,12 @@ type observed struct {
 	dispatch  func(driver.Event)
 }
 
+func (o observed) SubmitGPU(id driver.NodeID, generation uint64, commands []driver.GPUCommand) {
+	if gpu, ok := o.Platform.(driver.GPUSubmitter); ok {
+		gpu.SubmitGPU(id, generation, commands)
+	}
+}
+
 // platform is what the engine runs on in o's place: o itself, or, over a platform that registers fonts, o with its RegisterFont, which embedding the Platform interface does not promote (#313).
 func (o observed) platform() Platform {
 	if _, ok := o.Platform.(driver.FontRegistrar); ok {
@@ -480,15 +486,22 @@ func (e *Engine) run(p Platform, app App, opts Options, tokens Tokens) {
 		Report:       report,
 		// The platform owns the display frame: the engine only asks.
 		RequestFrame: func() { frames.wanted = true },
-		Storage:      opts.Storage,
-		Secrets:      opts.Secrets,
-		DataDir:      opts.DataDir,
-		CacheDir:     opts.CacheDir,
-		LogsDir:      opts.LogsDir,
-		Host:         opts.Host.Channel,
-		Windows:      opts.Windows,
-		HotKeys:      opts.HotKeys,
-		Tray:         opts.Tray,
+		SubmitGPU: func(surfaceID uint32, id driver.NodeID, generation uint64, commands []driver.GPUCommand) {
+			if s := surfaces[surfaceID]; s != nil {
+				if gpu, ok := s.p.(driver.GPUSubmitter); ok {
+					gpu.SubmitGPU(id, generation, commands)
+				}
+			}
+		},
+		Storage:  opts.Storage,
+		Secrets:  opts.Secrets,
+		DataDir:  opts.DataDir,
+		CacheDir: opts.CacheDir,
+		LogsDir:  opts.LogsDir,
+		Host:     opts.Host.Channel,
+		Windows:  opts.Windows,
+		HotKeys:  opts.HotKeys,
+		Tray:     opts.Tray,
 	})
 	tree := core.NewTree(root, p)
 	e.tree = tree
