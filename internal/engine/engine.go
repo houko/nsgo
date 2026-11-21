@@ -280,6 +280,9 @@ type Engine struct {
 	surface uint32
 	// modality is the input modality last reported (InputModality).
 	modality atomic.Uint32
+	// frameWindow is the window state last queued (SetFrameWindow).
+	// The runner's mutex protects it.
+	frameWindow frameWindow
 }
 
 // runner is what an app's surfaces share.
@@ -304,14 +307,15 @@ type runner struct {
 }
 
 type message struct {
-	// surface is the surface a resize, an environment, a press or an
-	// event is for.
+	// surface identifies the surface a frame, environment, resize, or
+	// event came from.
 	surface uint32
 	frame   bool
 	// frameAt is the display's time for the frame, zero where the platform gave none.
-	frameAt time.Time
-	event   driver.Event
-	resize  *driver.Size
+	frameAt     time.Time
+	frameWindow frameWindow
+	event       driver.Event
+	resize      *driver.Size
 	// geometry is the fold geometry measured at resize, which travels with it.
 	geometry driver.Geometry
 	// resized are closed once the commit after the resize is mounted.
@@ -400,9 +404,12 @@ func (e *Engine) Attach(id uint32, p Platform) *Engine {
 
 // surface is an attached surface: its tree and platform.
 type surface struct {
-	tree   *core.Tree
-	p      Platform
-	commit func() *driver.MountBatch
+	id          uint32
+	frameWindow frameWindow
+	lastFocused uint64
+	tree        *core.Tree
+	p           Platform
+	commit      func() *driver.MountBatch
 }
 
 // destroyed is the batch that tells an opened surface's platform that its
@@ -465,28 +472,14 @@ func (e *Engine) run(p Platform, app App, opts Options, tokens Tokens) {
 			log.Printf("nsgo: the app's directory could not be made: %v", err)
 		}
 	}
-	// surfaces are the attached ones by ID, the first's 0; frameAsked is
-	// set while a display frame was asked for.
-
-	frameAsked := false
-	requestFrame := func() {
-		frameAsked = true
-		// A window's display ticks; the first surface may have none.
-		for id, s := range surfaces {
-			if id != 0 {
-				s.p.RequestFrame()
-				return
-			}
-		}
-		p.RequestFrame()
-	}
+	var frames frameRequests
 	root = core.NewRoot(core.RootOptions{
 		CheckCommits: opts.CheckCommits,
 		Post:         func(fn func()) { e.push(message{fn: fn}) },
 		Clock:        opts.Clock,
 		Report:       report,
 		// The platform owns the display frame: the engine only asks.
-		RequestFrame: requestFrame,
+		RequestFrame: func() { frames.wanted = true },
 		Storage:      opts.Storage,
 		Secrets:      opts.Secrets,
 		DataDir:      opts.DataDir,
@@ -507,7 +500,7 @@ func (e *Engine) run(p Platform, app App, opts Options, tokens Tokens) {
 	// attach makes t's surface p's. A test host's observer may keep a
 	// batch past the next commit.
 	attach := func(t *core.Tree, p Platform) *surface {
-		s := &surface{tree: t, p: p, commit: t.Commit}
+		s := &surface{id: t.ID(), tree: t, p: p, commit: t.Commit}
 		if _, ok := p.(SharedMounter); ok && opts.Observe == nil {
 			s.commit = t.CommitShared
 		}
@@ -583,6 +576,7 @@ func (e *Engine) run(p Platform, app App, opts Options, tokens Tokens) {
 	}
 	tree.Mount(app)
 	commit(start)
+	frames.request(surfaces)
 	for {
 		select {
 		case <-e.wake:
@@ -617,7 +611,9 @@ func (e *Engine) run(p Platform, app App, opts Options, tokens Tokens) {
 			case m.synced != nil:
 				continue
 			case m.frame:
-				frameAsked = false
+				if !frames.receive(m.surface, surfaces) {
+					continue
+				}
 				// A display's time is on the system clock's base, which an app's own clock does not share.
 				at := m.frameAt
 				if opts.Clock != nil {
@@ -657,9 +653,6 @@ func (e *Engine) run(p Platform, app App, opts Options, tokens Tokens) {
 				}
 				attach(tree.Surfaces()[surfaceIndex], opened)
 				taken[i].attach = nil
-				if frameAsked {
-					m.attach.RequestFrame()
-				}
 				continue
 			}
 			s := surfaces[m.surface]
@@ -676,6 +669,8 @@ func (e *Engine) run(p Platform, app App, opts Options, tokens Tokens) {
 				if m.surface != 0 {
 					delete(surfaces, m.surface)
 				}
+			case m.frameWindow != frameWindowUnknown:
+				frames.updateWindow(s, m.frameWindow)
 			case m.resize != nil:
 				// One batch, so no effect sees the new size with the old environment it came with.
 				root.Batch(func() {
@@ -697,6 +692,7 @@ func (e *Engine) run(p Platform, app App, opts Options, tokens Tokens) {
 			}
 		}
 		commit(start)
+		frames.request(surfaces)
 		for _, done := range pending {
 			close(done)
 		}
@@ -744,20 +740,29 @@ func (e *Engine) stop() {
 
 // push queues m and wakes the engine.
 func (e *Engine) push(m message) {
-	e.enqueue(m)
+	if !e.enqueue(m) {
+		return
+	}
 	select {
 	case e.wake <- struct{}{}:
 	default:
 	}
 }
 
-// enqueue queues m for the engine's next pass. A mergeable event replaces one of the same kind for the same view still queued, a resize the last resize of the same surface with the geometry it carries, and a frame request the one still queued, so bursts cost one update each. A wheel's turns add up into the one queued. A surface's resize and environment still queued become one message, applied in one batch.
-func (e *Engine) enqueue(m message) {
+// enqueue queues m for the engine's next pass. A mergeable event replaces one of the same kind for the same view still queued, a resize the last resize of the same surface with the geometry it carries, and a display frame the one still queued from that surface, so bursts cost one update each. A wheel's turns add up into the one queued. A surface's resize and environment still queued become one message, applied in one batch.
+func (e *Engine) enqueue(m message) bool {
 	e.mu.Lock()
 	if e.stopped {
 		e.mu.Unlock()
 		discardMessage(m)
-		return
+		return false
+	}
+	if m.frameWindow != frameWindowUnknown {
+		if m.frameWindow == e.frameWindow {
+			e.mu.Unlock()
+			return false
+		}
+		e.frameWindow = m.frameWindow
 	}
 	merged := false
 	for i := range e.queue {
@@ -791,7 +796,7 @@ func (e *Engine) enqueue(m message) {
 			m.event.Delta.Y += q.event.Delta.Y
 			*q = m
 			merged = true
-		case m.frame && q.frame,
+		case same && m.frame && q.frame,
 			m.env != nil && q.env != nil && same,
 			m.tokens != nil && q.tokens != nil,
 			m.fonts && q.fonts,
@@ -807,6 +812,7 @@ func (e *Engine) enqueue(m message) {
 		e.queue = append(e.queue, m)
 	}
 	e.mu.Unlock()
+	return true
 }
 
 func (e *Engine) take() []message {
@@ -949,10 +955,26 @@ func (e *Engine) Language() string {
 
 // Frame reports that the display frame the app asked for has begun. The
 // engine runs the callbacks waiting for it on its goroutine, then commits.
-func (e *Engine) Frame() { e.push(message{frame: true}) }
+func (e *Engine) Frame() { e.push(message{surface: e.surface, frame: true}) }
 
 // FrameAt is Frame for a frame whose time the display gave, on time.Now's base: when it shows, or when it began where the platform tells no more (core.Scope.RunFrameAt). driver.DisplayTime brings a platform's timestamp to that base.
-func (e *Engine) FrameAt(at time.Time) { e.push(message{frame: true, frameAt: at}) }
+func (e *Engine) FrameAt(at time.Time) {
+	e.push(message{surface: e.surface, frame: true, frameAt: at})
+}
+
+// SetFrameWindow reports whether this window can drive frame callbacks and
+// whether it has the keyboard focus. The engine uses the window's own state
+// independently of the environment the app or a test sees.
+func (e *Engine) SetFrameWindow(visible, focused bool) {
+	state := frameWindowHidden
+	if visible {
+		state = frameWindowVisible
+		if focused {
+			state = frameWindowFocused
+		}
+	}
+	e.push(message{surface: e.surface, frameWindow: state})
+}
 
 // Resize sets the surface size and the fold geometry measured at it, the zero Geometry for a surface without a fold. A change of the geometry alone is a resize to the same size.
 func (e *Engine) Resize(size driver.Size, g driver.Geometry) {

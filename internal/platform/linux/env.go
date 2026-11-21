@@ -390,6 +390,9 @@ func activityCallback(object, pspec, data uintptr) {
 // changed.
 func (w *window) updateEnvironment() {
 	env := w.environment()
+	if w.engine != nil {
+		w.reportFrameWindow(env)
+	}
 	if env.Equal(w.env) {
 		return
 	}
@@ -397,6 +400,13 @@ func (w *window) updateEnvironment() {
 	if w.engine != nil {
 		w.engine.SetEnvironment(env)
 	}
+}
+
+func (w *window) reportFrameWindow(env driver.Environment) {
+	root := w.rootWindow()
+	visible := root != 0 && w.surface != 0 && w.kind != driver.SurfaceTrayIcon && gtkWidgetGetMapped(w.surface) != 0 &&
+		env.Lifecycle != driver.LifecycleBackground
+	w.engine.SetFrameWindow(visible, visible && gtkWindowIsActive(root) != 0)
 }
 
 // settingBool reads a gboolean property of settings.

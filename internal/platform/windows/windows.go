@@ -141,6 +141,7 @@ const (
 	wmDestroy       = 0x0002
 	wmMove          = 0x0003
 	wmSize          = 0x0005
+	wmActivate      = 0x0006
 	wmPaint         = 0x000F
 	wmEraseBkgnd    = 0x0014
 	wmSettingChange = 0x001A
@@ -904,6 +905,7 @@ func (w *window) startEngine(app engine.App, opts Options, size driver.Size) {
 		}
 	}
 	w.engine = engine.Start(w, app, eopts)
+	w.reportFrameWindow()
 }
 
 // openSurface creates an opened window on the backend's message loop and
@@ -1021,6 +1023,7 @@ func (w *window) openSurface(cfg driver.SurfaceConfig) {
 	}
 	child.engine.Resize(driver.Size{Width: size.X, Height: size.Y}, driver.Geometry{})
 	child.engine.SetEnvironment(child.env)
+	child.reportFrameWindow()
 	if !opts.Hidden {
 		if cfg.Kind == driver.SurfacePanel {
 			child.placePanel(0, driver.Bounds{}, driver.WindowPlaceDefault)
@@ -2380,6 +2383,10 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 			w.updateEnvironment()
 		}
 		return 0
+	case wmActivate:
+		if w.engine != nil {
+			w.post(w.reportFrameWindow)
+		}
 	case wmActivateApp:
 		// Sent to each top-level window of the thread: the embedded views
 		// on it follow too.

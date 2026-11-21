@@ -12,6 +12,8 @@ Layout runs in the engine, so the frame clock moves only what a platform draws w
 
 The core holds the callbacks waiting for the next frame and tells the host when the first one appears (`RootOptions.RequestFrame`), once: the host calls `Scope.RunFrame` when that frame begins, or `Scope.RunFrameAt` with the display's time, and asks again when a callback waits for the next. The engine forwards the request to its platform (`engine.Platform.RequestFrame`) and runs the frame when the platform reports it (`Engine.Frame`, or `Engine.FrameAt` with the time), before committing what the callbacks changed. A platform reads its display's timestamp and the clock that timestamp counts on, and moves `time.Now` by their difference (`driver.DisplayTime`). The clock may be read later and on any goroutine, as Android reads `CLOCK_MONOTONIC` on its serve goroutine after the pipe: any delay before that reading shrinks the difference by as much as it moves `time.Now` on and cancels out. So the time keeps the display's cadence however late the frame reaches the engine; an engine with an app clock of its own (`engine.Options.Clock`) uses that clock's time instead.
 
+For a desktop app with several windows, the engine asks the visible window that had focus most recently. If none has taken focus, it uses the lowest visible surface ID. Hiding, minimizing or closing the driver transfers a pending request to the next eligible window. A late tick from the former window cannot satisfy it. The first surface provides the fallback while no attached window is visible.
+
 Each target's frame source is its frame clock, shared with the native animations:
 
 | Target | Frame source | The frame's time |

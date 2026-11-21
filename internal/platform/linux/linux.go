@@ -452,6 +452,7 @@ func (w *window) startEngine(app engine.App, opts Options, size driver.Size) {
 		eopts.Perf = w.startPerf()
 	}
 	w.engine = engine.Start(w, app, eopts)
+	w.reportFrameWindow(w.env)
 }
 
 // openSurface creates a window on GTK's existing main loop and attaches its tree to the root engine. Panels use a borderless GTK window and can hide on blur; one that never takes the focus is an unmanaged X11 window on X11 (panel.go), and tray anchoring remains separate work.
@@ -516,6 +517,7 @@ func (w *window) openSurface(cfg driver.SurfaceConfig) {
 	size := driver.Size{Width: opts.Width, Height: opts.Height}
 	child.engine.Resize(size, driver.Geometry{})
 	child.engine.SetEnvironment(child.env)
+	child.reportFrameWindow(child.env)
 	if !opts.Hidden {
 		gtkWindowPresent(child.win)
 	}

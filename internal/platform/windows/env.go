@@ -326,6 +326,7 @@ func (w *window) windowLifecycle() driver.Lifecycle {
 // a settings change, and reports it when it changed.
 func (w *window) updateEnvironment() {
 	env := w.environment()
+	w.reportFrameWindow()
 	if env.Equal(w.env) {
 		return
 	}
@@ -336,6 +337,15 @@ func (w *window) updateEnvironment() {
 	}
 	w.engine.SetEnvironment(env)
 	w.updateAppSurface()
+}
+
+func (w *window) reportFrameWindow() {
+	if w.engine == nil || w.hwnd == 0 {
+		return
+	}
+	foreground, _, _ := getForegroundWindow.Call()
+	visible := w.kind != driver.SurfaceTrayIcon && w.windowLifecycle() != driver.LifecycleBackground
+	w.engine.SetFrameWindow(visible, visible && foreground == w.owner())
 }
 
 // darkTitleBar matches the title bar to the appearance, where DWM can.

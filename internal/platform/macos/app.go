@@ -48,6 +48,7 @@ func startOwn(app engine.App, opts Options) *surface {
 	eopts.SetDirs(engine.AppDirs(opts.ID))
 	imageload.UseDiskCache(eopts.CacheDir)
 	s.engine = engine.Start(s, app, eopts)
+	s.reportFrameWindow(s.env)
 	e := s.engine
 	apple.SetNotificationPress(func(id string) { e.Dispatch(driver.Event{Kind: driver.EventNotificationPress, Text: id}) })
 	apple.SetPurchaseUpdates(e.Dispatch)
@@ -207,6 +208,7 @@ func (s *surface) attach(app *engine.Engine) {
 	size := objc.Send[apple.CGRect](s.native, selBounds).Size
 	s.engine.Resize(driver.Size{Width: driver.Points(size.Width), Height: driver.Points(size.Height)}, driver.Geometry{})
 	s.engine.SetEnvironment(s.env)
+	s.reportFrameWindow(s.env)
 	if s.kind == driver.SurfaceTrayIcon {
 		observeApp()
 		return

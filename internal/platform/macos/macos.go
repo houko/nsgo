@@ -949,6 +949,7 @@ func (s *surface) start(app engine.App, opts Options) {
 	eopts.SetDirs(engine.AppDirs(opts.ID))
 	imageload.UseDiskCache(eopts.CacheDir)
 	s.engine = engine.Start(s, app, eopts)
+	s.reportFrameWindow(s.env)
 	s.observe()
 	if monitor != nil {
 		s.hud = newHud(s, monitor)
@@ -1249,7 +1250,9 @@ func (s *surface) refresh() {
 		return
 	}
 	s.layoutTrafficLights()
-	if env := s.environment(); !env.Equal(s.env) {
+	env := s.environment()
+	s.reportFrameWindow(env)
+	if !env.Equal(s.env) {
 		rescale := env.PixelRatio != s.env.PixelRatio
 		s.env = env
 		s.engine.SetEnvironment(env)
@@ -1257,6 +1260,11 @@ func (s *surface) refresh() {
 			s.rescale()
 		}
 	}
+}
+
+func (s *surface) reportFrameWindow(env driver.Environment) {
+	visible := s.window != 0 && s.kind != driver.SurfaceTrayIcon && env.Lifecycle != driver.LifecycleBackground
+	s.engine.SetFrameWindow(visible, visible && objc.Send[bool](s.window, sel("isKeyWindow")))
 }
 
 // observe watches what the environment and the back and press-outside
@@ -1275,7 +1283,7 @@ func (s *surface) observe() {
 	for _, name := range []string{"NSWindowDidResizeNotification", "NSWindowDidMoveNotification",
 		"NSWindowDidEnterFullScreenNotification", "NSWindowDidExitFullScreenNotification",
 		"NSWindowDidMiniaturizeNotification", "NSWindowDidDeminiaturizeNotification",
-		"NSWindowDidChangeOcclusionStateNotification"} {
+		"NSWindowDidBecomeKeyNotification", "NSWindowDidResignKeyNotification", "NSWindowDidChangeOcclusionStateNotification"} {
 		s.stops = append(s.stops, apple.Observe(center, apple.Global(appKitPath, name), func(note objc.ID) {
 			if note.Send(sel("object")) != s.window {
 				return
