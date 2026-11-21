@@ -66,6 +66,8 @@ Apps import the public packages; `internal/` holds the implementation, which onl
 | `examples/hello` | — | A greeting in English and Chinese, built for every target but mini programs, whose 2 MB it is past, and an App Clip greeting the name its link gives, to try the packages and installers, with tests |
 | `cmd/nsgo` | `nsh-cli` | The `nsgo` tool, run on an app's `nsgo.yaml` ([tool](docs/architecture/tool.md)), with `nsgo mcp` serving agents MCP; `apk` signs Android packages in Go, `authenticode` signs Windows images in Go, and `install` holds the scripts installing a release from GitHub |
 
+[nsgo-dev/game](https://github.com/nsgo-dev/game) is the companion repository for Go games built on NSGo's public API. The [games roadmap](docs/roadmap.md#games) tracks its 2D and 3D goals and the NSGo primitives they need.
+
 ## Platforms
 
 Every target builds on macOS with Go; iOS, tvOS and watchOS also need Xcode, and x86_64 Android an NDK's clang.

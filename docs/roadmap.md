@@ -176,6 +176,24 @@ What NSGo's issue [#49](https://github.com/nsgo-dev/nsgo/issues/49) asks for fol
 An `NsgoEngine` a host keeps runs the app on while its one `NsgoView` is detached ([embedding](architecture/embedding.md)). Issue #12 also needs a fresh Activity's view to show a running engine and several surfaces to share one process before recording, floating windows or push delivery can depend on it; the design and staged protocol work are in [Android engine and view lifetime](architecture/android-lifecycle.md).
 | Android engine and view lifetime | #12, [Android engine and view lifetime](architecture/android-lifecycle.md) | A host retains one `NsgoEngine` in its Application or foreground service, Activities attach and detach `NsgoView` surfaces without killing the Go process, two surfaces share one process with independent trees, and explicit engine destruction closes the process once |
 
+## Games
+
+The [games plan (#1047)](https://github.com/nsgo-dev/nsgo/issues/1047) targets macOS, iOS, Windows, Linux, Android and the web. The first stage aims for a playable 2D game with a fixed-step loop, keyboard, mouse, touch and gamepad input, sprites, tilemaps and sound, drawn into one view with native NSGo views for its HUD and menus. The second stage would add 3D drawing while sharing input actions, sound and scene switching. The goals below cover NSGo's shared primitives. The separate game layer is planned in [nsgo-dev/game](https://github.com/nsgo-dev/game) using NSGo's public API.
+
+| Item | Reference | Done when |
+| --- | --- | --- |
+| Key release and held keys | [#1046](https://github.com/nsgo-dev/nsgo/issues/1046) | Games receive key releases and can read which keys are held |
+| Gamepads | [#1049](https://github.com/nsgo-dev/nsgo/issues/1049) | Games read controller buttons and axes on each target that supports controllers |
+| Audio | [#1050](https://github.com/nsgo-dev/nsgo/issues/1050) | `audio.Sound` and `audio.Player` play on Windows, Linux, Android and the web as they do on macOS and iOS |
+| Pixel buffers | [#1051](https://github.com/nsgo-dev/nsgo/issues/1051) | A buffer rewritten at 60 fps draws without blank frames on Android and the web, and Android canvases draw the same buffers |
+| Shader pixel inputs | [#1052](https://github.com/nsgo-dev/nsgo/issues/1052) | Shader images read pixel buffers on all six targets and upload a new copy only when its version changes |
+| Batched sprites | [#1053](https://github.com/nsgo-dev/nsgo/issues/1053) | `Drawing.DrawAtlas` matches the equivalent individual draws by pixel comparison, with timings before and after batching |
+| Pointer lock and relative motion | [#1054](https://github.com/nsgo-dev/nsgo/issues/1054) | Games can lock the pointer and read relative mouse motion on desktops and the web |
+| Android native view classes | [#1055](https://github.com/nsgo-dev/nsgo/issues/1055) | An app ships a prebuilt `View` class and shows it through `core.Native` without requiring a JDK or Android SDK on the build machine |
+| Desktop multi-touch | [#1056](https://github.com/nsgo-dev/nsgo/issues/1056) | Windows and Linux touchscreens report separate fingers to `OnTouch` |
+| GPU view for 3D | [#1059](https://github.com/nsgo-dev/nsgo/issues/1059), [open design decisions (#1104)](https://github.com/nsgo-dev/nsgo/issues/1104) | A depth-tested mesh draws with textures and lighting on the six targets after the API and backend choices are settled |
+| Additional targets | [#1117](https://github.com/nsgo-dev/nsgo/issues/1117) | HarmonyOS, mini programs, watchOS and tvOS each have a documented scope for game input, drawing, audio and frame timing |
+
 ## Diagrams
 
 What `base/diagram` still lacks ([diagrams](architecture/components.md#diagrams)), limu's `limumygo` the reference.
