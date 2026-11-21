@@ -7,9 +7,7 @@ import (
 	"time"
 )
 
-// A timeline keeps the recent slices the device has accepted, including
-// those whose scheduled host time is still in the future. One render
-// thread writes it. Position reads a slice only while its index is stable.
+// A timeline keeps the recent slices the device has accepted, including those whose scheduled host time is still in the future. One render thread writes it. Position reads a slice only while its index is stable.
 type pcmTimeline struct {
 	latest atomic.Uint64
 	total  int64 // render thread only, or while the unit is stopped
@@ -43,8 +41,7 @@ func pcmDuration(frames int64, rate int) time.Duration {
 	return time.Duration(frames * int64(time.Second) / int64(rate))
 }
 
-// position returns the heard frame count and its host time. Pending
-// counts the client's unwritten-to-device frames, excluding underruns.
+// position returns the heard frame count and its host time. Pending counts the client's unwritten-to-device frames, excluding underruns.
 func (t *pcmTimeline) position(now int64, rate int) (frames, heard int64, pending int) {
 	n := t.latest.Load()
 	for count := uint64(0); n > 0 && count < uint64(len(t.slices)); n, count = n-1, count+1 {

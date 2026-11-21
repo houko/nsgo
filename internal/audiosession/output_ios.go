@@ -16,9 +16,7 @@ var buffers struct {
 	active map[*bufferPreference]bool
 }
 
-// HoldOutput keeps an ambient PCM output's session active. Positive hints are
-// preferences for the shared I/O buffer. The shortest requested duration wins
-// and the preference from before the first request returns when they all end.
+// HoldOutput keeps an ambient PCM output's session active. Positive hints are preferences for the shared I/O buffer. The shortest requested duration wins and the preference from before the first request returns when they all end.
 func HoldOutput(hint time.Duration) (func(), error) {
 	var release func()
 	var err error

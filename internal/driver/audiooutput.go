@@ -16,8 +16,7 @@ type AudioOutputConfig struct {
 	Interrupt            func(error)
 }
 
-// AudioOutputFactory opens a stream for the audio package. It is optional on
-// platforms whose UI and app engine run in the same process.
+// AudioOutputFactory opens a stream for the audio package. It is optional on platforms whose UI and app engine run in the same process.
 type AudioOutputFactory interface {
 	OpenAudioOutput(AudioOutputConfig) (AudioOutput, error)
 }

@@ -116,8 +116,7 @@ var (
 	pcmID      atomic.Uint64
 )
 
-// audioOutput controls one output unit. The control lock is never taken
-// by its render callback. Only that callback writes scheduled buffers.
+// audioOutput controls one output unit. The control lock is never taken by its render callback. Only that callback writes scheduled buffers.
 type audioOutput struct {
 	id      uintptr
 	unit    uintptr
@@ -135,8 +134,7 @@ type audioOutput struct {
 	underruns    atomic.Uint64
 }
 
-// OpenAudioOutput opens a unit without activating the device or holding
-// the process's audio session.
+// OpenAudioOutput opens a unit without activating the device or holding the process's audio session.
 func OpenAudioOutput(conf driver.AudioOutputConfig) (driver.AudioOutput, error) {
 	if !loadPCMUnit() {
 		return nil, driver.ErrAudioOutputUnsupported

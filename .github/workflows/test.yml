@@ -148,6 +148,8 @@ jobs:
         run: go tool nsgo test ./internal/testhost/testdata/pick
       - name: Test headless network state
         run: go tool nsgo test ./internal/testhost/testdata/network
+      - name: Test that pull PCM audio is unsupported headless
+        run: go tool nsgo test ./internal/testhost/testdata/audiooutput
       - name: Test native photo pick answers
         env:
           GDK_BACKEND: x11

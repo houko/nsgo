@@ -17,14 +17,9 @@ type AudioOutputConfig struct {
 	SampleRate, Channels int
 	// Latency is a buffer duration hint. A zero value chooses the device's defaults.
 	Latency time.Duration
-	// Render fills interleaved Float32 samples in [-1, 1] and returns the number
-	// of frames written. It runs on the audio thread, never concurrently with
-	// itself. It must not block, allocate, use the graph or call Output methods.
-	// The buffer belongs to the callback. If Render returns fewer frames, the
-	// remainder is silent and the output counts one underrun.
+	// Render fills interleaved Float32 samples in [-1, 1] and returns the number of frames written. It runs on the audio thread, never concurrently with itself. It must not block, allocate, use the graph or call Output methods. The buffer belongs to the callback. If Render returns fewer frames, the remainder is silent and the output counts one underrun.
 	Render func(buf []float32) int
-	// OnInterrupt reports a paused output after an interruption, route change
-	// or device error. It runs on the engine goroutine. Start resumes output.
+	// OnInterrupt reports a paused output after an interruption, route change or device error. It runs on the engine goroutine. Start resumes output.
 	OnInterrupt func(error)
 }
 
@@ -90,12 +85,10 @@ func (o *AudioOutput) Close() {
 	o.backend.Close()
 }
 
-// Flush discards frames the renderer produced that have not reached the device
-// and reports how many were discarded. Position never counts the discarded frames.
+// Flush discards frames the renderer produced that have not reached the device and reports how many were discarded. Position never counts the discarded frames.
 func (o *AudioOutput) Flush() int { return o.backend.Flush() }
 
-// Position returns the monotonic number of frames that reached the device and
-// the corresponding host time. The time is zero before the first frame.
+// Position returns the monotonic number of frames that reached the device and the corresponding host time. The time is zero before the first frame.
 func (o *AudioOutput) Position() (frames int64, at time.Time) { return o.backend.Position() }
 
 // Latency reports the buffer latency the backend is using, or zero before it renders.
