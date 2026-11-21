@@ -104,6 +104,10 @@ func TestWidgetLocalizations(t *testing.T) {
 	if err != nil || !strings.Contains(string(data), `"widgetDescription" = "What is playing";`) {
 		t.Errorf("zh-Hans missing source fallback = %q, error %v", data, err)
 	}
+	info, err := widgetsInfo(p, nil)
+	if err != nil || !strings.Contains(string(info), "<key>CFBundleDevelopmentRegion</key>\n\t<string>en</string>") {
+		t.Errorf("the extension's Info.plist = %s, error %v, want the source language as its development region", info, err)
+	}
 	writeFiles(t, locales, map[string]string{"en.yaml": "widgetName: Now playing\nwithArgs:\n  message: '{n}'\n  placeholders:\n    n: {type: int}\n"})
 	p.Widgets = []widgetKind{{Kind: "bad", Name: "withArgs"}}
 	if _, err := kindsSwift(p, false); err == nil || !strings.Contains(err.Error(), "takes no arguments") {

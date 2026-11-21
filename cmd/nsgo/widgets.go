@@ -115,23 +115,18 @@ type widgetKind struct {
 	Families []string `yaml:"families"`
 }
 
-// widgetLocalizedText is either a catalog key or a literal widget label.
-// Catalog keys are resolved by the widget extension at runtime, while
-// literals keep the existing verbatim behavior.
+// widgetLocalizedText is either a catalog key or a literal widget label. The widget extension looks a key up at run time, and shows a literal verbatim.
 type widgetLocalizedText struct {
 	key, value string
 }
 
-// widgetLocalizations holds the catalog strings used by a widget extension.
-// Every language includes a source-language fallback for missing translations.
+// widgetLocalizations holds the catalog strings a widget extension uses. Every language has the source language's text for the keys it does not translate.
 type widgetLocalizations struct {
-	texts map[string]map[string]string
+	source string                       // the source language, the extension's development region
+	texts  map[string]map[string]string // by language, then key
 }
 
-// widgetLocalizations reads the app's catalog messages referenced by widget
-// names and descriptions. A widget field is a key only when it names a
-// source-catalog message without parameters. Empty names use the kind as a
-// literal default and are not looked up.
+// widgetLocalizations reads the app's catalog messages that widget names and descriptions name. A widget field is a key only when it names a message of the source catalog, which must take no arguments. An empty name shows the kind and is not looked up.
 func (p *project) widgetLocalizations() (*widgetLocalizations, error) {
 	if p.I18n.Dir == "" || !hasCatalogs(p.I18n.Dir) {
 		return nil, nil
@@ -155,7 +150,7 @@ func (p *project) widgetLocalizations() (*widgetLocalizations, error) {
 	if len(keys) == 0 {
 		return nil, nil
 	}
-	localizations := &widgetLocalizations{texts: map[string]map[string]string{}}
+	localizations := &widgetLocalizations{source: c.source, texts: map[string]map[string]string{}}
 	for lang, f := range c.files {
 		texts := map[string]string{}
 		for key := range keys {
@@ -189,9 +184,7 @@ func (t widgetLocalizedText) swiftText() string {
 	return "Text(verbatim: " + swiftString(t.value) + ")"
 }
 
-// writeResources adds the extension's Localizable.strings files. SwiftUI's
-// LocalizedStringKey looks them up in the extension bundle, which is separate
-// from the app bundle.
+// writeWidgetLocalizations writes the extension's Localizable.strings files into resources. SwiftUI's LocalizedStringKey looks them up in the extension's bundle, not the app's.
 func (p *project) writeWidgetLocalizations(resources string) error {
 	l, err := p.widgetLocalizations()
 	if err != nil || l == nil {
@@ -619,9 +612,8 @@ func extractIntents(ctx context.Context, t widgetTarget, sdk, tmp, module string
 	return nil
 }
 
-// widgetsInfo returns the widget extension's Info.plist, with the
-// platform's entries.
-func widgetsInfo(p *project, platform map[string]any) []byte {
+// widgetsInfo returns the widget extension's Info.plist, with the platform's entries.
+func widgetsInfo(p *project, platform map[string]any) ([]byte, error) {
 	d := map[string]any{
 		"CFBundleName":                  p.Name,
 		"CFBundleDisplayName":           p.Name,
@@ -633,10 +625,18 @@ func widgetsInfo(p *project, platform map[string]any) []byte {
 		"CFBundleInfoDictionaryVersion": "6.0",
 		"NSExtension":                   map[string]any{"NSExtensionPointIdentifier": "com.apple.widgetkit-extension"},
 	}
+	l, err := p.widgetLocalizations()
+	if err != nil {
+		return nil, err
+	}
+	if l != nil {
+		// Without it a language the catalogs lack falls back to English's .lproj, which an app written in another language does not have, and the widget shows its keys.
+		d["CFBundleDevelopmentRegion"] = l.source
+	}
 	for k, v := range platform {
 		d[k] = v
 	}
-	return encodePlist(d)
+	return encodePlist(d), nil
 }
 
 // addMacWidgets puts the widget extension and the reload library into a
@@ -655,11 +655,14 @@ func addMacWidgets(ctx context.Context, p *project, app, arch string) error {
 	if err := copyLibrary(w.exe, filepath.Join(contents, "MacOS", widgetsExec)); err != nil {
 		return err
 	}
-	info := widgetsInfo(p, map[string]any{
+	info, err := widgetsInfo(p, map[string]any{
 		widgetPathKey:                p.macWidgetsPath(),
 		"CFBundleSupportedPlatforms": []any{"MacOSX"},
 		"LSMinimumSystemVersion":     "11.0",
 	})
+	if err != nil {
+		return err
+	}
 	if err := os.WriteFile(filepath.Join(contents, "Info.plist"), info, 0o644); err != nil {
 		return err
 	}
@@ -753,7 +756,10 @@ func addIOSWidgets(ctx context.Context, p *project, app string, simulator bool) 
 			platformInfo[key] = value
 		}
 	}
-	info := widgetsInfo(p, platformInfo)
+	info, err := widgetsInfo(p, platformInfo)
+	if err != nil {
+		return err
+	}
 	if err := os.WriteFile(filepath.Join(appex, "Info.plist"), info, 0o644); err != nil {
 		return err
 	}
