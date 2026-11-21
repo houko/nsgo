@@ -100,6 +100,11 @@ type targetUpdate struct {
 	event  driver.Event
 }
 
+// Desktop hosts settle native focus events with their input and mount queues. A focus request can be refused, so only the reported events change their model's focus.
+func (t *target) reportsNativeFocus() bool {
+	return t.live || slices.Contains([]string{"macos", "windows", "linux"}, Target())
+}
+
 // observe queues a batch the app's engine sent for surface, which the next drain applies: the followed surface's, and with windows the app's own, aside. Other windows' are not modeled.
 func (t *target) observe(surface uint32, b *driver.MountBatch) {
 	t.mu.Lock()
@@ -458,9 +463,16 @@ func (t *target) settleUntil(deadline time.Time) {
 			if t.drainEvents() {
 				quiet = time.Now()
 			}
-			if time.Since(quiet) >= quietFor && !t.surface.Animating() || time.Now().After(deadline) {
-				t.quiet = time.Now().Before(deadline)
+			if time.Now().After(deadline) {
+				t.quiet = false
 				return
+			}
+			if time.Since(quiet) >= quietFor && !t.surface.Animating() {
+				if !t.drainEvents() {
+					t.quiet = time.Now().Before(deadline)
+					return
+				}
+				quiet = time.Now()
 			}
 			time.Sleep(50 * time.Millisecond)
 		}
@@ -483,8 +495,8 @@ func (t *target) settleUntil(deadline time.Time) {
 				t.quiet = false
 				return
 			}
-			// What the engine ran at the barrier may have posted more, as an App.Post function posting another does.
-			if t.drain() || t.pending() || t.surface.Animating() {
+			// Check the platform before draining: it can report events as it applies the engine's last commit. Those events and any new posts need another turn.
+			if t.surface.Animating() || t.drain() || t.pending() {
 				quiet = time.Now()
 				continue
 			}

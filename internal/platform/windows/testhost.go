@@ -464,7 +464,7 @@ func (t *testSurface) Sync() { t.w.engine.Sync() }
 func (t *testSurface) Animating() bool {
 	var busy bool
 	t.onMain(func() {
-		busy = t.w.animator.Ending()
+		busy = t.w.batches.Len() > 0 || t.w.animator.Ending()
 		for _, v := range t.w.views {
 			busy = busy || v != nil && (v.transition != nil || v.moving != nil || v.fading != nil)
 		}

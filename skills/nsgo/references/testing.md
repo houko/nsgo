@@ -47,6 +47,8 @@ Use `app.Post(func() { signal.Set(value) })` from a test or stubbed worker to qu
 
 `PressWith(selector, core.Modifiers{Shift: true})` and `PressAtWith(selector, at, mods)` hold `Shift`, `Control`, `Alt` or `Platform` for that press only, including its down and up events. Plain presses carry no modifiers. These steps use native input on a target; watchOS rejects modified presses.
 
+A press can name a text field directly. Read `app.Find("id:field").Focused` after the step on macOS, Windows, Linux or headless, including when a press handler focuses the field.
+
 `Ref.Focus()` commands follow platform focus stops: text fields everywhere, plus enabled pressable and `Focusable` views on desktops, the web and Apple TV. Use a desktop or web `Environment` when a headless test exercises button focus. The `Focus` step reaches these desktop/web stops through Tab. Any of `OnPress`, `OnPressDown`, `OnPressUp` or `OnLongPress` makes a view a stop; Return or Space sends it the down, up and press events it handles.
 
 `Key("mod+a")` selects a focused field unless a binding or an application-menu item with that shortcut takes it. Headless, on desktop targets and on the web, `KeyAlways` takes Return, Backspace and select-all before the field acts; `KeyAuto` and `KeyNotEditing` leave them to the field. The Android and iOS test hosts do not give the keymap these keys first yet. A focused view's `OnKeyDown` hears `Key` before any binding, a modifier alone (`Key("shift")`) included, and a key it consumes fires none.
@@ -69,7 +71,7 @@ go tool nsgo test -target macos -activate  # allow the test app to take the keyb
 
 On macOS, test windows accept only the test host's input, so the developer's mouse, keyboard and trackpad cannot change their scenes while the suite runs.
 
-Test windows take keys without activating the app, but while another app is active a click may not focus a text field, and the step fails saying so. `-activate` lets the test app take the keyboard on an unlocked desktop; it needs tests that import `github.com/nsgo-dev/nsgo` (a blank import is enough) and call `nsgotest.Main` in `TestMain`.
+Test windows take keys without activating the app. AppKit may refuse a field's click while another app is active, which `Focus` and `Type` diagnose. `-activate` lets the test app take the keyboard on an unlocked desktop before a field click or key step. It needs tests that import `github.com/nsgo-dev/nsgo` (a blank import is enough) and call `nsgotest.Main` in `TestMain`.
 
 `app.Screenshot("en/library")` saves `.nsgo/test/screenshots/<target>/en/library.png`, `app.Capture()` returns the pixels, and both skip headless. `-trace` prints each step's commits, `-junit report.xml` writes a report, `-bench` runs benchmarks, `-env KEY=VALUE` reaches a phone's tests, and headless flags after `--` go to `go test`. Target runs accept `-short`, `-count`, `-cpu`, `-parallel`, `-failfast` and `-fullpath` there and reject unsupported arguments. Host-linked tests repeat in fresh processes for each count and CPU setting, a timeout per invocation, which on a simulator starts when the test host starts, the launch limited to five minutes of its own; libraries keep Go's in-process repetitions. Put NSGo flags before the directory; on a target that includes `-run` and `-timeout`, which headless runs hand to `go test` after it. `test` takes one directory, every package under it, and errors on a second.
 

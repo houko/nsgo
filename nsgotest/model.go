@@ -555,7 +555,14 @@ func (a *App) apply(b *driver.MountBatch) {
 					b.Pull = op.Node
 				}
 			}
-		case driver.ItemFocus:
+		case driver.ItemFocus, driver.ItemBlur:
+			if a.target != nil && a.target.reportsNativeFocus() {
+				continue
+			}
+			if it.Kind == driver.ItemBlur {
+				a.setFocus(v, false)
+				continue
+			}
 			if !a.canFocus(v) {
 				continue
 			}
@@ -565,8 +572,6 @@ func (a *App) apply(b *driver.MountBatch) {
 				}
 			}
 			a.setFocus(v, true)
-		case driver.ItemBlur:
-			a.setFocus(v, false)
 		case driver.ItemScrollTo, driver.ItemScrollBy:
 			v.Applied++
 			if it.Kind == driver.ItemScrollBy {

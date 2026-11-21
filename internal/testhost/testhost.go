@@ -105,8 +105,8 @@ type Surface interface {
 	ChoosePopup(id uint32) error
 	// Screenshot returns the surface as a PNG.
 	Screenshot() ([]byte, error)
-	// Animating reports whether the platform animates anything that ends:
-	// a transition, a scroll's glide, a modal coming in.
+	// Animating reports whether the platform is still delivering input, applying
+	// batches or running a finite animation, such as a transition or scroll glide.
 	Animating() bool
 	// Resize resizes the surface; SetEnvironment changes what it reports,
 	// as a system setting does.

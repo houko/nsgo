@@ -18,6 +18,7 @@ import (
 
 	"github.com/nsgo-dev/nsgo/internal/driver"
 	"github.com/nsgo-dev/nsgo/internal/platform/apple"
+	"github.com/nsgo-dev/nsgo/internal/platform/objcblock"
 	"github.com/nsgo-dev/nsgo/internal/testhost"
 )
 
@@ -70,6 +71,7 @@ type testSurface struct {
 	test    *testWindow
 	hovered []objc.ID
 	clicks  testhost.Clicks
+	pressID int // the last press's marker, read and written on the main thread
 }
 
 // follow has a test's surface act on the main window its app opened, while one is open, as the test's model follows it (testhost.WindowHost), else on its own surface.
@@ -96,6 +98,14 @@ func (t *testSurface) mouse(kind uint, p driver.Point, clicks int) {
 }
 
 func (t *testSurface) mouseWith(kind uint, p driver.Point, clicks int, mods driver.Modifiers) {
+	onMainSync(func() { t.postMouse(kind, p, clicks, mods) })
+}
+
+func (t *testSurface) postMouse(kind uint, p driver.Point, clicks int, mods driver.Modifiers) {
+	if t.s.closed {
+		// What it did closed the window, as a key or a press on Close does: its next event has nowhere to go.
+		return
+	}
 	var flags uint
 	if mods.Control {
 		flags |= flagControl
@@ -109,21 +119,14 @@ func (t *testSurface) mouseWith(kind uint, p driver.Point, clicks int, mods driv
 	if mods.Platform {
 		flags |= flagCommand
 	}
-	onMainSync(func() {
-		if t.s.closed {
-			// What it did closed the window, as a key or a press on Close does: its next event has nowhere to go.
-			return
-		}
-		w := t.s.window
-		if t.s.testPointer != nil {
-			*t.s.testPointer = t.windowPoint(p)
-		}
-		ev := objc.ID(apple.Class("NSEvent")).Send(
-			sel("mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:"),
-			kind, t.windowPoint(p), flags, uptime(), objc.Send[int](w, sel("windowNumber")), objc.ID(0), 0, clicks, float32(1))
-		rememberTestInput(ev)
-		nsApp().Send(sel("postEvent:atStart:"), ev, false)
-	})
+	if t.s.testPointer != nil {
+		*t.s.testPointer = t.windowPoint(p)
+	}
+	ev := objc.ID(apple.Class("NSEvent")).Send(
+		sel("mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:"),
+		kind, t.windowPoint(p), flags, uptime(), objc.Send[int](t.s.window, sel("windowNumber")), objc.ID(0), 0, clicks, float32(1))
+	rememberTestInput(ev)
+	nsApp().Send(sel("postEvent:atStart:"), ev, false)
 }
 
 func (t *testSurface) Press(at driver.Point, hold time.Duration, mods driver.Modifiers) error {
@@ -146,8 +149,40 @@ func (t *testSurface) Press(at driver.Point, hold time.Duration, mods driver.Mod
 	if hold > 0 {
 		time.Sleep(hold + 50*time.Millisecond)
 	}
-	t.mouseWith(evLeftUp, at, clicks, mods)
+	onMainSync(func() {
+		t.postMouse(evLeftUp, at, clicks, mods)
+		if hold == 0 && !t.s.closed {
+			t.markPress()
+		}
+	})
 	return nil
+}
+
+const pressMarker int16 = 0x4e53
+
+// These serials belong to AppKit's main thread and follow its shared event queue across windows.
+var pressPosted, pressHandled int
+
+// markPress posts an event behind the press. The engine can reach its barrier before AppKit delivers the mouse events, so the step also checks this marker when deciding whether the app is quiet.
+func (t *testSurface) markPress() {
+	const applicationDefined = 15 // NSEventTypeApplicationDefined
+	nsEvent := objc.ID(apple.Class("NSEvent"))
+	if pressPosted == 0 {
+		handler := objcblock.New(func(_ objc.Block, event objc.ID) objc.ID {
+			if objc.Send[int16](event, sel("subtype")) != pressMarker {
+				return event
+			}
+			pressHandled = max(pressHandled, objc.Send[int](event, sel("data1")))
+			return 0
+		})
+		nsEvent.Send(sel("addLocalMonitorForEventsMatchingMask:handler:"), uint64(1<<applicationDefined), handler)
+		handler.Release()
+	}
+	pressPosted++
+	t.pressID = pressPosted
+	event := nsEvent.Send(sel("otherEventWithType:location:modifierFlags:timestamp:windowNumber:context:subtype:data1:data2:"),
+		uint(applicationDefined), apple.CGPoint{}, uint(0), uptime(), 0, objc.ID(0), pressMarker, t.pressID, 0)
+	nsApp().Send(sel("postEvent:atStart:"), event, false)
 }
 
 func (t *testSurface) RightClick(at driver.Point) error {
@@ -786,6 +821,11 @@ func (t *testSurface) Animating() bool {
 		// Batches waiting for a frame have not shown yet, nor scrolls
 		// their offsets.
 		busy = t.s.animator.Ending() || len(t.s.motions) > 0 || len(t.s.ghosts) > 0 || t.s.held() || t.s.scrollsMoving()
+		// A context menu can consume queued events in its tracking loop, while the step must return so the test can choose the menu item.
+		if t.s.tracking {
+			t.pressID = 0
+		}
+		busy = busy || t.pressID > pressHandled
 	})
 	return busy
 }

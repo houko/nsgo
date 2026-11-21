@@ -120,6 +120,32 @@ func TestTargetSettleChecksTheEngineBeforeReturningQuiet(t *testing.T) {
 	}
 }
 
+func TestTargetSettleTakesFocusReportedAtItsLastNativeCheck(t *testing.T) {
+	a := Start(t, func(*core.Scope) core.Node { return core.Input{TestID: "field"} })
+	field := a.Find("id:field")
+	tg := &target{a: a, live: true}
+	a.target = tg
+	defer func() { a.target = nil }()
+	tg.observe(0, &driver.MountBatch{Root: a.rootID, Items: []driver.MountItem{{Kind: driver.ItemFocus, ID: field.ID}}})
+	tg.drain()
+	if field.Focused {
+		t.Fatal("the engine's focus request changed focus before the platform reported it")
+	}
+	syncs := 0
+	reported := false
+	tg.surface = settlingSurface{sync: func() { syncs++ }, animating: func() bool {
+		if syncs == 2 && !reported {
+			tg.event(driver.Event{Kind: driver.EventFocus, ID: field.ID})
+			reported = true
+		}
+		return false
+	}}
+	tg.settle()
+	if !tg.quiet || !field.Focused {
+		t.Fatalf("quiet=%v, focused=%v, want the native focus in the returned model", tg.quiet, field.Focused)
+	}
+}
+
 func TestTargetSettleBoundsABlockedEngineAndReusesItsWaiter(t *testing.T) {
 	tg, _, _ := settleFixture(t)
 	release := make(chan struct{})

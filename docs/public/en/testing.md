@@ -41,6 +41,8 @@ An app run with its function, `nsgo.Run(func(app *core.Scope) {...})`, is tested
 
 `app.PressWith("id:row", core.Modifiers{Shift: true})` holds modifiers for one press; `PressAtWith(selector, core.Point{X: 20, Y: 10}, mods)` presses a point in the view. `Shift`, `Control`, `Alt` and `Platform` (Command on Apple, the Windows/Super key elsewhere) reach `OnPressDown`, `OnPressUp` and `OnPress`, headless and through native target input. Native platform conventions still apply: Chrome on macOS turns Control-click into a context menu. A later `Press` or `PressAt` has no modifiers. watchOS rejects modified presses because it has no keyboard modifier input.
 
+A press can name a text field directly. Headless and on macOS, Windows and Linux, read `app.Find("id:field").Focused` immediately after the press, including when the pressed view's handler focuses the field.
+
 `app.Focus(selector)` reaches a field as a tap does and, in a desktop or web `Environment` or on those targets, a pressable or `Focusable` view through Tab, so a following `app.Key("Return")` presses it. A `Ref.Focus()` the app calls follows the same stops: fields everywhere, other views only on desktops, the web and Apple TV, so a headless test of a button's focus needs one of those environments. A pressable view has any of `OnPress`, `OnPressDown`, `OnPressUp` or `OnLongPress`, as on the platforms; Return or Space on it sends the down, up and press events it handles, so a view with only `OnLongPress` takes the focus but no key presses it.
 
 Headless runs use the phone idiom by default, whatever the project targets, so `cx.Env().Desktop()` is false and hover tooltips never show. Pass `nsgotest.Idiom(core.IdiomDesktop)` to test a desktop presentation, keeping the rest of the environment, an `Environment` option's included. Keyboard focus follows the environment's OS, not its idiom.
@@ -87,7 +89,7 @@ go tool nsgo test -target macos
 
 On macOS, test windows ignore mouse, keyboard and trackpad input from outside the test host, so using the machine while a suite runs does not change its scenes. The test's own steps still work.
 
-Test windows take the test's keys without activating the app, so the app you work in stays in front. While another app is active, though, a click may not give a text field the focus, and the step that clicked fails saying so. `go tool nsgo test -target macos -activate` lets the test app activate and take the keyboard before it focuses a field or presses keys. It needs an unlocked desktop session, and tests that import `github.com/nsgo-dev/nsgo` (a blank import is enough) and start `nsgotest.Main` or `nsgotest.MainFunc` from `TestMain`.
+Test windows take the test's keys without activating the app, so the app you work in stays in front. AppKit may refuse a field's click while another app is active. `Focus` and `Type` diagnose that refusal. `go tool nsgo test -target macos -activate` lets the test app activate and take the keyboard before it clicks a field or presses keys. It needs an unlocked desktop session, and tests that import `github.com/nsgo-dev/nsgo` (a blank import is enough) and start `nsgotest.Main` or `nsgotest.MainFunc` from `TestMain`.
 
 Cleanup closes any native context menu the app left open, so a subtest may finish with a menu showing without taking the next subtest's first click or key.
 

@@ -17,6 +17,8 @@ func pressable(v *View) bool {
 	return v.Events.Has(driver.EventPress) || v.Events.Has(driver.EventPressDown)
 }
 
+func primaryPressTarget(v *View) bool { return v.Kind == driver.KindInput || pressable(v) }
+
 // pointerPressable includes touch listeners and responders, which can take a tap without becoming keyboard stops.
 func pointerPressable(v *View) bool {
 	return pressable(v) || v.Events.Has(driver.EventPressUp) || v.Events.Has(driver.EventLongPress) || v.Events.Has(driver.EventTouch)
@@ -43,8 +45,8 @@ func (a *App) systemSwitch(selector string) *View {
 	return nil
 }
 
-// pressTarget is the view a press on selector goes to: the match, or its
-// nearest pressable ancestor (a text inside a button); a canvas node's
+// pressTarget is the view a press on selector goes to: the field it matches
+// or its nearest pressable ancestor (a text inside a button); a canvas node's
 // press goes to the view under its middle. at is where it lands, in
 // surface points, and index the byte offset of the characters a text:
 // selector names in a text with pressable spans.
@@ -73,7 +75,7 @@ func (a *App) pressTarget(selector string) (v *View, at driver.Point, index int)
 	}
 	var match *View
 	v = a.pick(selector, "pressable view", func(m *View) (*View, bool) {
-		t := m.upTo(pressable)
+		t := m.upTo(primaryPressTarget)
 		if t == nil {
 			t = m.upTo(pointerPressable)
 		}
@@ -119,12 +121,12 @@ func (a *App) charsAt(selector string, v *View) int {
 	return 0
 }
 
-// Press presses what selector names, or the pressable or touch-listening view around it, as
+// Press presses the field, pressable or touch-listening view selector names or is inside, as
 // a tap does: a finger goes down and lifts on its middle, which the views
 // listening to touches hear and presses outside the overlays it is not in
 // report, while the view hears PressDown, PressUp and Press. On a
 // platform, a native component's view, such as the system's switch,
-// takes the press itself.
+// takes the press itself. The step settles the keyboard focus the press moves.
 func (a *App) Press(selector string) {
 	a.t.Helper()
 	a.PressWith(selector, driver.Modifiers{})
@@ -184,7 +186,11 @@ func modifierNames(mods driver.Modifiers) string {
 // pressAt presses v at the surface point at.
 func (a *App) pressAt(v *View, at driver.Point, index int, mods driver.Modifiers) {
 	a.t.Helper()
+	field := v.Kind == driver.KindInput && focusable(v)
 	if a.target != nil {
+		if field {
+			a.target.prepareKeyboard()
+		}
 		a.target.press(at, 0, mods)
 		a.done()
 		return
@@ -203,12 +209,16 @@ func (a *App) pressAt(v *View, at driver.Point, index int, mods driver.Modifiers
 	a.inputBy(driver.ModalityPointer)
 	a.touchAt(driver.GestureBegan, at, 0)
 	a.pressOutside(v, at)
-	// A pointer's press takes the keyboard focus off pressable views.
+	// A pointer's press takes the keyboard focus off pressable views and moves it into an editable field it hits.
 	for _, o := range a.views {
-		if o.Focused && o.Kind != driver.KindInput {
+		if o.Focused && (o.Kind != driver.KindInput || field && o != v) {
 			a.setFocus(o, false)
 			a.Settle()
 		}
+	}
+	if field {
+		a.setFocus(v, true)
+		a.Settle()
 	}
 	for _, k := range []driver.EventKind{driver.EventPressDown, driver.EventPressUp, driver.EventPress} {
 		ev := a.pressEvent(v, at)
@@ -290,7 +300,7 @@ func walk(v *View, fn func(*View)) {
 // that takes presses, following visible overflow until a view that clips
 // stops it, as a pointer there finds it.
 func (a *App) pressableAt(p driver.Point) *View {
-	if v := a.viewAt(p, pressable); v != nil {
+	if v := a.viewAt(p, primaryPressTarget); v != nil {
 		return v
 	}
 	return a.viewAt(p, pointerPressable)

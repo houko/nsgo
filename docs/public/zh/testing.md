@@ -41,6 +41,8 @@ func TestMain(m *testing.M) {
 
 `app.PressWith("id:row", core.Modifiers{Shift: true})` 为一次点击按住修饰键；`PressAtWith(selector, core.Point{X: 20, Y: 10}, mods)` 点击视图中的指定点。`Shift`、`Control`、`Alt` 和 `Platform`（Apple 上为 Command，其他平台为 Windows/Super 键）会通过无头模型和目标的原生输入传给 `OnPressDown`、`OnPressUp` 和 `OnPress`。仍遵循平台的原生约定：例如 macOS 上的 Chrome 会将 Control-click 转为上下文菜单。之后的 `Press` 或 `PressAt` 不带修饰键。watchOS 没有键盘修饰键输入，因此会拒绝带修饰键的点击。
 
+点击可以直接指定文本框。在无头测试以及 macOS、Windows 和 Linux 上，可以在点击返回后立即读取 `app.Find("id:field").Focused`，包括点击处理函数聚焦文本框的情况。
+
 `app.Focus(selector)` 像点击一样聚焦文本框；在桌面或 Web 的 `Environment` 中，或在这些目标上，它用 Tab 走到可按压或 `Focusable` 的视图，之后的 `app.Key("Return")` 会按下它。应用调用的 `Ref.Focus()` 遵循相同的停靠点：文本框在所有平台上都能聚焦，其他视图只在桌面、Web 和 Apple TV 上能聚焦，因此无头测试按钮的焦点需要使用这些环境之一。带有 `OnPress`、`OnPressDown`、`OnPressUp` 或 `OnLongPress` 任意一个的视图都算可按压，与各平台一致；在它上面按 Return 或 Space 会发送它处理的按下、抬起和按压事件，所以只有 `OnLongPress` 的视图能获得焦点，但没有按键能按下它。
 
 无头运行默认使用手机 idiom，与项目的目标平台无关，因此 `cx.Env().Desktop()` 为 false，悬停提示不会出现。传入 `nsgotest.Idiom(core.IdiomDesktop)` 可以测试桌面上的呈现，环境的其余部分保持不变，包括 `Environment` 选项设置的值。键盘焦点取决于环境的操作系统，而不是 idiom。
@@ -87,7 +89,7 @@ go tool nsgo test -target macos
 
 在 macOS 上，测试窗口会忽略测试宿主以外的鼠标、键盘和触控板输入，因此测试运行时使用电脑不会改变测试场景。测试自身的操作仍然有效。
 
-测试窗口无需激活应用就能收到测试的按键，因此你正在使用的应用会保持在前台。但当其他应用处于活动状态时，点击可能无法让文本框获得焦点，执行点击的步骤会失败并说明原因。`go tool nsgo test -target macos -activate` 让测试应用在聚焦文本框或按键前激活并获得键盘。它需要未锁定的桌面会话，并要求测试导入 `github.com/nsgo-dev/nsgo`（空白导入即可），并在 `TestMain` 中启动 `nsgotest.Main` 或 `nsgotest.MainFunc`。
+测试窗口无需激活应用就能收到测试的按键，因此你正在使用的应用会保持在前台。当其他应用处于活动状态时，AppKit 可能拒绝文本框获得焦点，`Focus` 和 `Type` 会说明原因。`go tool nsgo test -target macos -activate` 让测试应用在点击文本框或按键前激活并获得键盘。它需要未锁定的桌面会话，并要求测试导入 `github.com/nsgo-dev/nsgo`（空白导入即可），并在 `TestMain` 中启动 `nsgotest.Main` 或 `nsgotest.MainFunc`。
 
 清理测试时会关闭应用留下的原生上下文菜单，因此子测试可以在菜单仍显示时结束，不会吞掉下一个子测试的第一次点击或按键。
 
