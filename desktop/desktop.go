@@ -33,6 +33,8 @@ type (
 	// controls: hidden for the app to draw its own, or macOS's traffic
 	// lights moved.
 	WindowControls = core.WindowControls
+	// WindowControlsStyle chooses the look of the caption buttons NSGo draws on Windows.
+	WindowControlsStyle = core.WindowControlsStyle
 	// WindowMaterial is a translucent material behind the window's
 	// content: one of macOS's vibrancy materials, or of Windows 11's
 	// system backdrops, each platform showing its closest.
@@ -42,6 +44,13 @@ type (
 const (
 	TitleBarDefault = core.TitleBarDefault
 	TitleBarHidden  = core.TitleBarHidden
+)
+
+const (
+	// WindowControlsDefault draws NSGo's compact rounded caption buttons on Windows.
+	WindowControlsDefault = core.WindowControlsDefault
+	// WindowControlsSystem draws Windows 11's full-height caption buttons, flush with the window's edge.
+	WindowControlsSystem = core.WindowControlsSystem
 )
 
 const (

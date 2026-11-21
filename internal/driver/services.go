@@ -289,8 +289,7 @@ type WindowCommand struct {
 	On bool
 }
 
-// WindowControlsStyle chooses the appearance of caption buttons a desktop
-// backend draws in a hidden title bar.
+// WindowControlsStyle chooses the appearance of caption buttons a desktop backend draws in a hidden title bar.
 type WindowControlsStyle uint8
 
 const (
@@ -308,8 +307,7 @@ type WindowControls struct {
 	// call MinimizeWindow, ToggleMaximize and CloseWindow; Env.TitleBar
 	// then reports no width at its ends.
 	Hidden bool
-	// Style chooses Windows' caption-button geometry and colors. It is ignored
-	// on macOS and Linux.
+	// Style chooses Windows' caption-button geometry and colors. It is ignored on macOS and Linux.
 	Style WindowControlsStyle
 	// TrafficLights puts the top left corner of macOS's close button
 	// this far from the window's top left corner, in points, the other

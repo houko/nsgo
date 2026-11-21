@@ -883,8 +883,10 @@ const (
 )
 
 const (
+	// WindowControlsDefault draws NSGo's compact rounded caption buttons on Windows.
 	WindowControlsDefault = driver.WindowControlsDefault
-	WindowControlsSystem  = driver.WindowControlsSystem
+	// WindowControlsSystem draws Windows 11's full-height caption buttons, flush with the window's edge.
+	WindowControlsSystem = driver.WindowControlsSystem
 )
 
 const (

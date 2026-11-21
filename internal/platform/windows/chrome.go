@@ -114,8 +114,7 @@ const (
 	captionGlyphSize     driver.Points = 10
 	// captionRight is how far the buttons reach in from the right edge.
 	captionRight = captionMargin + 3*captionButtonSize + 2*captionButtonGap
-	// Windows 11's caption buttons are full-height rectangles at the window's
-	// edge, each 46 points wide at 96 DPI.
+	// systemCaptionButtonWidth is the width of Windows 11's caption buttons, full-height rectangles at the window's edge.
 	systemCaptionButtonWidth driver.Points = 46
 )
 
@@ -213,6 +212,7 @@ func (w *window) titleBarArea() driver.Edges {
 	return driver.Edges{Top: w.captionHeight(), Right: w.captionRight()}
 }
 
+// captionRight is how far the caption buttons reach in from the right edge in the window's style.
 func (w *window) captionRight() driver.Points {
 	if w.chrome.controls == driver.WindowControlsSystem {
 		return 3 * systemCaptionButtonWidth
@@ -647,11 +647,7 @@ func (w *window) ncActivate(wParam, lParam uintptr) uintptr {
 	return r
 }
 
-// drawCaptionButtons draws the caption buttons over the app, with the
-// title bar hidden, at the right of a client area width pixels wide. It
-// draws NSGo's: rounded squares in the middle of the bar, the close one
-// red under the pointer. It draws in pixels, so the glyphs' lines fall on
-// whole ones.
+// drawCaptionButtons draws the caption buttons over the app, with the title bar hidden, at the right of a client area width pixels wide: NSGo's rounded squares in the middle of the bar, or with WindowControlsSystem Windows 11's full-height rectangles flush with the edge, the close one red under the pointer. It draws in pixels, so the glyphs' lines fall on whole ones.
 func (p *painter) drawCaptionButtons(width int32) {
 	w := p.w
 	if !w.buttons() {
