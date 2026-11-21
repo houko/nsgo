@@ -2,6 +2,7 @@ package ui
 
 import (
 	"testing"
+	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -133,6 +134,28 @@ func TestTabsStyles(t *testing.T) {
 		if got := app.Find("two").Children[0].TextStyle.Font.Weight; got != core.FontWeightBold {
 			t.Fatalf("variant %v: newly selected tab weight = %v, want bold", variant, got)
 		}
+	}
+}
+
+func TestTabsUnderlineIndicatorOptions(t *testing.T) {
+	headless(t)
+	app, _ := start(t, desktopEnv, func(cx *core.Scope) core.Node {
+		value := core.NewSignal(cx, 0)
+		return Tabs[int]{Variant: TabsUnderline, TestID: "tabs", Value: value.Get, OnChange: value.Set, IndicatorColor: func() core.Color { return core.RGB(0x123456) }, IndicatorFit: TabsIndicatorContent,
+			Options: []Option[int]{{Value: 0, Label: "One", TestID: "one"}, {Value: 1, Label: "A longer tab", TestID: "two"}}}
+	}, nsgotest.ManualFrames())
+	indicator := app.Find("tabs").Children[0]
+	content := app.Find("one").Children[0]
+	if got := indicator.Style.Background; got != core.RGB(0x123456) {
+		t.Fatalf("underline color = %x, want 123456", got)
+	}
+	if got := indicator.Frame.Size.Width; got != content.Frame.Size.Width {
+		t.Fatalf("content-fitted underline width = %v, want %v", got, content.Frame.Size.Width)
+	}
+	app.Press("two")
+	app.Advance(500 * time.Millisecond)
+	if got := app.Find("tabs").Children[0].Frame.Size.Width; got != app.Find("two").Children[0].Frame.Size.Width {
+		t.Fatalf("moved content-fitted underline width = %v, want %v", got, app.Find("two").Children[0].Frame.Size.Width)
 	}
 }
 

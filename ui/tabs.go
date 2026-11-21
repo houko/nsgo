@@ -19,6 +19,16 @@ const (
 	TabsUnderline
 )
 
+// TabsIndicatorFit says what an underline indicator follows.
+type TabsIndicatorFit uint8
+
+const (
+	// TabsIndicatorTab fits the indicator to the selected tab, inset by six points.
+	TabsIndicatorTab TabsIndicatorFit = iota
+	// TabsIndicatorContent fits the indicator to the selected tab's content.
+	TabsIndicatorContent
+)
+
 // tabsSlide is how the indicator moves to the selected tab.
 var tabsSlide = core.Transition{Duration: 180 * time.Millisecond, Easing: core.EaseOut, Properties: core.TransitionLayout}
 
@@ -38,6 +48,10 @@ type Tabs[T comparable] struct {
 	// fitting its content.
 	Equal bool
 	Size  Size
+	// IndicatorColor colors an underline indicator. The accent is used when nil.
+	IndicatorColor func() core.Color
+	// IndicatorFit chooses whether an underline indicator follows the tab or its content.
+	IndicatorFit TabsIndicatorFit
 	// Label names the list for assistive technology.
 	Label  string
 	TestID string
@@ -87,12 +101,21 @@ func (t Tabs[T]) Render(cx *core.Scope) core.Node {
 	}
 	width := core.NewSignal(cx, core.Points(0))
 	frames := map[T]*core.Signal[core.Bounds]{}
+	contents := map[T]*core.Signal[core.Bounds]{}
 	frame := func(value T) *core.Signal[core.Bounds] {
 		if f := frames[value]; f != nil {
 			return f
 		}
 		f := core.NewSignal(cx, core.Bounds{})
 		frames[value] = f
+		return f
+	}
+	contentFrame := func(value T) *core.Signal[core.Bounds] {
+		if f := contents[value]; f != nil {
+			return f
+		}
+		f := core.NewSignal(cx, core.Bounds{})
+		contents[value] = f
 		return f
 	}
 	// Only a change of tab slides: the indicator follows a tab that a
@@ -108,8 +131,9 @@ func (t Tabs[T]) Render(cx *core.Scope) core.Node {
 	env := cx.Env()
 	indicator := core.View{PointerEvents: core.PointerEventsNone, OnTransitionEnd: func() { sliding.Set(false) }, StyleFunc: func() core.Style {
 		var f core.Bounds
-		if i := selected(); i >= 0 {
-			o := options()[i]
+		selectedIndex := selected()
+		if selectedIndex >= 0 {
+			o := options()[selectedIndex]
 			f = frame(o.Value).Get()
 		}
 		left := f.Origin.X
@@ -123,8 +147,22 @@ func (t Tabs[T]) Render(cx *core.Scope) core.Node {
 		}
 		if underline {
 			const inset, height = 6, 2
-			s.Left, s.Top, s.Width, s.Height = core.Pt(left+inset), core.Pt(f.Origin.Y+f.Size.Height-height), core.Pt(max(0, f.Size.Width-2*inset)), core.Pt(height)
-			s.CornerRadius, s.Background = height/2, colors.Accent()
+			indicatorLeft, indicatorWidth := left+inset, max(0, f.Size.Width-2*inset)
+			if t.IndicatorFit == TabsIndicatorContent {
+				content := contentFrame(options()[selectedIndex].Value).Get()
+				indicatorWidth = content.Size.Width
+				if env.RTL() {
+					indicatorLeft = width.Get() - f.Origin.X - content.Origin.X - content.Size.Width
+				} else {
+					indicatorLeft = f.Origin.X + content.Origin.X
+				}
+			}
+			s.Left, s.Top, s.Width, s.Height = core.Pt(indicatorLeft), core.Pt(f.Origin.Y+f.Size.Height-height), core.Pt(indicatorWidth), core.Pt(height)
+			color := colors.Accent()
+			if t.IndicatorColor != nil {
+				color = t.IndicatorColor()
+			}
+			s.CornerRadius, s.Background = height/2, color
 			return s.Merge(t.IndicatorStyle)
 		}
 		s.Left, s.Top, s.Width, s.Height = core.Pt(left), core.Pt(f.Origin.Y), core.Pt(f.Size.Width), core.Pt(f.Size.Height)
@@ -138,6 +176,7 @@ func (t Tabs[T]) Render(cx *core.Scope) core.Node {
 	tabs := []core.Node{indicator, core.Each(options, func(o Option[T]) T { return o.Value }, func(rowCx *core.Scope, item func() Option[T], index func() int) core.Node {
 		o := item()
 		f := frame(o.Value)
+		content := contentFrame(o.Value)
 		children := []core.Node{o.Content}
 		if o.Content == nil {
 			children = nil
@@ -147,6 +186,9 @@ func (t Tabs[T]) Render(cx *core.Scope) core.Node {
 			if o.Label != "" {
 				children = append(children, core.Text{ContentFunc: func() string { return item().Label }, MaxLines: 1})
 			}
+		}
+		if underline && t.IndicatorFit == TabsIndicatorContent {
+			children = []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, OnLayout: content.Set, Children: children}}
 		}
 		return base.Tab{Selected: func() bool { return selected() == index() }, Disabled: func() bool { return item().Disabled != nil && item().Disabled() },
 			OnPress: func(core.PressEvent) {
