@@ -11,7 +11,7 @@ import (
 type Sheet struct {
 	Open    func() bool
 	OnClose func()
-	// Style merges over the sheet's surface style.
+	// Style merges over the sheet's surface style. A CornerRadius without CornerRadii rounds every corner in place of the default rounded top.
 	Style core.Style
 	// StyleFunc merges over Style and follows the signals it reads.
 	StyleFunc func() core.Style
@@ -32,13 +32,22 @@ func (s Sheet) Render(cx *core.Scope) core.Node {
 		BackdropStyle: core.Style{Background: Black(0.4)},
 		PopupStyleFunc: func() core.Style {
 			style := core.Style{Gap: 12, Padding: core.Edges{Top: 8, Right: 16, Bottom: env.SafeArea().Bottom + 16, Left: 16},
-				CornerRadii: core.Corners{TopLeft: 16, TopRight: 16}, Background: colors.Surface()}.Merge(s.Style)
+				CornerRadii: core.Corners{TopLeft: 16, TopRight: 16}, Background: colors.Surface()}
+			style = mergeSheetSurface(style, s.Style)
 			if s.StyleFunc != nil {
-				style = style.Merge(s.StyleFunc())
+				style = mergeSheetSurface(style, s.StyleFunc())
 			}
 			return style
 		},
 		Children: append([]core.Node{core.View{Style: core.Style{Width: core.Pt(36), Height: core.Pt(5), CornerRadius: 3, AlignSelf: core.AlignCenter},
 			StyleFunc: Filled(colors.Border)}}, s.Children...),
 	}
+}
+
+// mergeSheetSurface merges o over the surface style s. The default rounds the top corners with CornerRadii, which would outrank a CornerRadius in o, so a CornerRadius without CornerRadii drops the default radii.
+func mergeSheetSurface(s, o core.Style) core.Style {
+	if o.CornerRadius != 0 && o.CornerRadii == (core.Corners{}) {
+		s.CornerRadii = core.Corners{}
+	}
+	return s.Merge(o)
 }
