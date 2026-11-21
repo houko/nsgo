@@ -186,7 +186,6 @@ The [games plan (#1047)](https://github.com/nsgo-dev/nsgo/issues/1047) targets m
 | Gamepads | [#1049](https://github.com/nsgo-dev/nsgo/issues/1049) | Games read controller buttons and axes on each target that supports controllers |
 | Audio | [#1050](https://github.com/nsgo-dev/nsgo/issues/1050) | `audio.Sound` and `audio.Player` play on Windows, Linux, Android and the web as they do on macOS and iOS |
 | Pixel buffers | [#1051](https://github.com/nsgo-dev/nsgo/issues/1051) | A buffer rewritten at 60 fps draws without blank frames on Android and the web, and Android canvases draw the same buffers |
-| Shader pixel inputs | [#1052](https://github.com/nsgo-dev/nsgo/issues/1052) | Shader images read pixel buffers on all six targets and upload a new copy only when its version changes |
 | Batched sprites | [#1053](https://github.com/nsgo-dev/nsgo/issues/1053) | `Drawing.DrawAtlas` matches the equivalent individual draws by pixel comparison, with timings before and after batching |
 | Pointer lock and relative motion | [#1054](https://github.com/nsgo-dev/nsgo/issues/1054) | Games can lock the pointer and read relative mouse motion on desktops and the web |
 | Android native view classes | [#1055](https://github.com/nsgo-dev/nsgo/issues/1055) | An app ships a prebuilt `View` class and shows it through `core.Native` without requiring a JDK or Android SDK on the build machine |
