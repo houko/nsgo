@@ -433,6 +433,29 @@ func TestCaptionButtonsAndMaterialFollowTheApp(t *testing.T) {
 	until("the Windows system caption buttons", func(w *window) bool {
 		return w.titleBarArea() == driver.Edges{Top: 40, Right: 3 * systemCaptionButtonWidth} && w.captionAt(systemClose) == htClose
 	})
+	// A hovered system close button fills the bar's height and stops at its bottom. A session with no desktop copies the window black, which leaves the fill unchecked.
+	var closeX, middle, inside, below int32
+	onMain(t, hwnd, func(w *window) {
+		closeX, middle, inside, below = w.px(width-systemCaptionButtonWidth/2), w.px(20), w.px(40)-2, w.px(40)+2
+		w.setHover(htClose)
+	})
+	red := func(y int32) bool {
+		r, g, b, ok := windowPixel(hwnd, closeX, y)
+		return ok && r > 0xc0 && g < 0x60 && b < 0x60
+	}
+	shown := false
+	for deadline := time.Now().Add(time.Second); !shown && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		shown = red(middle)
+	}
+	switch {
+	case !shown:
+		t.Log("the window's copy shows no hovered close button: its fill is not checked")
+	case !red(inside):
+		t.Error("the hovered system close button does not fill the bottom of the title bar")
+	case red(below):
+		t.Error("the hovered system close button's fill reaches below the title bar")
+	}
+	onMain(t, hwnd, func(w *window) { w.setHover(0) })
 
 	backdrops := false
 	onMain(t, hwnd, func(w *window) { backdrops = w.material == driver.WindowMaterialMica })

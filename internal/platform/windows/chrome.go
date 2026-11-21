@@ -679,7 +679,7 @@ func (p *painter) drawCaptionButtons(width int32) {
 	}
 	for i, code := range []uint32{htClose, htMaxButton, htMinButton} {
 		right := width - margin - int32(i)*(button+gap)
-		r := rect{right - button, top, right, top + button}
+		r := rect{right - button, top, right, top + buttonHeight}
 		hovered := c.hover == code
 		pressed := hovered && c.pressed == code
 		var bg driver.Color
