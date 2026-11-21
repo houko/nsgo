@@ -610,7 +610,9 @@ func (t *Tree) sizeAttachments(n *node, inherited textFields, scale float32, for
 	return changed
 }
 
-// baselineDescent is how far attachment view w, aligned as align says, reaches below the line's baseline: where the one view it made is an Em canvas, its baseline's height above w's bottom.
+// baselineDescent is how far attachment view w, aligned as align says, reaches
+// below the line's baseline. Text inside an attachment supplies the baseline
+// of its first line, while an Em canvas supplies its declared descent.
 func (w *node) baselineDescent(align VerticalAlign) Points {
 	if align != 0 && align != VerticalAlignBaseline {
 		return 0
@@ -620,6 +622,9 @@ func (w *node) baselineDescent(align VerticalAlign) Points {
 		c = kids[0]
 	}
 	if c.canvas == nil || c.canvas.em == nil {
+		if baseline, ok := w.firstTextBaseline(); ok {
+			return max(Points(w.lstate.Rounded.Size.Height)-baseline, 0)
+		}
 		return 0
 	}
 	l := &c.lstate.Rounded
@@ -630,6 +635,43 @@ func (w *node) baselineDescent(align VerticalAlign) Points {
 		return max(h-bottom+c.canvas.em.descent(Points(l.Size.Height)), 0)
 	}
 	return c.canvas.em.descent(h)
+}
+
+// firstTextBaseline returns the first laid-out text baseline in w's subtree,
+// measured from w's top. It lets an inline view containing text participate
+// in its surrounding line's baseline alignment.
+func (w *node) firstTextBaseline() (Points, bool) {
+	var find func(*node, Points) (Points, bool)
+	find = func(n *node, offset Points) (Points, bool) {
+		if tn := n.text; tn != nil && tn.prepared != nil {
+			l := tn.layout
+			shownY := tn.shownBox.Origin.Y
+			if l == nil {
+				box := tn.box
+				if f := tn.alignV.fraction(); f > 0 {
+					if h := tn.size(box.Size.Width).Height; h < box.Size.Height {
+						box.Origin.Y += f * (box.Size.Height - h)
+					}
+				}
+				shownY = box.Origin.Y
+				l = tn.prepared.Layout(tn.box.Size)
+				defer l.Release()
+			}
+			if lines, ok := l.(LineLayout); ok {
+				if rows := lines.TextLines(); len(rows) > 0 {
+					row := rows[0]
+					return offset + shownY + row.Bounds.Origin.Y + row.Ascender, true
+				}
+			}
+		}
+		for _, child := range n.flatChildren() {
+			if baseline, ok := find(child, offset+Points(child.frame.Origin.Y)); ok {
+				return baseline, true
+			}
+		}
+		return 0, false
+	}
+	return find(w, 0)
 }
 
 // verticalAlign is where attachment view w sits in its line: its span's

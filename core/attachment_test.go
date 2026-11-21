@@ -83,6 +83,27 @@ func TestAttachmentsAlignAndGrowLines(t *testing.T) {
 	}
 }
 
+func TestTextAttachmentUsesItsFirstTextBaseline(t *testing.T) {
+	h := newHost(t, Size{Width: 200, Height: 200}, func(cx *Scope) Node {
+		return View{Style: Style{FontSize: 10}, Children: []Node{
+			Text{TestID: "text", Spans: []Span{
+				{Content: "a"},
+				{Attachment: View{TestID: "attachment", Style: Style{Width: Pt(40), Height: Pt(30)}, Children: []Node{
+					Text{TestID: "inside", Content: "ruby"},
+				}}},
+			}},
+		}}
+	})
+	h.commit()
+	wrapper, inside := h.find("attachment"), h.find("inside")
+	if got, want := wrapper.frame.Origin.Y, Points(0); got != want {
+		t.Fatalf("attachment origin y = %v, want %v", got, want)
+	}
+	if got, want := inside.frame.Origin.Y, Points(0); got != want {
+		t.Fatalf("text origin y = %v, want %v", got, want)
+	}
+}
+
 func TestAttachmentsCutOffHide(t *testing.T) {
 	h := newHost(t, Size{Width: 30, Height: 200}, func(cx *Scope) Node {
 		return View{Style: Style{FontSize: 10}, Children: []Node{
