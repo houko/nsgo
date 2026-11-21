@@ -156,3 +156,48 @@ func TestTabBarNativeInsetsFollowPlacement(t *testing.T) {
 		}
 	}
 }
+
+// Each named role reaches its own part of the Android tab bar.
+func TestTabBarNativePaletteRoles(t *testing.T) {
+	if nsgotest.Target() != "android" {
+		t.Skip("requires Android pixels")
+	}
+	svg, err := core.ParseSVG([]byte(`<svg viewBox="0 0 24 24"><rect width="24" height="24" fill="currentColor"/></svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	theme := core.DefaultTheme()
+	for _, palette := range []*core.Palette{&theme.Light, &theme.Dark} {
+		palette.SetColor("tabBarBackground", core.RGB(0x152940))
+		palette.SetColor("tabBarIdle", core.RGB(0x508060))
+		palette.SetColor("tabBarSelected", core.RGB(0xe0b030))
+		palette.SetColor("tabBarIndicator", core.RGB(0x601c80))
+	}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		cx.SetTheme(theme)
+		return core.View{TestID: "root", Style: core.Style{FlexGrow: 1, Padding: core.All(40)}, Children: []core.Node{
+			core.TabBar{TestID: "bar", Items: []core.TabBarItem{{Title: "Home", SVG: svg}, {Title: "Search", SVG: svg}},
+				Style: core.Style{Width: core.Pct(100), Height: core.Pt(80)}},
+		}}
+	})
+	img := app.Capture()
+	scale := float64(img.Bounds().Dx()) / float64(app.Find("id:root").Frame.Size.Width)
+	bar := app.Find("id:bar").Bounds()
+	selected := bar.Size.Width / 4
+	y := int(float64(bar.Origin.Y+24) * scale)
+	for _, pixel := range []struct {
+		name string
+		x    core.Points
+		want color.NRGBA
+	}{
+		{"background", 4, color.NRGBA{R: 0x15, G: 0x29, B: 0x40, A: 0xff}},
+		{"idle icon", 3 * selected, color.NRGBA{R: 0x50, G: 0x80, B: 0x60, A: 0xff}},
+		{"selected icon", selected, color.NRGBA{R: 0xe0, G: 0xb0, B: 0x30, A: 0xff}},
+		{"indicator", selected + 22, color.NRGBA{R: 0x60, G: 0x1c, B: 0x80, A: 0xff}},
+	} {
+		x := int(float64(bar.Origin.X+pixel.x) * scale)
+		if got := color.NRGBAModel.Convert(img.At(x, y)).(color.NRGBA); got != pixel.want {
+			t.Errorf("%s = %v at %d,%d, want %v", pixel.name, got, x, y, pixel.want)
+		}
+	}
+}

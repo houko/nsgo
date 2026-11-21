@@ -22,34 +22,44 @@ func TestTabBarTakesTheAccent(t *testing.T) {
 }
 
 func TestTabBarSendsCustomPaletteRoles(t *testing.T) {
-	theme := core.DefaultTheme()
-	theme.Light.Surface, theme.Light.TextMuted, theme.Light.AccentText = core.RGB(0x102030), core.RGB(0x405060), core.RGB(0xffffff)
-	theme.Light.SetColor("accentContainer", core.RGB(0x708090))
-	var custom *core.Signal[bool]
+	fallback := core.DefaultTheme()
+	fallback.Light.Accent, fallback.Light.Surface = core.RGB(0xbd481b), core.RGB(0x102030)
+	legacy := fallback.Clone()
+	legacy.Light.SetColor("accentContainer", core.RGB(0x708090))
+	custom := legacy.Clone()
+	custom.Light.SetColor("tabBarBackground", core.RGB(0x182430))
+	custom.Light.SetColor("tabBarIdle", core.RGB(0x405060))
+	custom.Light.SetColor("tabBarSelected", core.RGB(0xabcdef))
+	custom.Light.SetColor("tabBarIndicator", core.RGB(0x305080))
+	selectedOnly := core.DefaultTheme()
+	selectedOnly.Light.SetColor("tabBarSelected", core.RGB(0x503090))
+	var setTheme func(*core.Theme)
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
-		custom = core.NewSignal(cx, true)
-		cx.SetTheme(theme)
-		cx.Effect(func() {
-			if !custom.Get() {
-				cx.SetTheme(core.DefaultTheme())
-			}
-		})
+		cx.SetTheme(fallback)
+		setTheme = cx.SetTheme
 		return core.TabBar{Items: []core.TabBarItem{{Title: "Home"}}, Style: core.Style{Height: core.Pt(80)}, TestID: "bar"}
-	}, nsgotest.Environment(driver.Environment{OS: driver.OSIOS}))
-	app.Settle()
-	props := app.Find("id:bar").NativeProps
-	for name, want := range map[string]float64{"background": float64(core.RGB(0x102030)), "inactive": float64(core.RGB(0x405060)), "indicator": float64(core.RGB(0x708090)), "activeContent": float64(core.RGB(0xffffff))} {
-		if got := props[name]; got != want {
-			t.Errorf("%s = %v, want %v", name, got, want)
-		}
-	}
-	// Back on the default theme, the overrides go: 0 is Android's Material baseline.
-	custom.Set(false)
-	app.Settle()
-	props = app.Find("id:bar").NativeProps
-	for _, name := range []string{"background", "inactive", "indicator", "activeContent"} {
-		if got, ok := props[name]; !ok || got != float64(0) {
-			t.Errorf("after the default theme came back, %s = %v (sent %v), want 0", name, got, ok)
+	}, nsgotest.Environment(driver.Environment{OS: driver.OSAndroid}))
+	for _, step := range []struct {
+		name                                           string
+		theme                                          *core.Theme
+		background, inactive, activeContent, indicator core.Color
+	}{
+		{"shared roles", fallback, fallback.Light.Surface, fallback.Light.TextMuted, fallback.Light.Accent, fallback.Light.Accent.Faded(0.12)},
+		{"accent container", legacy, legacy.Light.Surface, legacy.Light.TextMuted, legacy.Light.Accent, core.RGB(0x708090)},
+		{"tab bar roles", custom, core.RGB(0x182430), core.RGB(0x405060), core.RGB(0xabcdef), core.RGB(0x305080)},
+		{"selected role only", selectedOnly, 0, 0, core.RGB(0x503090), 0},
+		{"default theme restored", core.DefaultTheme(), 0, 0, 0, 0},
+	} {
+		app.Post(func() { setTheme(step.theme) })
+		app.Settle()
+		props := app.Find("id:bar").NativeProps
+		for name, want := range map[string]core.Color{
+			"background": step.background, "inactive": step.inactive,
+			"activeContent": step.activeContent, "indicator": step.indicator,
+		} {
+			if got := props[name]; got != float64(want) {
+				t.Errorf("%s: %s = %v, want %v", step.name, name, got, want)
+			}
 		}
 	}
 }
