@@ -898,8 +898,7 @@ func (a *App) apply(b *driver.MountBatch) {
 			}
 		}
 	}
-	// When content shrinks or the viewport grows, pull an offset past the
-	// new end back after the batch's scroll commands keep the visible content in place.
+	// When content shrinks or the viewport grows, pull an offset past the new end back after the batch's scroll commands keep the visible content in place.
 	for _, v := range resized {
 		if v.Kind != driver.KindScroll || v.Scroll.Zooms() || a.views[v.ID] != v {
 			continue

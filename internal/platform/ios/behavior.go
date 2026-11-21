@@ -329,8 +329,7 @@ func scrollLimits(n objc.ID) (start, end apple.CGPoint) {
 	}
 }
 
-// pullBackResizedScrolls runs once the batch's scroll commands and the
-// current layout animation step have placed the viewport and its content.
+// pullBackResizedScrolls runs once the batch's scroll commands and the current layout animation step have placed the viewport and its content.
 func (s *surface) pullBackResizedScrolls() {
 	for _, v := range s.resizedScrolls {
 		if s.viewOf(v.id) != v {
@@ -350,8 +349,7 @@ func (s *surface) pullBackResizedScrolls() {
 		_, end := scrollLimits(n)
 		at := objc.Send[apple.CGPoint](n, selContentOffset)
 		if to := (apple.CGPoint{X: min(at.X, end.X), Y: min(at.Y, end.Y)}); to != at {
-			// The scroll delegate reports the new offset with the count of
-			// scroll commands already applied.
+			// The scroll delegate reports the new offset with the count of scroll commands already applied.
 			n.Send(sel("setContentOffset:"), to)
 		}
 	}

@@ -118,8 +118,7 @@ func TestListPastItsEndComesBackToIt(t *testing.T) {
 	if heard != 380 {
 		t.Fatalf("the app heard offset %v before removing rows, want 380", heard)
 	}
-	// Also grow a row above the viewport so the commit includes a relative
-	// scroll adjustment before the backend settles on the new end.
+	// Also grow a row above the viewport so the commit includes a relative scroll adjustment before the backend settles on the new end.
 	app.Post(func() { shortened.Set(true) })
 	app.Settle()
 	if got := app.Find("id:list").Offset.Y; got != 360 || heard != 360 {
