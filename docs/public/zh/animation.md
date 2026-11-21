@@ -36,7 +36,7 @@ angle := core.Interpolate(scroll, core.Interpolation{
 })
 ```
 
-`Scope.RequestAnimationFrame` 在下一个显示帧运行一次函数，`Scope.Animate` 在该时钟上推进一段时间。两者都运行在响应式图的 goroutine 上，因此可以设置 signal。函数收到的是该帧的时间：在 macOS、iOS、Android、Web、Linux、Windows、HarmonyOS 和 watchOS 上是显示器自己的帧时间，所以按两帧时间差移动内容的循环会跟上显示器的节奏；`nsgotest` 测试中则是测试时钟的时间。
+`Scope.RequestAnimationFrame` 在下一个显示帧运行一次函数，`Scope.Animate` 在该时钟上推进一段时间。两者都运行在响应式图的 goroutine 上，因此可以设置 signal。函数收到的是该帧的时间：在 macOS、iOS、Android、Web、Linux、Windows、HarmonyOS 和 watchOS 上是显示器自己的帧时间（HarmonyOS 需要构建机装有 OpenHarmony SDK，没有 SDK 打包的应用得到的是引擎时钟的时间），所以按两帧时间差移动内容的循环会跟上显示器的节奏；`nsgotest` 测试中则是测试时钟的时间。
 
 `Scope.Tween` 在该时钟上推进一个数字，用于动画值够不到的地方，比如文本里向上滚动的数字：它像 `Timing` 移动值那样，把从一个数到另一个数的每个值传给一个函数，最后再传一次终值。启动它的 `nsgotest` 步骤会像等待动画一样等到终值；开启减弱动态效果时，它立即给出终值。TSX 的 `Animated.tween` 与之相同。
 
