@@ -11,7 +11,7 @@ import (
 // TestNavPage gives a page without a header of its own a themed one with a back button, below the status bar where the system has a header. On iOS and Android the system's header stands in for it, and on Android it is opaque in the surface's color, the page below it. A web build that runs as iOS has no system header, so it draws NavHeader.
 func TestNavPage(t *testing.T) {
 	android := phoneEnv
-	android.OS, android.HeaderHeight, android.SafeArea = core.OSAndroid, 56, core.Edges{Top: 47, Bottom: 34}
+	android.OS, android.HeaderHeight, android.LargeHeaderHeight, android.SafeArea = core.OSAndroid, 64, 152, core.Edges{Top: 47, Bottom: 34}
 	simulated := phoneEnv
 	simulated.Simulated = true
 	for _, e := range []core.Environment{desktopEnv, android, simulated} {
@@ -38,7 +38,7 @@ func TestNavPage(t *testing.T) {
 				t.Fatalf("Android: header colors = %x on %x, want the text on the surface", c.TitleColor, c.Background)
 			}
 			// The bar, and the status bar past the padding of start's root.
-			if want := core.Points(56 + 47 - 16); c.HeaderHeight != want {
+			if want := core.Points(64 + 47 - 16); c.HeaderHeight != want {
 				t.Fatalf("Android: header height = %v, want %v", c.HeaderHeight, want)
 			}
 			if got := app.Find("content-detail").Frame.Origin.Y; got != c.HeaderHeight {

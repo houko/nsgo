@@ -26,13 +26,18 @@ import java.util.function.IntFunction;
  */
 final class Header {
     /** The toolbar's height, in points. */
-    static final float BAR = 56;
+    /** Material 3's standard top app bar height. */
+    static final float BAR = 64;
+    /** Material 3's large top app bar height before it collapses. */
+    static final float LARGE_BAR = 152;
 
     final Toolbar toolbar;
     private final BackArrow arrow;
     private final float density;
     /** The bar's height last reported to the engine, in points. */
     float reported;
+    private boolean large;
+    private float largeOffset;
 
     Header(Context context, float density, Runnable back) {
         this.density = density;
@@ -71,6 +76,7 @@ final class Header {
         String title = Protocol.readString(in);
         int flags = in.readUnsignedByte();
         boolean hidden = Protocol.flag(flags, 0), transparent = Protocol.flag(flags, 1);
+        large = Protocol.flag(flags, 2);
         boolean canGoBack = Protocol.flag(flags, 3), backHidden = Protocol.flag(flags, 4);
         String backTitle = Protocol.readString(in);
         int background = in.readInt(), titleColor = in.readInt(), tint = in.readInt();
@@ -84,7 +90,9 @@ final class Header {
         colors(dark);
         toolbar.setVisibility(hidden ? View.GONE : View.VISIBLE);
         toolbar.setTitle(titleView != 0 ? null : title);
+        largeOffset = 0;
         int h = Math.round(height * density);
+        applyTitleSize();
         toolbar.setPadding(0, Math.max(0, h - Math.round(BAR * density)), 0, 0);
         toolbar.setLayoutParams(new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, h, Gravity.TOP));
         boolean back = canGoBack && !backHidden;
@@ -97,6 +105,30 @@ final class Header {
         add(wrap, left, Gravity.START);
         add(wrap, titleView, Gravity.START);
         add(wrap, right, Gravity.END);
+    }
+
+    /** Follows the first scroll view under a large title and reports its collapsed height. */
+    float scroll(float offset) {
+        if (!large || toolbar.getVisibility() != View.VISIBLE) return reported;
+        largeOffset = Math.max(0, Math.min(offset, LARGE_BAR - BAR));
+        int h = Math.round((LARGE_BAR - largeOffset) * density);
+        ViewGroup.LayoutParams p = toolbar.getLayoutParams();
+        if (p != null && p.height != h) {
+            p.height = h;
+            toolbar.setLayoutParams(p);
+            toolbar.setPadding(0, Math.max(0, h - Math.round(BAR * density)), 0, 0);
+            toolbar.requestLayout();
+        }
+        return h / density;
+    }
+
+    private void applyTitleSize() {
+        for (int i = 0; i < toolbar.getChildCount(); i++) {
+            View child = toolbar.getChildAt(i);
+            if (child instanceof android.widget.TextView) {
+                ((android.widget.TextView) child).setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+            }
+        }
     }
 
     /**

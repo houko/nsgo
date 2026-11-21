@@ -991,7 +991,7 @@ public class NsgoView extends FrameLayout implements NsgoEngine.Listener {
             Protocol.writeString(d, model);
             // The system header's heights, without and with a large title.
             d.writeFloat(Header.BAR);
-            d.writeFloat(Header.BAR);
+            d.writeFloat(Header.LARGE_BAR);
             d.writeInt(Build.VERSION.SDK_INT);
         } catch (IOException impossible) {
             throw new AssertionError(impossible);
@@ -5423,6 +5423,15 @@ public class NsgoView extends FrameLayout implements NsgoEngine.Listener {
 
             @Override
             public void scrolled(float x, float y, float zoom) {
+                Node screen = n;
+                while (screen != null && screen.header == null) screen = screen.up;
+                if (screen != null && screen.header != null) {
+                    float header = screen.header.scroll(y);
+                    if (header != screen.header.reported) {
+                        screen.header.reported = header;
+                        event(Protocol.EVENT_SCREEN_HEADER, screen.id, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, header, null);
+                    }
+                }
                 // Values following the offset move in the same frame, and
                 // so do sticky cells.
                 boolean moved = animator.scroll(n.id, x, y);
