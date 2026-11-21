@@ -755,7 +755,7 @@ func (p preparedText) layoutCut(size driver.Size) driver.TextLayout {
 	q := p.s.Prepare(&whole).(preparedText)
 	ql := q.Layout(size).(*textLayout)
 	lines := ql.TextLines()
-	p.s.send(msgRelease, func(w *writer) { w.u32(ql.id) })
+	ql.Release()
 	q.Release()
 	if len(lines) <= p.cut.MaxLines {
 		return nil
@@ -846,7 +846,10 @@ type attachmentBox struct {
 	shown  bool
 }
 
-func (*textLayout) Release() {}
+// Release frees a StaticLayout that no mount batch will name.
+func (l *textLayout) Release() {
+	l.s.send(msgRelease, func(w *writer) { w.u32(l.id) })
+}
 
 // Attachment implements core.AttachmentLayout.
 func (l *textLayout) Attachment(i int) (driver.Bounds, bool) {

@@ -12,8 +12,64 @@ import (
 
 	"github.com/ebitengine/purego"
 
+	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/internal/driver"
 )
+
+func TestAttachmentUsesBaselineOfFallbackText(t *testing.T) {
+	root := core.NewRoot(core.RootOptions{})
+	t.Cleanup(root.Dispose)
+	tree := core.NewTree(root, TextEngine{})
+	tree.Resize(core.Size{Width: 300, Height: 150}, core.Geometry{})
+
+	var outer, inner core.Ref
+	tree.Mount(func(*core.Scope) core.Node {
+		return core.Text{Ref: &outer, Style: core.Style{FontFamily: "Menlo", FontSize: 22}, Spans: []core.Span{
+			{Content: "AB "},
+			{Attachment: core.View{Children: []core.Node{
+				core.Text{Ref: &inner, Content: "漢字"},
+			}}},
+		}}
+	})
+	var outside, inside *Layout
+	for _, it := range tree.Commit().Items {
+		if it.Kind != driver.ItemText {
+			continue
+		}
+		l := it.Text.Layout.(*Layout)
+		t.Cleanup(l.Release)
+		if it.Text.Text == "漢字" {
+			inside = l
+		} else {
+			outside = l
+		}
+	}
+	if outside == nil || inside == nil {
+		t.Fatal("both texts should be mounted")
+	}
+	fallback := inside.TextLines()[0].Descender
+	plain := TextEngine{}.Prepare(&driver.AttributedText{
+		Text: "AB", Style: driver.TextStyle{Font: driver.Font{Family: "Menlo", Size: 22}},
+	})
+	defer plain.Release()
+	plainLayout := plain.Layout(core.Size{Width: 300, Height: 30}).(*Layout)
+	defer plainLayout.Release()
+	if fallback == plainLayout.TextLines()[0].Descender {
+		t.Fatalf("CJK fallback has the same descent as Menlo (%v)", fallback)
+	}
+	_, outerLines, _ := outside.placed()
+	_, innerLines, _ := inside.placed()
+	outerBox, outerOK := outer.Bounds()
+	innerBox, innerOK := inner.Bounds()
+	if !outerOK || !innerOK {
+		t.Fatal("both texts should have bounds")
+	}
+	want := float64(outerBox.Origin.Y) + outerLines[0].Y
+	got := float64(innerBox.Origin.Y) + innerLines[0].Y
+	if got < want-0.01 || got > want+0.01 {
+		t.Fatalf("fallback text baseline = %v, surrounding line baseline = %v", got, want)
+	}
+}
 
 // render draws text laid out at size into a white RGBA bitmap, as a
 // flipped view's drawing does.

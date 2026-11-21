@@ -406,6 +406,10 @@ type textNode struct {
 	sentBox  Bounds
 	shownBox Bounds // where the layout went: box, moved by its vertical alignment
 	resent   bool   // a new prepared text needs a new layout
+	// An attachment reads the line's baseline before the text is sent.
+	// Keep that layout for emission, and its baseline for later commits.
+	pending  *driver.TextContent
+	baseline *textBaseline
 	// attachments counts the spans that are attachments.
 	attachments int
 	// selectable is the text's own Selectable, over the UserSelect it
@@ -494,8 +498,23 @@ func wide(r rune) bool {
 		unicode.Is(unicode.Hangul, r)
 }
 
-// release frees the text's prepared texts.
+type textBaseline struct {
+	y  Points
+	ok bool
+}
+
+// dropTextLayout releases a layout the platform has yet to take.
+func (tn *textNode) dropTextLayout() {
+	if tn.pending != nil {
+		tn.pending.Layout.Release()
+		tn.pending = nil
+	}
+	tn.baseline = nil
+}
+
+// release frees the text's prepared texts and any unsent layout.
 func (tn *textNode) release() {
+	tn.dropTextLayout()
 	for _, p := range []*driver.PreparedText{&tn.prepared, &tn.fitted} {
 		if *p != nil {
 			(*p).Release()

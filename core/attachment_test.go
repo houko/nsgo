@@ -84,24 +84,29 @@ func TestAttachmentsAlignAndGrowLines(t *testing.T) {
 }
 
 func TestTextAttachmentUsesItsFirstTextBaseline(t *testing.T) {
+	var offset *Signal[Points]
 	h := newHost(t, Size{Width: 200, Height: 200}, func(cx *Scope) Node {
+		offset = NewSignal(cx, Points(4))
 		return View{Style: Style{FontSize: 10}, Children: []Node{
 			Text{TestID: "text", Spans: []Span{
 				{Content: "a"},
 				{Attachment: View{TestID: "attachment", Style: Style{Width: Pt(40), Height: Pt(30)}, Children: []Node{
-					Text{TestID: "inside", Content: "ruby"},
+					View{StyleFunc: func() Style { return Style{Padding: Edges{Top: offset.Get()}} },
+						Children: []Node{Text{Content: "ruby", Style: Style{Padding: Edges{Top: 2}}}}},
 				}}},
 			}},
 		}}
 	})
-	h.commit()
-	wrapper, inside := h.find("attachment"), h.find("inside")
-	if got, want := wrapper.frame.Origin.Y, Points(0); got != want {
-		t.Fatalf("attachment origin y = %v, want %v", got, want)
+	check := func(want Points) {
+		t.Helper()
+		h.commit()
+		if got := h.find("text").text.text.Attachments[0].Descent; got != want {
+			t.Fatalf("attachment descent = %v, want %v", got, want)
+		}
 	}
-	if got, want := inside.frame.Origin.Y, Points(0); got != want {
-		t.Fatalf("text origin y = %v, want %v", got, want)
-	}
+	check(12) // height 30, with 4 + 2 + 12 above the baseline
+	offset.Set(7)
+	check(9) // only the text's position in the fixed-height attachment moved
 }
 
 func TestAttachmentsCutOffHide(t *testing.T) {

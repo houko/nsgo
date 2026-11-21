@@ -433,6 +433,7 @@ func (t *Tree) resolve(n *node, inherited textFields, force bool) {
 		}
 		if noWrap := inherited.WhiteSpace == WhiteSpaceNoWrap; noWrap != tn.noWrap {
 			tn.noWrap = noWrap
+			tn.dropTextLayout()
 			tn.resent = true
 			t.markLayout(n)
 		}
@@ -442,6 +443,7 @@ func (t *Tree) resolve(n *node, inherited textFields, force bool) {
 		tn.engine, tn.measures = t.text, &t.measures
 		if inherited.TextAlignVertical != tn.alignV {
 			tn.alignV = inherited.TextAlignVertical
+			tn.dropTextLayout()
 			tn.resent = true
 		}
 		scale := tn.fontMultiplier(t.fontScale)
@@ -488,6 +490,7 @@ func (t *Tree) resolve(n *node, inherited textFields, force bool) {
 			tn.style = ts
 			tn.stale = false
 			if tn.prepared == nil || !at.Equal(&tn.text) || tn.fonts != t.fonts {
+				tn.dropTextLayout()
 				if tn.prepared != nil {
 					tn.prepared.Release()
 				}
@@ -601,7 +604,7 @@ func (t *Tree) sizeAttachments(n *node, inherited textFields, scale float32, for
 			}
 		}
 		align := w.verticalAlign()
-		descent := w.baselineDescent(align)
+		descent := t.baselineDescent(w, align)
 		if align != w.attach.align || descent != w.attach.descent {
 			w.attach.align, w.attach.descent = align, descent
 			changed = true
@@ -613,7 +616,7 @@ func (t *Tree) sizeAttachments(n *node, inherited textFields, scale float32, for
 // baselineDescent is how far attachment view w, aligned as align says, reaches
 // below the line's baseline. Text inside an attachment supplies the baseline
 // of its first line, while an Em canvas supplies its declared descent.
-func (w *node) baselineDescent(align VerticalAlign) Points {
+func (t *Tree) baselineDescent(w *node, align VerticalAlign) Points {
 	if align != 0 && align != VerticalAlignBaseline {
 		return 0
 	}
@@ -622,7 +625,7 @@ func (w *node) baselineDescent(align VerticalAlign) Points {
 		c = kids[0]
 	}
 	if c.canvas == nil || c.canvas.em == nil {
-		if baseline, ok := w.firstTextBaseline(); ok {
+		if baseline, ok := t.firstTextBaseline(w); ok {
 			return max(Points(w.lstate.Rounded.Size.Height)-baseline, 0)
 		}
 		return 0
@@ -640,41 +643,42 @@ func (w *node) baselineDescent(align VerticalAlign) Points {
 // firstTextBaseline returns the first laid-out text baseline in w's subtree,
 // measured from w's top. It lets an inline view containing text participate
 // in its surrounding line's baseline alignment.
-func (w *node) firstTextBaseline() (Points, bool) {
-	var find func(*node, Points) (Points, bool)
-	find = func(n *node, offset Points) (Points, bool) {
-		if tn := n.text; tn != nil && tn.prepared != nil {
-			l := tn.layout
-			shownY := tn.shownBox.Origin.Y
-			if l == nil || tn.resent || tn.box != tn.sentBox {
-				box := tn.box
-				if f := tn.alignV.fraction(); f > 0 {
-					if h := tn.size(box.Size.Width).Height; h < box.Size.Height {
-						box.Origin.Y += f * (box.Size.Height - h)
-					}
-				}
-				shownY = box.Origin.Y
-				l = tn.prepared.Layout(tn.box.Size)
-				defer l.Release()
-			}
-			if lines, ok := l.(LineLayout); ok {
-				if rows := lines.TextLines(); len(rows) > 0 {
-					row := rows[0]
-					// Bounds may include typographic leading. The baseline is the
-					// midpoint left after the line's ascent and descent consume it.
-					baseline := (row.Bounds.Size.Height + row.Ascender - row.Descender) / 2
-					return offset + shownY + row.Bounds.Origin.Y + baseline, true
-				}
-			}
-		}
-		for _, child := range n.flatChildren() {
-			if baseline, ok := find(child, offset+Points(child.frame.Origin.Y)); ok {
-				return baseline, true
-			}
-		}
+func (t *Tree) firstTextBaseline(n *node) (Points, bool) {
+	if n.style.Display == DisplayNone || n.style.Visibility == VisibilityHidden {
 		return 0, false
 	}
-	return find(w, 0)
+	if tn := n.text; tn != nil && tn.prepared != nil && tn.text.Text != "" {
+		if tn.baseline == nil {
+			tn.pending = t.layoutText(n)
+			t.mark(n)
+			y, ok := firstLineBaseline(tn.pending.Layout)
+			tn.baseline = &textBaseline{y: tn.pending.Content.Origin.Y + y, ok: ok}
+		}
+		return tn.baseline.y, tn.baseline.ok
+	}
+	for _, child := range n.flatChildren() {
+		if child.style.Position == Absolute {
+			continue
+		}
+		if baseline, ok := t.firstTextBaseline(child); ok {
+			return child.frame.Origin.Y + baseline, true
+		}
+	}
+	return 0, false
+}
+
+func firstLineBaseline(l driver.TextLayout) (Points, bool) {
+	if lines, ok := l.(interface{ FirstBaseline() (Points, bool) }); ok {
+		return lines.FirstBaseline()
+	}
+	if lines, ok := l.(LineLayout); ok {
+		if rows := lines.TextLines(); len(rows) > 0 {
+			line := rows[0]
+			leading := line.Bounds.Size.Height - line.Ascender - line.Descender
+			return line.Bounds.Origin.Y + line.Ascender + leading/2, true
+		}
+	}
+	return 0, false
 }
 
 // verticalAlign is where attachment view w sits in its line: its span's
@@ -880,7 +884,7 @@ func (t *Tree) emitParts(n *node) bool {
 		}
 	case n.text != nil:
 		tn := n.text
-		if tn.prepared != nil && (tn.resent || tn.box != tn.sentBox) {
+		if tn.prepared != nil && (tn.pending != nil || tn.resent || tn.box != tn.sentBox) {
 			tn.resent = false
 			tn.sentBox = tn.box
 			t.emitText(n)
@@ -997,10 +1001,9 @@ func (t *Tree) emitParts(n *node) bool {
 	return styled
 }
 
-// emitText lays text n out in its box and sends it: moved down by its
-// vertical alignment, shrunk to fit when it asks to be, its lines
-// reported after the commit.
-func (t *Tree) emitText(n *node) {
+// layoutText places text in its content box, taking its vertical alignment
+// and fitting into account.
+func (t *Tree) layoutText(n *node) *driver.TextContent {
 	tn := n.text
 	box := tn.box
 	if f := tn.alignV.fraction(); f > 0 {
@@ -1009,7 +1012,6 @@ func (t *Tree) emitText(n *node) {
 			box.Size.Height = h
 		}
 	}
-	tn.shownBox = box
 	prepared, text := tn.prepared, &tn.text
 	if tn.fitted != nil {
 		tn.fitted.Release()
@@ -1026,6 +1028,22 @@ func (t *Tree) emitText(n *node) {
 		box.Size.Width = max(box.Size.Width, ceil(prepared.Measure(Auto).Width, t.ratio))
 	}
 	l := prepared.Layout(box.Size)
+	return &driver.TextContent{
+		Text: text.Text, Layout: l, Content: box, Style: text.Style, Spans: text.Spans, Shadow: text.Shadow,
+		MaxLines: text.MaxLines, Ellipsize: text.Ellipsize,
+	}
+}
+
+// emitText sends the text's layout and reports its lines after the commit.
+func (t *Tree) emitText(n *node) {
+	tn := n.text
+	text := tn.pending
+	if text == nil {
+		text = t.layoutText(n)
+	}
+	tn.pending = nil
+	l := text.Layout
+	tn.shownBox = text.Content
 	tn.layout = l
 	if tn.attachments > 0 {
 		t.placeAttachments(n, l)
@@ -1041,10 +1059,7 @@ func (t *Tree) emitText(n *node) {
 			t.after(n, func() { report(lines) })
 		}
 	}
-	t.items = append(t.items, driver.MountItem{Kind: driver.ItemText, ID: n.id, Text: &driver.TextContent{
-		Text: text.Text, Layout: l, Content: box, Style: text.Style, Spans: text.Spans, Shadow: text.Shadow,
-		MaxLines: text.MaxLines, Ellipsize: text.Ellipsize,
-	}})
+	t.items = append(t.items, driver.MountItem{Kind: driver.ItemText, ID: n.id, Text: text})
 }
 
 // fitText returns text with its fonts, line heights and letter spacing

@@ -651,6 +651,7 @@ func (t *Tree) syncContent(n *node) bool {
 	case n.text != nil:
 		if b := contentBox(l); b != n.text.box {
 			n.text.box = b
+			n.text.dropTextLayout()
 			t.mark(n)
 			return true
 		}

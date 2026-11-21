@@ -291,7 +291,12 @@ func (t *Tree) setText(cx *Scope, n *node, v Text) {
 	}
 	tn.content, tn.maxLines, tn.ellipsize = content, v.MaxLines, v.EllipsizeMode
 	tn.noScale, tn.maxScale = v.NoFontScaling, v.MaxFontSizeMultiplier
-	tn.fit, tn.minScale, tn.lines = v.AdjustsFontSizeToFit, max(v.MinimumFontScale, 0.1), v.OnTextLayout
+	if scale := max(v.MinimumFontScale, 0.1); tn.fit != v.AdjustsFontSizeToFit || tn.minScale != scale {
+		tn.fit, tn.minScale = v.AdjustsFontSizeToFit, scale
+		tn.dropTextLayout()
+		tn.resent = true
+	}
+	tn.lines = v.OnTextLayout
 	tn.selectable = v.Selectable
 	tn.stale = true
 	t.followSpanClasses(n)

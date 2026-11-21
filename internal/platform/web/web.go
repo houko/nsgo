@@ -1102,6 +1102,28 @@ func (p *preparedText) unclamped() driver.Points {
 	return driver.Points(m.Call("getBoundingClientRect").Get("width").Float())
 }
 
+// FirstBaseline measures the actual browser line baseline, including the
+// metrics of any fallback fonts. The bottom of an empty inline block
+// with baseline alignment sits on that baseline.
+func (l *textLayout) FirstBaseline() (driver.Points, bool) {
+	p := &preparedText{s: l.s, richText: l.richText}
+	m := p.hold()
+	defer p.Release()
+	l.s.measureCSS.set1("width", webstyle.Px(l.width))
+	l.s.measureCSS.set1("max-width", "none")
+	l.s.measureCSS.set1("white-space", whiteSpace(l.oneLine))
+	defer l.s.measureCSS.set1("white-space", whiteSpace(false))
+	defer l.s.measureCSS.set1("width", "max-content")
+	marker := l.s.doc.Call("createElement", "span")
+	setStyle(marker, map[string]string{
+		"display": "inline-block", "width": "0", "height": "0", "vertical-align": "baseline",
+	})
+	m.Call("prepend", marker)
+	defer marker.Call("remove")
+	y := marker.Call("getBoundingClientRect").Get("bottom").Float() - m.Call("getBoundingClientRect").Get("top").Float()
+	return driver.Points(y), true
+}
+
 // TextLines implements core.LineLayout: the text laid out again in the
 // measuring element at its width, its lines the rows its characters'
 // boxes fall in, their metrics those of the font each starts in.

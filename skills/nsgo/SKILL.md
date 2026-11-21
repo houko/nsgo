@@ -69,6 +69,7 @@ func main() { nsgo.Run(Root) }
 - A screen that fills the window takes `FlexGrow: 1, FlexShrink: 1`, as does every box between it and a list or scroll view that should scroll; with `FlexGrow` alone a long list stretches past the window instead of scrolling.
 - Let a scroll view fill its container and put the padding on its content, so the scroll bar stays against the edge. Scroll only through `core.Scroll`, `core.List` or `ui`'s scroll views, never by stepping offsets from pointer or wheel events; they keep native inertia and edges.
 - Set `core.Scroll.NoShrink` when a scroll view must keep its requested size while a sibling shrinks.
+- Use `core.Span.Attachment` to place a view in a line of text. Its first text line supplies the default baseline.
 - Keep content clear of the notch and the keyboard with `PaddingEnv: core.EnvEdges{Top: core.EnvSafeArea, Bottom: core.EnvKeyboard}` rather than fixed insets.
 - `core.Style` is typed CSS: zero fields are unset and `Merge` composes styles. `Class` takes Tailwind CSS 4 classes, responsive (`md:`), appearance (`dark:`) and state (`hover:`) variants included; a `Style` wins over a class.
 - Take colors from the theme, never fixed hex values in a component: `ui.ColorsOf(cx)` inside a `StyleFunc` follows theme and appearance changes in place. Unset text and `currentColor` icons follow the subtree's `Palette.Text`; explicit colors keep inheriting. `cx.SetTheme` themes a subtree; `core.ParseTheme` reads a YAML or shadcn/ui theme.

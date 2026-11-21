@@ -37,7 +37,7 @@ core.Text{Style: core.Style{FontSize: 15}, Spans: []core.Span{
 
 `SpansFunc` gives spans again when what it reads changes, and only the parts that differ are prepared again, so a code editor's rows recolor as highlighting arrives. A span's `Background` and `CornerRadius` draw a box behind its characters on every line, and its `Cursor` names the pointer's look over them ahead of the text's. `Visibility: core.VisibilityHidden` hides a span in place: its words keep their room, so the lines stay put as it shows, and copies and screen readers leave it out, for words that fade in one by one.
 
-`Attachment` puts a view inside a text, in place of the span's content. It is laid out at its own size, wraps with the words around it and takes its own presses, so an icon, an image or a small button can sit in a line.
+`Attachment` puts a view inside a text, in place of the span's content. It is laid out at its own size, wraps with the words around it and takes its own presses, so an icon, an image or a small button can sit in a line. By default its first text line aligns to the surrounding baseline, using the metrics of its actual font. An `Em` canvas provides its own baseline, and a view without a baseline sits on its bottom edge. Set `Style.VerticalAlign` to choose another alignment.
 
 ```go
 core.Text{Style: core.Style{FontSize: 17, LineHeight: 24}, Spans: []core.Span{
