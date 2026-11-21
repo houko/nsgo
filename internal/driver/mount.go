@@ -380,6 +380,8 @@ const (
 	ItemReleaseImage
 	// ItemReleaseOffscreen releases the cached offscreen surface for OffscreenID.
 	ItemReleaseOffscreen
+	// ItemDiskSpace asks for the capacity of the volume containing Value, answered by EventDiskSpace carrying Count.
+	ItemDiskSpace
 )
 
 // AppleSignInRequest is an ItemSignInWithApple's request, as core.AppleSignInOptions: the scopes it asks for and Nonce, which the core hashes as the request carries it, "" for none.
