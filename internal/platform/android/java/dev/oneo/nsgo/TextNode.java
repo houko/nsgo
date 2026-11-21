@@ -221,9 +221,7 @@ final class TextNode extends FrameLayout {
     }
 
     /**
-     * Fills the spans' backgrounds: a box on each line a span reaches,
-     * around its visible characters (trailing spaces left out), from its
-     * font's ascent and descent, rounded at most to half its painted height.
+     * Fills the spans' backgrounds: a box on each line a span reaches, around its visible characters (trailing spaces left out), within its font's ascent and descent, rounded at most to half its painted height.
      */
     private void drawBackgrounds(Canvas canvas) {
         CharSequence text = layout.getText();

@@ -44,8 +44,7 @@ func TestARegisteredFontMeasures(t *testing.T) {
 	}
 }
 
-// TestSpanBackgroundBand compares a wrapped background before and after
-// adding insets through the platform's text view.
+// TestSpanBackgroundBand compares a wrapped background before and after adding insets through the platform's text view.
 func TestSpanBackgroundBand(t *testing.T) {
 	switch nsgotest.Target() {
 	case "macos", "ios", "ios_simulator", "android", "windows", "linux", "web", "tvos", "tvos_simulator":

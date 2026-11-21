@@ -684,8 +684,7 @@ final class Text {
     }
 
     /**
-     * A span's background, which TextNode draws behind each line's part of
-     * its characters, between its font's ascent and descent (pixels).
+     * A span's background, which TextNode draws behind each line's part of its characters, between its font's ascent and descent (pixels).
      */
     static final class Background {
         final int color;

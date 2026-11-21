@@ -44,8 +44,7 @@ type TextSpan struct {
 	// transparent color with no background, so an engine that does not
 	// skip it draws nothing.
 	Hidden bool
-	// Background is drawn behind the span's characters: a box per line
-	// between the font's ascent and descent, behind the selection and glyphs.
+	// Background is drawn behind the span's characters: a box per line between the font's ascent and descent, behind the selection and glyphs.
 	Background TextBackground
 	// Copy is what a copy takes in place of the attachment the span styles, as a formula copies as its TeX; empty leaves the attachment out. Screen readers read the attachment's label instead (ShownText).
 	Copy string
@@ -96,8 +95,7 @@ type TextBackground struct {
 	Top, Bottom Length
 }
 
-// VerticalBounds returns the background's top and bottom offsets from
-// the top of a box of the given height. A band with bottom <= top is empty.
+// VerticalBounds returns the background's top and bottom offsets from the top of a box of the given height. A band with bottom <= top is empty.
 func (bg TextBackground) VerticalBounds(height Points) (top, bottom Points) {
 	resolve := func(l Length) Points {
 		p := l.Resolve(height)

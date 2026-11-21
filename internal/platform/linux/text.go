@@ -664,8 +664,7 @@ func (w *window) capHeight(f driver.Font, ui string) driver.Points {
 // end hangs and a span's background leaves out.
 func blank(c byte) bool { return c == ' ' || c == '\n' || c == '\r' || c == '\t' }
 
-// placeBackgrounds puts a box per line behind each span with a
-// background, within its font's ascent and descent.
+// placeBackgrounds puts a box per line behind each span with a background, within its font's ascent and descent.
 func (p *preparedText) placeBackgrounds(l *textLayout) {
 	has := false
 	for _, sp := range p.spans {
@@ -965,8 +964,7 @@ func (l *textLayout) snapshotBackgrounds(snap uintptr, x, y driver.Points, tint 
 	}
 }
 
-// snapshot appends the glyphs at x, y as GSK text nodes, drawn from the
-// renderer's glyph cache. The decoration lines Pango cannot draw stay Cairo's.
+// snapshot appends the glyphs with their top-left at x, y to snap as GSK text nodes, which the renderer draws from its glyph cache, as NSH's backend does: a Cairo node of the text was rastered on the CPU each time its view was drawn again, most of the main thread's frame in a fast scroll of a table. The decoration lines Pango cannot draw stay Cairo's. snapshotBackgrounds paints the spans' backgrounds first.
 func (l *textLayout) snapshot(snap uintptr, x, y driver.Points) {
 	l.ensure(scratchCairo())
 	clip := l.maxLines > 0 && l.ellipsize == driver.EllipsizeClip

@@ -881,9 +881,7 @@ func (s *surface) Prepare(t *driver.AttributedText) driver.PreparedText {
 	return p
 }
 
-// spanBackground paints each inline fragment separately. A background
-// image gives an inset band its own rounded corners without changing the
-// size of the inline box or the text's selection.
+// spanBackground paints each inline fragment separately. A background image gives an inset band its own rounded corners without changing the size of the inline box or the text's selection.
 func spanBackground(css map[string]string, bg driver.TextBackground) {
 	inset := func(l driver.Length) (length string, percent float32) {
 		if p, ok := l.Percent(); ok && p > 0 {
@@ -907,8 +905,7 @@ func spanBackground(css map[string]string, bg driver.TextBackground) {
 	}
 	css["background-size"] = "100% max(0px, calc(100% - " + top + " - " + bottom + "))"
 	css["background-repeat"] = "no-repeat"
-	// A percentage position is measured over the free space (the top
-	// and bottom insets together), rather than the whole inline box.
+	// A percentage position is measured over the free space (the top and bottom insets together), rather than the whole inline box.
 	y := top
 	if topPct > 0 {
 		if bottomPct > 0 {

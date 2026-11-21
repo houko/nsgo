@@ -89,10 +89,7 @@ type Style struct {
 
 	// Look.
 	Background Color
-	// BackgroundInsetTop and BackgroundInsetBottom inset a Span's background
-	// from the top and bottom of each line's box. They take points or a
-	// percentage of the box's height. A zero or negative inset leaves that
-	// edge in place.
+	// BackgroundInsetTop and BackgroundInsetBottom inset a Span's background from the top and bottom of each line's box. They take points or a percentage of the box's height. A zero or negative inset leaves that edge in place.
 	BackgroundInsetTop, BackgroundInsetBottom Length
 	// Gradients are drawn over Background, the first on top. A state
 	// style that sets Background and no Gradients replaces them, so press
