@@ -1931,12 +1931,13 @@ struct Index {
     }
   }
 
-  frame(): void {
+  // frame hands the engine a display frame with when it shows, in nanoseconds on displaySync's clock.
+  frame(target: number): void {
     if (this.framePending) {
       return;
     }
     this.framePending = true;
-    this.controller.runJavaScript('nsgoFrame()').then(() => {
+    this.controller.runJavaScript('nsgoFrame(' + target + ')').then(() => {
       this.framePending = false;
     }).catch(() => {
       this.framePending = false;
@@ -1949,8 +1950,8 @@ struct Index {
     if (this.sync === undefined) {
       const sync = displaySync.create();
       sync.setExpectedFrameRateRange({ min: 30, max: 120, expected: 60 });
-      sync.on('frame', () => {
-        this.frame();
+      sync.on('frame', (info: displaySync.IntervalInfo) => {
+        this.frame(info.targetTimestamp);
       });
       this.sync = sync;
     }

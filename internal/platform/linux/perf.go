@@ -21,10 +21,8 @@ import (
 // clock's layout signal to its after-paint one).
 
 var (
-	gtkWidgetAddTickCallback    func(widget, callback, data, destroy uintptr) uint32
 	gtkWidgetGetFrameClock      func(widget uintptr) uintptr
 	gdkFrameClockGetRefreshInfo func(clock uintptr, base int64, interval, presentation *int64)
-	gdkFrameClockGetFrameTime   func(clock uintptr) int64
 	cbPerfTick, cbPerfLayout    uintptr
 	cbPerfPainted               uintptr
 	perfBound                   bool
@@ -36,10 +34,8 @@ func bindPerf() {
 	}
 	perfBound = true
 	reg := purego.RegisterLibFunc
-	reg(&gtkWidgetAddTickCallback, gtkLib, "gtk_widget_add_tick_callback")
 	reg(&gtkWidgetGetFrameClock, gtkLib, "gtk_widget_get_frame_clock")
 	reg(&gdkFrameClockGetRefreshInfo, gtkLib, "gdk_frame_clock_get_refresh_info")
-	reg(&gdkFrameClockGetFrameTime, gtkLib, "gdk_frame_clock_get_frame_time")
 	cbPerfTick = newCallback(perfTickCallback)
 	cbPerfLayout = newCallback(perfLayoutCallback)
 	cbPerfPainted = newCallback(perfPaintedCallback)

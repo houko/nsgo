@@ -157,7 +157,7 @@ func (s *surface) tick() {
 	pipPending := s.drawPictureInPictures()
 	s.startImages()
 	if s.frameWanted.Swap(false) && s.engine != nil {
-		s.engine.Frame()
+		s.engine.FrameAt(apple.LinkFrameTime(s.link))
 	}
 	apple.YieldFrame()
 	// A monitor closes a frame at every refresh.

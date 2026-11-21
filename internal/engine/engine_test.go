@@ -260,6 +260,50 @@ func TestFramesFollowThePlatform(t *testing.T) {
 	}
 }
 
+// A frame the display timed runs the app's callbacks at the display's time on the system clock, and at the app's own clock's time under one of its own, whose base the display's time does not share.
+func TestFrameAtGivesTheDisplaysTime(t *testing.T) {
+	start := func(clock core.Clock) (*Engine, *recorder, chan time.Time) {
+		p := &recorder{mounted: make(chan struct{}, 1), frames: make(chan struct{}, 4)}
+		seen := make(chan time.Time, 4)
+		e := Start(p, func(cx *core.Scope) core.Node {
+			cx.RequestAnimationFrame(func(at time.Time) { seen <- at })
+			return core.View{}
+		}, Options{Clock: clock})
+		<-p.mounted
+		select {
+		case <-p.frames:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the app asked for no display frame")
+		}
+		return e, p, seen
+	}
+	wait := func(seen chan time.Time) time.Time {
+		select {
+		case at := <-seen:
+			return at
+		case <-time.After(5 * time.Second):
+			t.Fatal("the frame did not run the app's callback")
+		}
+		return time.Time{}
+	}
+
+	e, _, seen := start(nil)
+	shown := time.Now().Add(time.Hour)
+	e.FrameAt(shown)
+	if at := wait(seen); !at.Equal(shown) {
+		t.Errorf("the frame's time = %v, want the display's %v", at, shown)
+	}
+	e.Close()
+
+	clock := core.NewManualClock(time.Unix(100, 0))
+	e, _, seen = start(clock)
+	defer e.Close()
+	e.FrameAt(shown)
+	if at := wait(seen); !at.Equal(clock.Now()) {
+		t.Errorf("under the app's clock the frame's time = %v, want the clock's %v", at, clock.Now())
+	}
+}
+
 // An event a backend reports before the frame it is stepping waits for
 // that frame: the engine handles the event, runs the frame and commits
 // once.

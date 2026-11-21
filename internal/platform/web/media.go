@@ -33,9 +33,9 @@ func (s *surface) startTicking() {
 	js.Global().Call("requestAnimationFrame", s.frame)
 }
 
-func (s *surface) tick(now time.Duration) {
+func (s *surface) tick(stamp time.Duration) {
 	s.ticking = false
-	s.animator.Step(now)
+	s.animator.Step(stamp)
 	s.applyAnimated()
 	if s.animator.Running() {
 		s.staleEffects()
@@ -45,7 +45,8 @@ func (s *surface) tick(now time.Duration) {
 	if s.frameWanted {
 		s.frameWanted = false
 		if s.engine != nil {
-			s.engine.Frame()
+			// The animation frame's timestamp is when the frame began, on performance.now's clock.
+			s.engine.FrameAt(driver.DisplayTime(stamp, time.Duration(now()*float64(time.Millisecond))))
 		}
 	}
 	if s.animator.Running() || s.frameWanted {

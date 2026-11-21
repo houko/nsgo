@@ -8,11 +8,23 @@ Layout runs in the engine, so the frame clock moves only what a platform draws w
 
 ## Frames
 
-`Scope.RequestAnimationFrame(fn)` calls fn once, on the graph's goroutine, when the next display frame begins, with the frame's time from the graph clock, as timers do. stop cancels the wait, and a callback whose owner is disposed does not run; registering again from fn is the loop that runs every frame, as `requestAnimationFrame`'s does. `Scope.Animate` steps this way, so an app draws at the display's rate without a timer of its own.
+`Scope.RequestAnimationFrame(fn)` calls fn once, on the graph's goroutine, when the next display frame begins, with the frame's time: the display's where the platform gives one (the table below), so two frames' times differ by the display's frame length rather than by when the engine got to each, and the graph clock's otherwise. It is on the graph clock's base, as timers are, may lie up to a frame ahead of `Scope.Now` where it is when the frame shows, and never precedes the previous frame's. stop cancels the wait, and a callback whose owner is disposed does not run; registering again from fn is the loop that runs every frame, as `requestAnimationFrame`'s does. `Scope.Animate` steps this way, so an app draws at the display's rate without a timer of its own.
 
-The core holds the callbacks waiting for the next frame and tells the host when the first one appears (`RootOptions.RequestFrame`), once: the host calls `Scope.RunFrame` when that frame begins, and asks again when a callback waits for the next. The engine forwards the request to its platform (`engine.Platform.RequestFrame`) and runs the frame when the platform reports it (`Engine.Frame`), before committing what the callbacks changed.
+The core holds the callbacks waiting for the next frame and tells the host when the first one appears (`RootOptions.RequestFrame`), once: the host calls `Scope.RunFrame` when that frame begins, or `Scope.RunFrameAt` with the display's time, and asks again when a callback waits for the next. The engine forwards the request to its platform (`engine.Platform.RequestFrame`) and runs the frame when the platform reports it (`Engine.Frame`, or `Engine.FrameAt` with the time), before committing what the callbacks changed. A platform reads its display's timestamp and its own clock together in the frame's callback and moves `time.Now` by their difference (`driver.DisplayTime`), so the time keeps the display's cadence however late the frame reaches the engine; an engine with an app clock of its own (`engine.Options.Clock`) uses that clock's time instead.
 
-Each target's frame source is its frame clock (below): macOS and iOS share their surface's display link with the native animations, the web uses `requestAnimationFrame`, Windows and Linux their frame timer, and Android the runtime's `Choreographer`, which reports each frame over the pipe while the engine waits for one.
+Each target's frame source is its frame clock, shared with the native animations:
+
+| Target | Frame source | The frame's time |
+| --- | --- | --- |
+| macOS | The surface's display link, a 60 Hz timer before macOS 14 or while the link stalls | The link's `targetTimestamp`, when the frame shows; the graph clock's from a timer |
+| iOS | The surface's `CADisplayLink` | Its `targetTimestamp` |
+| Web | `requestAnimationFrame` | Its timestamp, when the frame began |
+| Android | The runtime's `Choreographer`, which reports each frame over the pipe while the engine waits for one | Its `frameTimeNanos`, the frame's vsync |
+| Linux | The surface's `GdkFrameClock`, at the display's rate, a timer every 100 ms while it stands still, as for a window not shown | The frame clock's frame time, when the frame began; the graph clock's from the timer |
+| Windows | A goroutine waiting on `DwmFlush`, as below | When `DwmFlush` last returned, the composition's end |
+| HarmonyOS | The host's `displaySync`, over ArkWeb's bridge | Its `targetTimestamp`, moved onto Go's clock by the bridge's quickest delivery seen (`driver.DisplayClock`), as the web view cannot read the host's clock |
+| watchOS | The host's `TimelineView(.animation)` | The timeline's date |
+| Mini programs | A 16 ms timer of the logic layer, which has no display frames | The graph clock's |
 
 Headless tests run frames as the manual clock advances: `nsgotest.App.Advance` moves the clock a frame at a time and runs a waiting frame at each, as NSH's clock with frames does.
 
@@ -40,7 +52,8 @@ The graph travels as `ItemAnimation`, after the batch's views. Each backend keep
 | macOS | AppKit's `CADisplayLink` (macOS 14), else a 60 Hz timer | The layer's properties, without implicit animation |
 | iOS | `CADisplayLink` at the screen's `maximumFramesPerSecond` | The layer's properties |
 | Web | `requestAnimationFrame` | Inline styles |
-| Windows, Linux | The backend's 16 ms frame timer | The next paint |
+| Windows | A goroutine that waits for each composition (`DwmFlush`) and posts a tick | The next paint |
+| Linux | The surface's `GdkFrameClock` (`gtk_widget_add_tick_callback`) | The next paint |
 | Android | `Choreographer` | A Java port of the animator on the UI thread |
 | watchOS | SwiftUI host frames | The next host update, including values applied after a commit |
 

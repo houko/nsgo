@@ -10,7 +10,8 @@ import (
 )
 
 const (
-	frameMillis    = 16
+	// stallMillis is how often a running clock checks that the frame clock ticks, and how long it goes without a tick before the check ticks in its place.
+	stallMillis    = 100
 	scrollDuration = 300 * time.Millisecond
 
 	allProperties = driver.TransitionOpacity | driver.TransitionBackground | driver.TransitionTransform |
@@ -104,15 +105,28 @@ func (w *window) animate(v *view) {
 	w.startClock()
 }
 
-// startClock ticks every frame until nothing animates: no transition or
-// scroll, no animator run, no layout animation and no animated image.
+// startClock ticks every frame until nothing animates: no transition or scroll, no animator run, no layout animation, no animated image and no frame the app waits for. It ticks from the surface's GdkFrameClock, at the display's rate, and while that clock stands still, as it does for a window not shown, a timer checking it every stallMillis ticks in its place, so animations still end and the app's frames still come.
 func (w *window) startClock() {
 	if !w.ticking && !w.closing {
-		w.tickID = gTimeoutAdd(frameMillis, cbTick, w.handle)
+		w.tickID = gtkWidgetAddTickCallback(w.surface, cbTick, w.handle, 0)
+		w.watchID = gTimeoutAdd(stallMillis, cbTickWatch, w.handle)
+		w.ticked = time.Now()
 		w.ticking = true
 		w.clockOn.Store(true)
 		startYielding()
 	}
+}
+
+// stopClock removes the frame clock's callback and the timer watching it but the one running now, which ends by returning 0.
+func (w *window) stopClock(fromFrameClock bool) {
+	if fromFrameClock {
+		gSourceRemove(w.watchID)
+	} else {
+		gtkWidgetRemoveTickCallback(w.surface, w.tickID)
+	}
+	w.tickID, w.watchID = 0, 0
+	w.ticking = false
+	stopYielding()
 }
 
 // reportScroll reports a scroll view's offset. While the app waits for a
@@ -164,18 +178,39 @@ func (w *window) showAnimated() {
 // monotonic is the animator's clock: time since the window opened.
 func (w *window) monotonic(now time.Time) time.Duration { return now.Sub(w.epoch) }
 
-// tickCallback moves every animation to now and repaints.
-func tickCallback(data uintptr) int32 {
+// tickCallback is a frame of the surface's GdkFrameClock, in its update phase: it moves every animation to now and runs the frame the app waits for at the clock's frame time.
+func tickCallback(widget, clock, data uintptr) int32 {
 	w := windowOf(data)
 	if w == nil || w.closing {
 		return 0
 	}
+	w.ticked = time.Now()
 	done := w.measuring(true)
-	w.tick()
+	w.tick(frameTime(clock), true)
 	done()
 	runtime.Gosched()
-	// The timer repeats while something animates.
+	// The callback stays while something animates.
 	return boolInt(w.ticking)
+}
+
+// tickWatchCallback ticks in the frame clock's place while it has not ticked for stallMillis.
+func tickWatchCallback(data uintptr) int32 {
+	w := windowOf(data)
+	if w == nil || w.closing {
+		return 0
+	}
+	if time.Since(w.ticked) >= stallMillis*time.Millisecond {
+		done := w.measuring(true)
+		w.tick(time.Time{}, false)
+		done()
+		runtime.Gosched()
+	}
+	return boolInt(w.ticking)
+}
+
+// frameTime is the frame time of a GdkFrameClock, when its frame began on g_get_monotonic_time's clock in microseconds, on time.Now's base.
+func frameTime(clock uintptr) time.Time {
+	return driver.DisplayTime(time.Duration(gdkFrameClockGetFrameTime(clock))*time.Microsecond, time.Duration(gGetMonotonicTime())*time.Microsecond)
 }
 
 // step moves v's animations to now and reports whether one goes on.
@@ -234,8 +269,8 @@ func (w *window) step(v *view, now time.Time) bool {
 	return keep
 }
 
-// tick moves every animation to now and repaints.
-func (w *window) tick() {
+// tick moves every animation to now and repaints, and runs the frame the app waits for at at, the zero time for the engine's clock; fromFrameClock says the frame clock's callback runs it, rather than the timer standing in for it.
+func (w *window) tick(at time.Time, fromFrameClock bool) {
 	now := time.Now()
 	live := w.animating[:0]
 	for _, v := range w.animating {
@@ -257,7 +292,7 @@ func (w *window) tick() {
 		running = true
 	}
 	if w.frameWanted.Swap(false) && w.engine != nil {
-		w.engine.Frame()
+		w.engine.FrameAt(at)
 	}
 	// A frame the engine asks for as the clock stops either finds it
 	// stopped and starts it, or keeps it going here.
@@ -266,10 +301,7 @@ func (w *window) tick() {
 		if w.frameWanted.Load() {
 			w.clockOn.Store(true)
 		} else {
-			// tickCallback's return removes the timer.
-			w.ticking = false
-			w.tickID = 0
-			stopYielding()
+			w.stopClock(fromFrameClock)
 		}
 	}
 }

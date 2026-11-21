@@ -4,15 +4,7 @@ package linux
 
 import "runtime"
 
-// An app's main goroutine lives in GTK's callbacks and never passes
-// through Go's scheduler by itself. Go's monitor thread, finding its P on
-// one scheduling round for 10 ms (forcePreemptNS in runtime/proc.go),
-// takes the P whenever the thread is back in GTK and then polls every
-// 20 µs: about 3,000 wakeups a second while an app animates. Each tick
-// yields, but the frame clock ticks 16 ms apart, so while a window's clock
-// runs a timer passes the goroutine through the scheduler every
-// yieldMillis as well: either alone left about 2,400 a second of a list
-// scrolled every frame, both about 1,000 (2026-11-13).
+// An app's main goroutine lives in GTK's callbacks and never passes through Go's scheduler by itself. Go's monitor thread, finding its P on one scheduling round for 10 ms (forcePreemptNS in runtime/proc.go), takes the P whenever the thread is back in GTK and then polls every 20 µs: about 3,000 wakeups a second while an app animates. Each tick yields, but the frame clock ticks once a refresh, 16 ms apart at 60 Hz, so while a window's clock runs a timer passes the goroutine through the scheduler every yieldMillis as well: either alone left about 2,400 a second of a list scrolled every frame, both about 1,000 (2026-11-13).
 const yieldMillis = 8
 
 var (

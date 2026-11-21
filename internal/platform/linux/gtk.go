@@ -90,6 +90,7 @@ var (
 	gMainLoopQuit      func(uintptr)
 	gMainLoopUnref     func(uintptr)
 	gTimeoutAdd        func(uint32, uintptr, uintptr) uint32
+	gGetMonotonicTime  func() int64
 	gSourceRemove      func(uint32)
 	gIdleAdd           func(uintptr, uintptr) uint32
 	gFree              func(uintptr)
@@ -138,6 +139,8 @@ var (
 	gtkWidgetGetVisible                    func(uintptr) int32
 	gtkWidgetAddController                 func(uintptr, uintptr)
 	gtkWidgetQueueDraw                     func(uintptr)
+	gtkWidgetAddTickCallback               func(widget, callback, data, destroy uintptr) uint32
+	gtkWidgetRemoveTickCallback            func(widget uintptr, id uint32)
 	gtkWidgetQueueAllocate                 func(uintptr)
 	gtkWidgetGetMapped                     func(uintptr) int32
 	gtkWidgetGrabFocus                     func(uintptr) int32
@@ -209,6 +212,7 @@ var (
 	gtkWindowGetDefaultSize                func(uintptr, *int32, *int32)
 
 	// GDK, in libgtk-4.
+	gdkFrameClockGetFrameTime  func(clock uintptr) int64
 	gdkDisplayGetDefault       func() uintptr
 	gdkDisplayGetMonitors      func(uintptr) uintptr
 	gdkDisplayGetClipboard     func(uintptr) uintptr
@@ -452,6 +456,7 @@ func bind() {
 	purego.RegisterLibFunc(&gMainLoopQuit, glibLib, "g_main_loop_quit")
 	purego.RegisterLibFunc(&gMainLoopUnref, glibLib, "g_main_loop_unref")
 	purego.RegisterLibFunc(&gTimeoutAdd, glibLib, "g_timeout_add")
+	purego.RegisterLibFunc(&gGetMonotonicTime, glibLib, "g_get_monotonic_time")
 	purego.RegisterLibFunc(&gSourceRemove, glibLib, "g_source_remove")
 	purego.RegisterLibFunc(&gIdleAdd, glibLib, "g_idle_add")
 	purego.RegisterLibFunc(&gFree, glibLib, "g_free")
@@ -501,6 +506,8 @@ func bind() {
 	purego.RegisterLibFunc(&gtkWidgetGetVisible, gtkLib, "gtk_widget_get_visible")
 	purego.RegisterLibFunc(&gtkWidgetAddController, gtkLib, "gtk_widget_add_controller")
 	purego.RegisterLibFunc(&gtkWidgetQueueDraw, gtkLib, "gtk_widget_queue_draw")
+	purego.RegisterLibFunc(&gtkWidgetAddTickCallback, gtkLib, "gtk_widget_add_tick_callback")
+	purego.RegisterLibFunc(&gtkWidgetRemoveTickCallback, gtkLib, "gtk_widget_remove_tick_callback")
 	purego.RegisterLibFunc(&gtkWidgetQueueAllocate, gtkLib, "gtk_widget_queue_allocate")
 	purego.RegisterLibFunc(&gtkWidgetGetMapped, gtkLib, "gtk_widget_get_mapped")
 	purego.RegisterLibFunc(&gtkWidgetGrabFocus, gtkLib, "gtk_widget_grab_focus")
@@ -574,6 +581,7 @@ func bind() {
 	purego.RegisterLibFunc(&gtkGestureGetDevice, gtkLib, "gtk_gesture_get_device")
 
 	// GDK.
+	purego.RegisterLibFunc(&gdkFrameClockGetFrameTime, gtkLib, "gdk_frame_clock_get_frame_time")
 	purego.RegisterLibFunc(&gdkDisplayGetDefault, gtkLib, "gdk_display_get_default")
 	purego.RegisterLibFunc(&gdkDisplayGetMonitors, gtkLib, "gdk_display_get_monitors")
 	purego.RegisterLibFunc(&gdkDisplayGetClipboard, gtkLib, "gdk_display_get_clipboard")

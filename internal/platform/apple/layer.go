@@ -34,6 +34,9 @@ var (
 	selBounds             = sel("bounds")
 
 	caCurrentMediaTime func() float64
+	// msgSendFloat64 is objc_msgSend for a message that takes nothing and returns a double, registered once for per-frame reads.
+	msgSendFloat64     func(objc.ID, objc.SEL) float64
+	selTargetTimestamp = sel("targetTimestamp")
 )
 
 // StyleLayer draws vs with a view's CALayer. An NSView whose layer it
@@ -472,3 +475,9 @@ func RotateLayer(layer objc.ID, radians float64) {
 // MediaTime returns Core Animation's clock: the time since the system
 // started, on which display links and NSEvent timestamps count too.
 func MediaTime() time.Duration { return time.Duration(caCurrentMediaTime() * float64(time.Second)) }
+
+// LinkFrameTime returns when the frame of a display link (a CADisplayLink, or the one an NSView makes) will show, its targetTimestamp, on time.Now's base: a frame's time for engine.Engine.FrameAt, from within the link's callback.
+func LinkFrameTime(link objc.ID) time.Time {
+	target := time.Duration(msgSendFloat64(link, selTargetTimestamp) * float64(time.Second))
+	return driver.DisplayTime(target, MediaTime())
+}

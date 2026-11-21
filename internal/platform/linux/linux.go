@@ -173,7 +173,9 @@ type window struct {
 	held      map[uint32]bool // the keys down, by keycode
 	animating []*view
 	ticking   bool
-	tickID    uint32
+	// tickID is the surface's tick callback and watchID the timer watching it while the clock runs; ticked is when the frame clock last ticked.
+	tickID, watchID uint32
+	ticked          time.Time
 	// frameWanted is set while the app waits for a display frame, by the
 	// engine goroutine; clockOn mirrors ticking for it, as a running clock
 	// serves the frame without a hop to the main loop.
@@ -798,9 +800,11 @@ func (w *window) close() {
 	w.loopback.Close()
 	w.visible = false
 	w.removeTrays()
-	if w.tickID != 0 {
-		gSourceRemove(w.tickID)
-		w.tickID = 0
+	if w.ticking {
+		gtkWidgetRemoveTickCallback(w.surface, w.tickID)
+		gSourceRemove(w.watchID)
+		w.tickID, w.watchID = 0, 0
+		w.ticking = false
 		stopYielding()
 	}
 	if w.engine != nil {

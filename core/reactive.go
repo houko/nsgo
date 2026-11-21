@@ -92,11 +92,7 @@ type RootOptions struct {
 	Clock Clock
 	// Report receives failures no Catch handles; they are dropped when nil.
 	Report func(error)
-	// RequestFrame tells the host that the app waits for the next display
-	// frame: it calls Scope.RunFrame when that frame begins, and is not
-	// asked again until then. It runs on the graph's goroutine, so it must
-	// not block. A host without display frames leaves it nil, and the
-	// callbacks wait.
+	// RequestFrame tells the host that the app waits for the next display frame: it calls Scope.RunFrame, or Scope.RunFrameAt with the display's time for the frame, when that frame begins, and is not asked again until then. It runs on the graph's goroutine, so it must not block. A host without display frames leaves it nil, and the callbacks wait.
 	RequestFrame func()
 	// Storage keeps the app's entries; a store in memory when nil.
 	Storage *Store
@@ -161,10 +157,10 @@ type runtime struct {
 	clock            Clock
 	report           func(error)
 
-	// The callbacks waiting for the next display frame, and whether the
-	// host has been asked for it.
+	// The callbacks waiting for the next display frame, whether the host has been asked for it, and the last frame's time, which the next never precedes.
 	frames         []*frameCallback
 	frameRequested bool
+	frameAt        time.Time
 	requestFrame   func()
 	env            *Env
 	tree           *Tree

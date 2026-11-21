@@ -98,7 +98,7 @@ const (
 	msgTestReply   = 9  // the test agent's answer to a msgTest
 	msgHost        = 10 // the embedding host's part of the channel (host.go)
 	msgCaretLines  = 11 // a text layout's lines and clusters, answering msgCarets
-	msgFrame       = 12 // a Choreographer frame began, answering msgWantFrame
+	msgFrame       = 12 // a Choreographer frame began, answering msgWantFrame: its frameTimeNanos, a u64
 	msgFolderReply = 13 // a folder's entries or a file's bytes, answering msgFolder
 	msgFetched     = 14 // a download's progress or response, answering msgFetch
 	// msgLiveReport is what the runtime reports of Live Activities, JSON
@@ -272,7 +272,7 @@ func (s *surface) serve(app engine.App, opts Options, test *testOpen) {
 			s.startEngine(app, size, g, opts.Appearance, nil)
 		case msgFrame:
 			s.frameWanted.Store(false)
-			s.engine.Frame()
+			s.engine.FrameAt(frameTime(&r))
 		case msgResize:
 			size, g, env := readResize(&r)
 			if env == nil || env.Equal(s.env) {

@@ -3104,7 +3104,8 @@ public class NsgoView extends FrameLayout implements NsgoEngine.Listener {
         ticking = false;
         if (frameWanted) {
             frameWanted = false;
-            write(Protocol.FRAME, new byte[0]);
+            // The frame's vsync time, on System.nanoTime's clock, for RequestAnimationFrame's time.
+            write(Protocol.FRAME, java.nio.ByteBuffer.allocate(8).putLong(now).array());
         }
         if (animator.running()) animator.step(now);
         applyAnimated();

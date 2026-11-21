@@ -197,7 +197,7 @@ func surfaceTick(self objc.ID, _ objc.SEL, _ objc.ID) {
 		if s.perf != nil {
 			period = s.framePeriod()
 		}
-		s.tick(period)
+		s.tick(period, true)
 	}
 }
 
@@ -212,7 +212,7 @@ func surfaceWatch(self objc.ID, _ objc.SEL, _ objc.ID) {
 
 func surfaceStallTick(self objc.ID, _ objc.SEL, _ objc.ID) {
 	if v := views[self]; v != nil {
-		v.surface.tick(time.Second / 60)
+		v.surface.tick(time.Second/60, false)
 	}
 }
 
@@ -228,9 +228,8 @@ func (s *surface) framePeriod() time.Duration {
 	return time.Second / 60
 }
 
-// tick steps one frame: the native animations first, then the frame the
-// app waits for.
-func (s *surface) tick(period time.Duration) {
+// tick steps one frame: the native animations first, then the frame the app waits for, at the time the display link's frame shows where linked says the link ticks, and at the engine's where a timer stands in for it.
+func (s *surface) tick(period time.Duration, linked bool) {
 	last := s.ticked
 	s.ticked = time.Now()
 	dirty := s.animator.Running() || len(s.motions) > 0 || len(s.ghosts) > 0 || len(s.images) > 0 || len(s.live) > 0
@@ -267,7 +266,11 @@ func (s *surface) tick(period time.Duration) {
 		s.revisit()
 	}
 	if s.frameWanted.Swap(false) && s.engine != nil {
-		s.engine.Frame()
+		var at time.Time
+		if linked && s.link != 0 {
+			at = apple.LinkFrameTime(s.link)
+		}
+		s.engine.FrameAt(at)
 	}
 	s.stepping = false
 	if s.perf != nil {

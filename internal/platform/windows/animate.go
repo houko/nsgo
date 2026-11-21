@@ -332,12 +332,23 @@ type frameClock struct {
 	// running is set while ticks are wanted; posted while one waits for
 	// the window.
 	running, posted atomic.Bool
+	// epoch and composed time the last composition: when DwmFlush returned for it, since epoch, or zero for none since the clock started.
+	epoch    time.Time
+	composed atomic.Int64
 }
 
 func newFrameClock(hwnd uintptr) *frameClock {
-	c := &frameClock{hwnd: hwnd, wake: make(chan struct{}, 1), done: make(chan struct{})}
+	c := &frameClock{hwnd: hwnd, wake: make(chan struct{}, 1), done: make(chan struct{}), epoch: time.Now()}
 	go c.run()
 	return c
+}
+
+// frameTime is when the last composition ended, as DwmFlush returned for it, the frame a tick serves: the zero time, the engine's clock, where none did since the clock started or DwmFlush fails.
+func (c *frameClock) frameTime() time.Time {
+	if n := c.composed.Load(); n > 0 {
+		return c.epoch.Add(time.Duration(n))
+	}
+	return time.Time{}
 }
 
 // minTick is the least time between ticks, should DwmFlush return at
@@ -358,9 +369,13 @@ func (c *frameClock) run() {
 		// It fails where nothing composes (a session without a desktop):
 		// a frame's length then.
 		if hr, _, _ := dwmFlush.Call(); int32(hr) < 0 {
+			c.composed.Store(0)
 			time.Sleep(frameInterval)
-		} else if since := time.Since(last); since < minTick {
-			time.Sleep(minTick - since)
+		} else {
+			c.composed.Store(int64(max(time.Since(c.epoch), 1)))
+			if since := time.Since(last); since < minTick {
+				time.Sleep(minTick - since)
+			}
 		}
 		last = time.Now()
 		select {
@@ -375,6 +390,7 @@ func (c *frameClock) run() {
 }
 
 func (c *frameClock) start() {
+	c.composed.Store(0)
 	c.running.Store(true)
 	select {
 	case c.wake <- struct{}{}:
@@ -506,7 +522,7 @@ func (w *window) tick() {
 	}
 	w.animatedChanged()
 	if w.frameWanted.Swap(false) && w.engine != nil {
-		w.engine.Frame()
+		w.engine.FrameAt(w.clock.frameTime())
 	}
 	// A monitor closes a frame at every composition. A frame the engine
 	// asks for as the clock stops either finds it stopped and starts it, or

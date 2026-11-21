@@ -306,6 +306,8 @@ type message struct {
 	// event is for.
 	surface uint32
 	frame   bool
+	// frameAt is the display's time for the frame, zero where the platform gave none.
+	frameAt time.Time
 	event   driver.Event
 	resize  *driver.Size
 	// geometry is the fold geometry measured at resize, which travels with it.
@@ -611,7 +613,12 @@ func (e *Engine) run(p Platform, app App, opts Options, tokens Tokens) {
 				continue
 			case m.frame:
 				frameAsked = false
-				root.RunFrame()
+				// A display's time is on the system clock's base, which an app's own clock does not share.
+				at := m.frameAt
+				if opts.Clock != nil {
+					at = time.Time{}
+				}
+				root.RunFrameAt(at)
 				continue
 			case m.fn != nil:
 				m.fn()
@@ -938,6 +945,9 @@ func (e *Engine) Language() string {
 // Frame reports that the display frame the app asked for has begun. The
 // engine runs the callbacks waiting for it on its goroutine, then commits.
 func (e *Engine) Frame() { e.push(message{frame: true}) }
+
+// FrameAt is Frame for a frame whose time the display gave, on time.Now's base: when it shows, or when it began where the platform tells no more (core.Scope.RunFrameAt). driver.DisplayTime brings a platform's timestamp to that base.
+func (e *Engine) FrameAt(at time.Time) { e.push(message{frame: true, frameAt: at}) }
 
 // Resize sets the surface size and the fold geometry measured at it, the zero Geometry for a surface without a fold. A change of the geometry alone is a resize to the same size.
 func (e *Engine) Resize(size driver.Size, g driver.Geometry) {

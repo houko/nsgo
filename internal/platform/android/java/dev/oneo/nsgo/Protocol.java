@@ -93,6 +93,7 @@ final class Protocol {
     static final int TEST_REPLY = 9;
     static final int HOST = 10;
     static final int CARET_LINES = 11;
+    /** A Choreographer frame began, answering WANT_FRAME: its frameTimeNanos as a long. */
     static final int FRAME = 12;
     static final int FOLDER_REPLY = 13;
     static final int FETCHED = 14;

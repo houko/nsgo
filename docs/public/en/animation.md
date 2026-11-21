@@ -36,7 +36,7 @@ angle := core.Interpolate(scroll, core.Interpolation{
 })
 ```
 
-`Scope.RequestAnimationFrame` runs a function once at the next display frame, and `Scope.Animate` steps a duration on that clock. Both run on the graph's goroutine, so they can set signals.
+`Scope.RequestAnimationFrame` runs a function once at the next display frame, and `Scope.Animate` steps a duration on that clock. Both run on the graph's goroutine, so they can set signals. The function gets the frame's time, the display's own on macOS, iOS, Android, the web, Linux, Windows, HarmonyOS and watchOS, so a loop that moves things by the time between two frames follows the display's pace; an `nsgotest` test gives the test clock's.
 
 `Scope.Tween` steps a number on that clock for what an animated value cannot reach, such as a figure counting up in a text: it calls a function with each number from one to another, as `Timing` would move a value, and once more with the last. An `nsgotest` step that starts it waits for the last, as for an animation, and under reduced motion it gives the last at once. TSX's `Animated.tween` is the same.
 

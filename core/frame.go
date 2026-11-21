@@ -11,11 +11,7 @@ type frameCallback struct {
 	fn    func(at time.Time)
 }
 
-// RequestAnimationFrame calls fn once, on the graph's goroutine, when the
-// next display frame begins, with the frame's time from the graph clock.
-// The core asks the host for that frame when the first callback waits
-// (RootOptions.RequestFrame), and the host calls RunFrame when it begins.
-// A host without display frames never does, so the callback waits.
+// RequestAnimationFrame calls fn once, on the graph's goroutine, when the next display frame begins, with the frame's time: the display's own where the platform gives one, so the difference between two frames' times is the display's frame length rather than when the graph got to each, and the graph clock's otherwise. The time is on the graph clock's base, never precedes the previous frame's, and may lie a frame ahead of Scope.Now where it is when the frame will show. The core asks the host for that frame when the first callback waits (RootOptions.RequestFrame), and the host calls RunFrame or RunFrameAt when it begins. A host without display frames never does, so the callback waits.
 //
 // stop cancels the wait, and a callback whose owner is disposed does not
 // run. A callback that wants every frame registers again from within fn:
@@ -44,16 +40,22 @@ func (cx *Scope) RequestAnimationFrame(fn func(at time.Time)) (stop func()) {
 	}
 }
 
-// RunFrame runs the callbacks waiting for the display frame that begins
-// now, on the graph's goroutine, and asks the host for another frame for
-// those that wait for one. A host calls it once for each RequestFrame it
-// was told about.
-func (cx *Scope) RunFrame() {
+// RunFrame runs the callbacks waiting for the display frame that begins now, on the graph's goroutine, with the graph clock's time, and asks the host for another frame for those that wait for one. A host calls it, or RunFrameAt, once for each RequestFrame it was told about.
+func (cx *Scope) RunFrame() { cx.RunFrameAt(time.Time{}) }
+
+// RunFrameAt is RunFrame for a frame whose time the display gave, on the graph clock's base: when it shows, or when it began where the platform tells no more. The zero time is the clock's now, and a time before the previous frame's is that frame's, so the callbacks never see time go back.
+func (cx *Scope) RunFrameAt(at time.Time) {
 	rt := cx.rt
 	rt.frameRequested = false
 	waiting := rt.frames
 	rt.frames = nil
-	at := rt.clock.Now()
+	if at.IsZero() {
+		at = rt.clock.Now()
+	}
+	if at.Before(rt.frameAt) {
+		at = rt.frameAt
+	}
+	rt.frameAt = at
 	for _, cb := range waiting {
 		// A callback whose owner is gone does not run, and the frame that
 		// was asked for it takes it away.

@@ -46,8 +46,10 @@ type surface struct {
 	// --nsgo-fps asks, and lastPerf times its readings. dirty records that
 	// a batch was applied since the last frame: only a frame that changed
 	// something is one the screen showed.
-	clock    *driver.Clock
-	perf     *engine.PerfMonitor
+	clock *driver.Clock
+	perf  *engine.PerfMonitor
+	// display brings the host's frame stamps to Go's clock, which the web view cannot read.
+	display  driver.DisplayClock
 	lastPerf time.Time
 	dirty    bool
 }
@@ -76,7 +78,7 @@ func newSurface(opts Options) *surface {
 	s.anim = driver.NewAnimator(func(ev driver.Event) { s.engine.Dispatch(ev) })
 	s.clock = driver.NewClock(s.anim)
 	s.m.anim = s.anim
-	s.m.frame = func() { s.frame() }
+	s.m.frame = func() { s.frame(time.Time{}) }
 	s.env = s.environment()
 	s.size0 = s.size()
 	if opts.Perf {
@@ -97,8 +99,13 @@ func (s *surface) install() {
 		s.touches(args)
 		return nil
 	}))
-	g.Set("nsgoFrame", js.FuncOf(func(js.Value, []js.Value) any {
-		s.frame()
+	// nsgoFrame is a display frame, with its displaySync targetTimestamp in nanoseconds, when it shows.
+	g.Set("nsgoFrame", js.FuncOf(func(_ js.Value, args []js.Value) any {
+		var at time.Time
+		if len(args) > 0 && args[0].Type() == js.TypeNumber {
+			at = s.display.At(time.Duration(args[0].Float()), time.Now())
+		}
+		s.frame(at)
 		return nil
 	}))
 	// nsgoEnv is the host saying the window or the system bars changed, once
@@ -153,10 +160,8 @@ func (s *surface) Mount(b *driver.MountBatch) {
 // clock running, which calls nsgoFrame until the animator stops.
 func (s *surface) RequestFrame() { s.bridge.Call("tick") }
 
-// frame runs one display frame: the animator moves its values, the views
-// that changed are written again, and the engine commits. The host's clock
-// stops when nothing animates.
-func (s *surface) frame() {
+// frame runs one display frame, which shows at at, or the zero time where the host gave none: the animator moves its values, the views that changed are written again, and the engine commits. The host's clock stops when nothing animates.
+func (s *surface) frame(at time.Time) {
 	s.clock.BeginFrame(time.Now())
 	s.clock.Step(s.clock.Elapsed())
 	if s.m.applyAnimated() {
@@ -164,7 +169,7 @@ func (s *surface) frame() {
 		// committed nothing: the monitor counts frames that changed.
 		s.dirty = true
 	}
-	s.engine.Frame()
+	s.engine.FrameAt(at)
 	dirty := s.dirty
 	s.dirty = false
 	s.clock.EndFrame(time.Now(), 0, dirty)

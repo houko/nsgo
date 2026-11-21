@@ -164,6 +164,8 @@ var (
 	applyFn, tickFn, snapshotFn uintptr
 	// snapshot is the PNG the host last rendered (hostSnapshot).
 	snapshot []byte
+	// referenceDate is Foundation's, which the host's dates count from.
+	referenceDate = time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC)
 )
 
 func hostSnapshot(data *byte, n int) {
@@ -371,13 +373,14 @@ func (s *surface) tick(on bool) {
 	purego.SyscallN(tickFn, v)
 }
 
-func hostFrame(float64) {
+// hostFrame steps a frame of the host's TimelineView, whose date, when the frame shows, is shown seconds since 2001 on the wall clock.
+func hostFrame(shown float64) {
 	now := time.Since(s.epoch)
 	s.animator.Step(now)
 	s.applyAnimated()
 	s.stepMotions()
 	if s.frameWanted.Swap(false) {
-		s.engine.Frame()
+		s.engine.FrameAt(driver.DisplayTime(time.Duration(shown*float64(time.Second)), time.Since(referenceDate)))
 	}
 	s.flush()
 	apple.YieldFrame()

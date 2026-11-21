@@ -109,3 +109,37 @@ func TestRequestAnimationFrameChangesDuringAFrame(t *testing.T) {
 		t.Fatalf("a callback stopped during a frame ran %d times: it came back", stopped)
 	}
 }
+
+// A frame the display timed runs its callbacks at the display's time, which may lie ahead of the clock, a frame without one at the clock's, and no frame's time precedes the one before: an app stepping by the difference between two frames sees the display's cadence and never a step back.
+func TestRunFrameAtGivesTheDisplaysTime(t *testing.T) {
+	clock := NewManualClock(time.Unix(100, 0))
+	root := testRoot(RootOptions{Post: func(func()) {}, Clock: clock, RequestFrame: func() {}})
+	var got []time.Time
+	var loop func(time.Time)
+	loop = func(at time.Time) {
+		got = append(got, at)
+		root.RequestAnimationFrame(loop)
+	}
+	root.RequestAnimationFrame(loop)
+
+	shown := clock.Now().Add(driver.FrameInterval)
+	root.RunFrameAt(shown)
+	root.RunFrameAt(shown.Add(driver.FrameInterval))
+	// A late frame from the clock, behind the display's last.
+	clock.Advance(time.Millisecond)
+	root.RunFrame()
+	clock.Advance(time.Second)
+	root.RunFrame()
+	// A display time earlier than the frame before.
+	root.RunFrameAt(shown)
+
+	want := []time.Time{shown, shown.Add(driver.FrameInterval), shown.Add(driver.FrameInterval), clock.Now(), clock.Now()}
+	if len(got) != len(want) {
+		t.Fatalf("the loop ran %d times, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if !got[i].Equal(want[i]) {
+			t.Fatalf("frame %d's time = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
