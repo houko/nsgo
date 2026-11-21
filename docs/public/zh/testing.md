@@ -61,6 +61,8 @@ func TestMain(m *testing.M) {
 
 在 macOS、Windows、Linux 和 Web 上以 `-target` 运行时，`app.Select(selector, start, end)` 用原生文本框的编辑键（全选和方向键）移动它的选区，之后的输入、复制或粘贴都作用于测试指定的范围；消费这些键的绑定或应用菜单项会把它们拦下。手机目标还不能移动原生选区：在那里它只移动测试模型中的选区，文本框设置了 `OnSelectionChange` 时则跳过该测试。
 
+`app.DoublePress(selector)` 在一个步骤内连续按压两次，让平台识别双击或双触。`app.Pan` 使用目标的拖动输入，每个偏移量都相对于起点。`app.Pinch` 支持无头模式，也可在 macOS、iOS、Android 和 Web 上驱动平台的手势处理。iOS 上的每个缩放值决定两根手指的间距，UIKit 在移动超过识别阈值后才开始报告手势。Android 上的两根手指会先张开至原生识别阈值，再依次应用指定的缩放值。如果当前目标不支持捏合输入，`Pinch` 会跳过测试的剩余步骤，并报告不支持的目标。
+
 `app.Orientation` 保存当前生效的 `Scope.RequestOrientation` 方向集合。使用应用原有的方向策略时，该值为零。
 
 ## 小组件和实时活动

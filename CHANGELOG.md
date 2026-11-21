@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Add `nsgotest.App.DoublePress` and run pan and supported pinch steps on targets (#1043 by @houko).
 - Restore web builds with pixel-backed custom cursors (#1206 by @houko).
 - Free a closed macOS window's views, shaders' Metal layers among them, once its frame clock had run, as an animation or a scroll does, where each window opened and closed leaked them.
 - Add `nsgo build -channel steam` for desktop depots with development-only `steam_appid.txt` support (#1227 by @houko).

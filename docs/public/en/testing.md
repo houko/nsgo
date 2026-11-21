@@ -61,6 +61,8 @@ On a real target, `nsgotest.Environment` pins the appearance, locale, text size,
 
 Under `-target` on macOS, Windows, Linux and the web, `app.Select(selector, start, end)` moves the native field's selection with its editing keys, select-all and the arrows, so the next typing, copying or pasting acts on the range the test named; a binding or application-menu item that takes those keys takes them from it. Phone targets do not move the native selection yet: there it moves the test's model alone, and skips the test when the field has `OnSelectionChange`.
 
+`app.DoublePress(selector)` sends two presses in one step so the platform can count a double click or tap. `app.Pan` uses the target’s drag input, with each offset relative to the starting point. `app.Pinch` works headless and drives the platform gesture path on macOS, iOS, Android and the web. On iOS, each scale sets the distance between two touches, and UIKit starts reporting once they pass its recognition threshold. On Android, the touches first spread far enough to start the native recognizer, then move through the requested scales. On a target without pinch input, reaching `Pinch` skips the rest of the test and reports which target lacked support.
+
 `app.Orientation` holds the active `Scope.RequestOrientation` mask. It is zero when the app uses its usual orientation policy.
 
 ## Widgets and Live Activities
