@@ -374,6 +374,13 @@ func (w *window) drawGL(g *glShaderView, id driver.NodeID, context uintptr) {
 		glBindTexture(glTexture2D, t.id)
 		g.lanes[3+2*i], g.lanes[4+2*i] = t.w, t.h
 	}
+	// A program reading fewer images leaves the others' textures unused.
+	for i := g.count; i < len(g.pixels); i++ {
+		if p := &g.pixels[i]; p.id != 0 {
+			glDeleteTextures(1, &p.id)
+			*p = pixelTexture{}
+		}
+	}
 	clear(g.buf)
 	shaderir.PutLanes(g.buf, g.offsets, g.types, g.lanes, 4)
 

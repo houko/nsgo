@@ -218,6 +218,13 @@ func (s *surface) drawShader(v *view) {
 		}
 		return js.Undefined(), 0, 0
 	})
+	// A program reading fewer images leaves the others' textures unused.
+	for i := g.textureCount; i < len(g.pixels); i++ {
+		if g.pixels[i].from != nil {
+			g.gl.Call("deleteTexture", g.pixels[i].tex)
+			g.pixels[i] = pixelTexture{}
+		}
+	}
 }
 
 // drawGL draws g's shader on canvas, w by h points, its animated lanes

@@ -1180,7 +1180,7 @@ const (
 type ImageSource struct {
 	URI  string
 	Data []byte
-	// Pixels, when set, is the image itself, premultiplied as image.RGBA is: nothing loads or decodes, and the view fires no load events and fades nothing in. The core copies it when the commit that carries a new Pixels or Version runs, so the app may write the next frame into the same buffer from then on, from its next RequestAnimationFrame callback for one. Without Size it measures its pixels in points. An Image's Source and a canvas's images take pixels; a Placeholder, which shows while a source loads, and a Shader's Images ignore them.
+	// Pixels, when set, is the image itself, premultiplied as image.RGBA is: nothing loads or decodes, and the view fires no load events and fades nothing in. The core copies it when the commit that carries a new Pixels or Version runs, so the app may write the next frame into the same buffer from then on, from its next RequestAnimationFrame callback for one. Without Size it measures its pixels in points. An Image's Source, a canvas's images and a Shader's Images take pixels; a Placeholder, which shows while a source loads, ignores them.
 	Pixels *image.RGBA
 	// Version tells frames written into the same Pixels apart: the same Pixels with another Version is shown again in place, the previous frame staying until the new one is drawn.
 	Version uint64

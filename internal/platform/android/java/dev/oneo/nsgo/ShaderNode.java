@@ -302,15 +302,19 @@ final class ShaderNode extends TextureView implements TextureView.SurfaceTexture
             }
             if (s != null) {
                 // The textures go with it; images come back when it does.
-                if (!textures.isEmpty() && EGL14.eglMakeCurrent(display, s, s, context)) {
+                boolean pixelTexture = false;
+                for (int t : pixelTextures) pixelTexture |= t != 0;
+                if ((!textures.isEmpty() || pixelTexture) && EGL14.eglMakeCurrent(display, s, s, context)) {
                     int[] ids = new int[textures.size()];
                     int i = 0;
                     for (int id : textures.values()) ids[i++] = id;
-                    GLES30.glDeleteTextures(ids.length, ids, 0);
+                    if (ids.length > 0) GLES30.glDeleteTextures(ids.length, ids, 0);
+                    for (int j = 0; j < pixelTextures.length; j++) {
+                        if (pixelTextures[j] != 0) GLES30.glDeleteTextures(1, pixelTextures, j);
+                    }
                 }
                 textures.clear();
                 for (int i = 0; i < pixelTextures.length; i++) {
-                    if (pixelTextures[i] != 0) GLES30.glDeleteTextures(1, pixelTextures, i);
                     pixelTextures[i] = 0;
                     uploaded[i] = null;
                 }
@@ -379,6 +383,13 @@ final class ShaderNode extends TextureView implements TextureView.SurfaceTexture
                         if (i < imgs.length && imgs[i] != null) t = texture(imgs[i], bitmaps[i]);
                     }
                     GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, t);
+                }
+                // A program reading fewer images leaves the others' textures unused.
+                for (int i = p.images; i < pixelTextures.length; i++) {
+                    if (pixelTextures[i] == 0) continue;
+                    GLES30.glDeleteTextures(1, pixelTextures, i);
+                    pixelTextures[i] = 0;
+                    uploaded[i] = null;
                 }
                 GLES30.glBindBuffer(GLES30.GL_UNIFORM_BUFFER, p.ubo);
                 block.position(0);

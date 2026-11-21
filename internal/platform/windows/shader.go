@@ -348,6 +348,13 @@ func (sv *shaderView) render(p *painter, prog *d3dProgram, width, height float32
 			}
 		}
 	}
+	// A program reading fewer images leaves the others' textures unused.
+	for i := prog.textures; i < len(sv.pixels); i++ {
+		if im := sv.pixels[i]; im != nil {
+			releaseAll(&im.srv, &im.tex)
+			sv.pixels[i] = nil
+		}
+	}
 	if cap(sv.buf) < prog.size {
 		sv.buf = make([]byte, prog.size)
 	}
