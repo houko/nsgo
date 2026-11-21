@@ -129,6 +129,34 @@ mount(() => <View style={{width: 320, alignItems: "flex-start"}}>
 	}
 }
 
+// TestTabsUnderlineIndicatorFromTSX sets an underline's color and content fit by name.
+func TestTabsUnderlineIndicatorFromTSX(t *testing.T) {
+	files := fstest.MapFS{"App.tsx": {Data: []byte(`import { mount, signal, View } from "nsgo";
+import { Tabs } from "nsgo/ui";
+function App() {
+    const value = signal("a");
+    const color = signal("#123456");
+    return <View style={{width: 400}}>
+        <Tabs testID="tabs" variant="underline" equal indicatorFit="content" indicatorColor={color()} value={value()} onChange={(v) => { value.set(v); color.set("#abcdef"); }}
+            options={[{value: "a", label: "One", testID: "one"}, {value: "b", label: "A longer tab", testID: "two"}]} />
+    </View>;
+}
+mount(App);`)}}
+	app := nsgotest.Start(t, compiler.App(files, "App.tsx"), nsgotest.Size(480, 320))
+	indicator := app.Find("tabs").Children[0]
+	if got := indicator.Style.Background; got != core.RGB(0x123456) {
+		t.Fatalf("TSX underline color = %x, want 123456", got)
+	}
+	if content, tab := app.Find("one").Children[0].Frame, app.Find("one").Frame; indicator.Frame.Size.Width != content.Size.Width || content.Size.Width >= tab.Size.Width-12 {
+		t.Fatalf("TSX underline is %v wide, want the content's %v inside a %v tab", indicator.Frame.Size.Width, content.Size.Width, tab.Size.Width)
+	}
+	app.Press("two")
+	app.Settle()
+	if got := app.Find("tabs").Children[0].Style.Background; got != core.RGB(0xabcdef) {
+		t.Fatalf("TSX underline color = %x after a change, want abcdef", got)
+	}
+}
+
 func TestTabShellSVGFromTSX(t *testing.T) {
 	files := fstest.MapFS{"App.tsx": {Data: []byte(`import { mount, signal, Text } from "nsgo";
 import { TabShell } from "nsgo/ui";

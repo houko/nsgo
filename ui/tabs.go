@@ -148,7 +148,7 @@ func (t Tabs[T]) Render(cx *core.Scope) core.Node {
 		if underline {
 			const inset, height = 6, 2
 			indicatorLeft, indicatorWidth := left+inset, max(0, f.Size.Width-2*inset)
-			if t.IndicatorFit == TabsIndicatorContent {
+			if t.IndicatorFit == TabsIndicatorContent && selectedIndex >= 0 {
 				content := contentFrame(options()[selectedIndex].Value).Get()
 				indicatorWidth = content.Size.Width
 				if env.RTL() {
@@ -188,7 +188,9 @@ func (t Tabs[T]) Render(cx *core.Scope) core.Node {
 			}
 		}
 		if underline && t.IndicatorFit == TabsIndicatorContent {
-			children = []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, OnLayout: content.Set, Children: children}}
+			// The wrapper lays the content out as the tab would, so only the indicator measures it.
+			look := tab.Merge(t.TabStyle)
+			children = []core.Node{core.View{Style: core.Style{Direction: look.Direction, AlignItems: look.AlignItems, Gap: look.Gap}, OnLayout: content.Set, Children: children}}
 		}
 		return base.Tab{Selected: func() bool { return selected() == index() }, Disabled: func() bool { return item().Disabled != nil && item().Disabled() },
 			OnPress: func(core.PressEvent) {

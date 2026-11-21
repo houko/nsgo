@@ -23,7 +23,7 @@ ui.Tabs[string]{
 
 ## 变体与尺寸
 
-`Variant` 是 `TabsSegmented`（默认，凸起的指示块在凹陷轨道中）或 `TabsUnderline`（选中标签下方的强调线）。下划线标签可以设置 `IndicatorColor`，并用 `IndicatorFit: TabsIndicatorContent` 让指示器跟随标签文字和图标，而不是整个标签。`Size` 是 `SizeDefault`、`SizeSmall` 或 `SizeLarge`，`Equal` 让每个标签等宽，而不是按标签文字适应。
+`Variant` 是 `TabsSegmented`（默认，凸起的指示块在凹陷轨道中）或 `TabsUnderline`（选中标签下方的强调线）。下划线标签可以设置 `IndicatorColor`，并用 `IndicatorFit: TabsIndicatorContent` 让指示器跟随标签文字和图标，而不是整个标签；TSX 中对应 `indicatorColor` 和 `indicatorFit="content"`。`Size` 是 `SizeDefault`、`SizeSmall` 或 `SizeLarge`，`Equal` 让每个标签等宽，而不是按标签文字适应。
 
 ```go preview=tabs/underline
 ui.Tabs[string]{Variant: ui.TabsUnderline, Equal: true, Size: ui.SizeSmall, Options: tabs, Value: section.Get, OnChange: section.Set}

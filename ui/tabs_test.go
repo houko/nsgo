@@ -137,25 +137,51 @@ func TestTabsStyles(t *testing.T) {
 	}
 }
 
+// TestTabsUnderlineIndicatorOptions colors an underline from IndicatorColor, following its changes, and fits it to the selected tab's content left to right and right to left, sliding between tabs.
 func TestTabsUnderlineIndicatorOptions(t *testing.T) {
 	headless(t)
-	app, _ := start(t, desktopEnv, func(cx *core.Scope) core.Node {
-		value := core.NewSignal(cx, 0)
-		return Tabs[int]{Variant: TabsUnderline, TestID: "tabs", Value: value.Get, OnChange: value.Set, IndicatorColor: func() core.Color { return core.RGB(0x123456) }, IndicatorFit: TabsIndicatorContent,
-			Options: []Option[int]{{Value: 0, Label: "One", TestID: "one"}, {Value: 1, Label: "A longer tab", TestID: "two"}}}
-	}, nsgotest.ManualFrames())
-	indicator := app.Find("tabs").Children[0]
-	content := app.Find("one").Children[0]
-	if got := indicator.Style.Background; got != core.RGB(0x123456) {
-		t.Fatalf("underline color = %x, want 123456", got)
-	}
-	if got := indicator.Frame.Size.Width; got != content.Frame.Size.Width {
-		t.Fatalf("content-fitted underline width = %v, want %v", got, content.Frame.Size.Width)
-	}
-	app.Press("two")
-	app.Advance(500 * time.Millisecond)
-	if got := app.Find("tabs").Children[0].Frame.Size.Width; got != app.Find("two").Children[0].Frame.Size.Width {
-		t.Fatalf("moved content-fitted underline width = %v, want %v", got, app.Find("two").Children[0].Frame.Size.Width)
+	for _, rtl := range []bool{false, true} {
+		e := desktopEnv
+		e.RTL = rtl
+		var color *core.Signal[core.Color]
+		var value *core.Signal[int]
+		app, _ := start(t, e, func(cx *core.Scope) core.Node {
+			color = core.NewSignal(cx, core.RGB(0x123456))
+			value = core.NewSignal(cx, 0)
+			return core.View{Style: core.Style{Width: core.Pt(400)}, Children: []core.Node{Tabs[int]{Variant: TabsUnderline, Equal: true, TestID: "tabs", Value: value.Get, OnChange: value.Set, IndicatorColor: color.Get, IndicatorFit: TabsIndicatorContent,
+				Options: []Option[int]{{Value: 0, Label: "One", TestID: "one"}, {Value: 1, Label: "A longer tab", TestID: "two"}}}}}
+		}, nsgotest.ManualFrames())
+		check := func(tab string) {
+			t.Helper()
+			// Frames are relative to the parent: the content's to its tab, the tab's and the underline's to the list.
+			at, content, f := app.Find(tab).Frame, app.Find(tab).Children[0].Frame, app.Find("tabs").Children[0].Frame
+			if content.Size.Width <= 0 || content.Size.Width >= at.Size.Width-12 {
+				t.Fatalf("rtl %v: %s's content is %v wide in a %v tab; the test needs content narrower than the tab's underline", rtl, tab, content.Size.Width, at.Size.Width)
+			}
+			if f.Size.Width != content.Size.Width || f.Origin.X != at.Origin.X+content.Origin.X || f.Origin.Y != at.Origin.Y+at.Size.Height-2 {
+				t.Fatalf("rtl %v: underline at %+v, want under %s's content at %+v in the tab at %+v", rtl, f, tab, content, at)
+			}
+		}
+		check("one")
+		if got := app.Find("tabs").Children[0].Style.Background; got != core.RGB(0x123456) {
+			t.Fatalf("rtl %v: underline color = %x, want 123456", rtl, got)
+		}
+		color.Set(core.RGB(0xabcdef))
+		app.Settle()
+		if got := app.Find("tabs").Children[0].Style.Background; got != core.RGB(0xabcdef) {
+			t.Fatalf("rtl %v: underline color = %x after a change, want abcdef", rtl, got)
+		}
+		app.Press("two")
+		if app.Find("tabs").Children[0].Style.Transition.Duration == 0 {
+			t.Fatalf("rtl %v: the content-fitted underline does not slide to the next tab", rtl)
+		}
+		app.Advance(500 * time.Millisecond)
+		check("two")
+		value.Set(5)
+		app.Settle()
+		if got := app.Find("tabs").Children[0].Frame.Size.Width; got != 0 {
+			t.Fatalf("rtl %v: underline is %v wide with no tab selected, want 0", rtl, got)
+		}
 	}
 }
 

@@ -23,7 +23,7 @@ ui.Tabs[string]{
 
 ## Variants and sizes
 
-`Variant` is `TabsSegmented` (the default, a raised thumb in a recessed track) or `TabsUnderline` (an accent line under the selected tab). An underline can set `IndicatorColor` and use `IndicatorFit: TabsIndicatorContent` to follow its label and icon rather than the whole tab. `Size` is `SizeDefault`, `SizeSmall` or `SizeLarge`, and `Equal` gives every tab the same width instead of fitting its label.
+`Variant` is `TabsSegmented` (the default, a raised thumb in a recessed track) or `TabsUnderline` (an accent line under the selected tab). An underline can set `IndicatorColor` and use `IndicatorFit: TabsIndicatorContent` to follow its label and icon rather than the whole tab; in TSX they are `indicatorColor` and `indicatorFit="content"`. `Size` is `SizeDefault`, `SizeSmall` or `SizeLarge`, and `Equal` gives every tab the same width instead of fitting its label.
 
 ```go preview=tabs/underline
 ui.Tabs[string]{Variant: ui.TabsUnderline, Equal: true, Size: ui.SizeSmall, Options: tabs, Value: section.Get, OnChange: section.Set}
