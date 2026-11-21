@@ -660,7 +660,10 @@ func (w *node) firstTextBaseline() (Points, bool) {
 			if lines, ok := l.(LineLayout); ok {
 				if rows := lines.TextLines(); len(rows) > 0 {
 					row := rows[0]
-					return offset + shownY + row.Bounds.Origin.Y + row.Ascender, true
+					// Bounds may include typographic leading. The baseline is the
+					// midpoint left after the line's ascent and descent consume it.
+					baseline := (row.Bounds.Size.Height + row.Ascender - row.Descender) / 2
+					return offset + shownY + row.Bounds.Origin.Y + baseline, true
 				}
 			}
 		}
