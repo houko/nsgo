@@ -221,3 +221,32 @@ func TestSceneStatusBarAndOrientationsArePerScene(t *testing.T) {
 		return f.StatusBar == darkContent && s.StatusBar == lightContent && s.Orientations == portrait && f.Orientations != portrait
 	})
 }
+
+// TestSceneKeyboardInsetFollowsFocus focuses fields in both scenes and checks the inset in each tree.
+func TestSceneKeyboardInsetFollowsFocus(t *testing.T) {
+	var heights [2]atomic.Int32
+	a := &sceneCounter{look: func(cx *core.Scope, n int32) []core.Node {
+		if n <= int32(len(heights)) {
+			cx.Effect(func() { heights[n-1].Store(int32(cx.Env().KeyboardHeight())) })
+		}
+		return []core.Node{core.Input{TestID: "keyboard", Style: core.Style{Width: core.Pt(200), Height: core.Pt(44)}}}
+	}}
+	_, first, second := openSecondScene(t, a)
+	for i, sc := range []ios.SceneForTest{second, first, second} {
+		if err := ios.ActivateSceneForTest(sc, sceneWait); err != nil {
+			t.Fatal(err)
+		}
+		if err := ios.PressInSceneForTest(sc.Refresh(), "keyboard"); err != nil {
+			t.Fatal(err)
+		}
+		owner := 1 - i%2
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(25 * time.Millisecond) {
+			if heights[owner].Load() > 0 && heights[1-owner].Load() == 0 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("focus in scene %d gave heights [%d %d]: %+v", owner, heights[0].Load(), heights[1].Load(), ios.ScenesForTest())
+			}
+		}
+	}
+}

@@ -3,6 +3,8 @@
 package ios
 
 import (
+	"time"
+
 	"github.com/ebitengine/purego/objc"
 
 	"github.com/nsgo-dev/nsgo/internal/driver"
@@ -17,6 +19,64 @@ import (
 
 // keyboardMargin is how far above the keyboard an input is kept.
 const keyboardMargin = 8
+
+// keyboardWindow receives the window on the active responder chain, on the main thread.
+var keyboardWindow objc.ID
+
+func activeKeyboardWindow() objc.ID {
+	const foregroundActive = 0
+	var active objc.ID
+	for _, s := range scenes {
+		w := s.window
+		if w == 0 || objc.Send[int](w.Send(sel("windowScene")), sel("activationState")) != foregroundActive {
+			continue
+		}
+		if active != 0 {
+			return responderWindow()
+		}
+		active = w
+	}
+	return active
+}
+
+func responderWindow() objc.ID {
+	// A window can be key in every scene, including a background scene.
+	// When several scenes are active, ask UIKit which responder chain has input.
+	keyboardWindow = 0
+	app := objc.ID(apple.Class("UIApplication")).Send(sel("sharedApplication"))
+	app.Send(sel("sendAction:to:from:forEvent:"), sel("nsgoKeyboardWindow:"), objc.ID(0), objc.ID(0), objc.ID(0))
+	return keyboardWindow
+}
+
+// keyboardMoved follows the software keyboard's frame and animation in the window receiving input.
+func (s *surface) keyboardMoved(note objc.ID, hiding bool) {
+	w := s.uiWindow()
+	if w == 0 {
+		return
+	}
+	info := note.Send(sel("userInfo"))
+	get := func(key string) objc.ID { return info.Send(sel("objectForKey:"), apple.Global(uikitPath, key)) }
+	var height driver.Points
+	if frame := get("UIKeyboardFrameEndUserInfoKey"); !hiding && frame != 0 && (s.embedded || len(scenes) < 2 || w == activeKeyboardWindow()) {
+		end := objc.Send[apple.CGRect](frame, sel("CGRectValue"))
+		space := w.Send(sel("screen")).Send(sel("coordinateSpace"))
+		local := objc.Send[apple.CGRect](s.native, sel("convertRect:fromCoordinateSpace:"), end, space)
+		height = driver.Points(max(objc.Send[apple.CGRect](s.native, selBounds).Size.Height-local.Origin.Y, 0))
+	}
+	seconds := objc.Send[float64](get("UIKeyboardAnimationDurationUserInfoKey"), sel("doubleValue"))
+	s.setKeyboard(height, time.Duration(seconds*float64(time.Second)))
+}
+
+func (s *surface) setKeyboard(height driver.Points, duration time.Duration) {
+	if height == 0 && s.keyboard == 0 {
+		return
+	}
+	s.keyboard = height
+	s.keyboardDuration = duration
+	s.keyboardStart = s.clock()
+	s.refresh()
+	s.keepFocusedClear()
+}
 
 // keepFocusedClear follows the keyboard and the focus.
 func (s *surface) keepFocusedClear() {

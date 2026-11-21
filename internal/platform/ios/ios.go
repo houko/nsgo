@@ -316,7 +316,7 @@ var (
 	selContentOffset                 = sel("contentOffset")
 	selSetContentSize                = sel("setContentSize:")
 
-	classView, classSurface, classInput, classScroll, classWatcher, classController objc.Class
+	classView, classSurface, classInput, classScroll, classWatcher, classController, classWindow objc.Class
 	// surfaceMethods are the surface's, NsgoSurface's and NSGoView's.
 	surfaceMethods []objc.MethodDef
 
@@ -378,6 +378,9 @@ func loadUIKit() {
 		}},
 	)
 	classSurface = register("NsgoSurface", uiView, nil, surfaceMethods)
+	classWindow = register("NsgoWindow", apple.Class("UIWindow"), nil, []objc.MethodDef{
+		{Cmd: sel("nsgoKeyboardWindow:"), Fn: func(self objc.ID, _ objc.SEL, _ objc.ID) { keyboardWindow = self }},
+	})
 	classController = register("NsgoViewController", apple.Class("UIViewController"), nil, []objc.MethodDef{
 		{Cmd: sel("preferredStatusBarStyle"), Fn: func(self objc.ID, _ objc.SEL) int { return controllerSurface(self).statusBar }},
 		{Cmd: sel("prefersStatusBarHidden"), Fn: func(self objc.ID, _ objc.SEL) bool { return controllerSurface(self).hideBar }},
@@ -562,7 +565,7 @@ func controllerSurface(controller objc.ID) *surface {
 
 // show makes the surface's view, at first, and shows it in a new key window of scene.
 func (s *surface) show(scene objc.ID) {
-	s.window = objc.ID(apple.Class("UIWindow")).Send(selAlloc).Send(sel("initWithWindowScene:"), scene)
+	s.window = objc.ID(classWindow).Send(selAlloc).Send(sel("initWithWindowScene:"), scene)
 	bounds := objc.Send[apple.CGRect](s.window, selBounds)
 	if s.native == 0 {
 		s.controller = objc.ID(classController).Send(selNew)
@@ -640,6 +643,7 @@ func (s *surface) detach() {
 	s.dropLink()
 	w := s.window
 	s.window = 0
+	s.setKeyboard(0, 0)
 	w.Send(selSetHidden, true)
 	w.Send(sel("setRootViewController:"), objc.ID(0))
 	w.Send(selRelease)
@@ -902,29 +906,6 @@ func (s *surface) topController() objc.ID {
 		top = p
 	}
 	return top
-}
-
-// keyboardMoved follows the software keyboard: how much of the surface's
-// bottom it will cover, and how long it takes to get there.
-func (s *surface) keyboardMoved(note objc.ID, hiding bool) {
-	info := note.Send(sel("userInfo"))
-	get := func(key string) objc.ID { return info.Send(sel("objectForKey:"), apple.Global(uikitPath, key)) }
-	seconds := objc.Send[float64](get("UIKeyboardAnimationDurationUserInfoKey"), sel("doubleValue"))
-	s.keyboardDuration = time.Duration(seconds * float64(time.Second))
-	s.keyboardStart = s.clock()
-	s.keyboard = 0
-	if frame := get("UIKeyboardFrameEndUserInfoKey"); !hiding && frame != 0 {
-		end := objc.Send[apple.CGRect](frame, sel("CGRectValue"))
-		space := objc.ID(apple.Class("UIScreen")).Send(sel("mainScreen")).Send(sel("coordinateSpace"))
-		if w := s.uiWindow(); w != 0 {
-			space = w.Send(sel("screen")).Send(sel("coordinateSpace"))
-		}
-		local := objc.Send[apple.CGRect](s.native, sel("convertRect:fromCoordinateSpace:"), end, space)
-		h := objc.Send[apple.CGRect](s.native, selBounds).Size.Height - local.Origin.Y
-		s.keyboard = driver.Points(max(h, 0))
-	}
-	s.refresh()
-	s.keepFocusedClear()
 }
 
 // alert presents a over whatever the window shows; the action chosen goes
