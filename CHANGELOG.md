@@ -32,6 +32,7 @@
 - Pull a resting iOS scroll view back to its new end when content shrinks or the viewport grows (#1040 by @houko).
 - Update Android image views in place from `ImageSource.Pixels` and draw those buffers in canvases (#1100 by @houko).
 - Measure a canvas text once per `MeasureText`, taking its width from the line already laid out and measuring the mark that closes a trailing space once per font, which halves what a measurement costs on Windows (#1161 by @iazhan).
+- Customize `ui.Toasts` surfaces for a stack or an individual toast (#1072 by @houko).
 - Keep an iOS app's engine, state and screens when UIKit disconnects its scene and connects a new one while the process lives, showing the running app in the new window rather than starting a second engine over it (#1030 by @houko).
 - Apply the iPad software keyboard inset only to the scene where the user is typing (#1160 by @houko).
 - Let a `core.Shader`'s `Images` take an `ImageSource` with `Pixels`, copied once per `Version` and written into a texture each backend keeps, with no upload while the version stays, so a shader can filter a frame the app writes (#1052 by @houko).

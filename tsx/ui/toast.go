@@ -24,8 +24,10 @@ type Toasts struct {
 	Swipe      ui.ToastSwipe
 	Inset      core.Points
 	CloseLabel string
-	Ref        *ToastsRef
-	TestID     string
+	// StyleFunc styles each toast through the reactive TSX style prop.
+	StyleFunc func() core.Style
+	Ref       *ToastsRef
+	TestID    string
 }
 
 // Render implements core.Node.
@@ -34,5 +36,6 @@ func (t Toasts) Render(cx *core.Scope) core.Node {
 	if t.Ref != nil {
 		t.Ref.toaster = toaster
 	}
-	return ui.Toasts{Toaster: toaster, Placement: t.Placement, Reverse: t.Reverse, Swipe: t.Swipe, Inset: t.Inset, CloseLabel: t.CloseLabel, TestID: t.TestID}
+	return ui.Toasts{Toaster: toaster, Placement: t.Placement, Reverse: t.Reverse, Swipe: t.Swipe, Inset: t.Inset,
+		CloseLabel: t.CloseLabel, StyleFunc: t.StyleFunc, TestID: t.TestID}
 }

@@ -74,6 +74,80 @@ func TestToastContentOptions(t *testing.T) {
 	})
 }
 
+func TestToastSurfaceStyles(t *testing.T) {
+	var plain, styled *Toaster
+	var stackFill *core.Signal[core.Color]
+	var radius *core.Signal[core.Points]
+	stackBackground, itemBackground := core.RGB(0x444466), core.RGB(0x121522)
+	itemBorder := core.RGB(0xbd365c)
+	app, palette := start(t, desktopEnv, func(cx *core.Scope) core.Node {
+		plain, styled = NewToaster(cx), NewToaster(cx)
+		stackFill = core.NewSignal(cx, stackBackground)
+		radius = core.NewSignal(cx, core.Points(24))
+		return core.View{Children: []core.Node{
+			Toasts{Toaster: plain, NoClose: true},
+			Toasts{Toaster: styled, Placement: ToastBottom, NoClose: true,
+				Style:     core.Style{Background: core.RGB(0x334422), BorderWidth: 3, CornerRadius: 8},
+				StyleFunc: func() core.Style { return core.Style{Background: stackFill.Get()} }},
+		}}
+	}, nsgotest.ManualFrames())
+	plain.Show(ToastContent{ID: "plain", Title: "Saved", Duration: -1})
+	plain.Show(ToastContent{ID: "custom", Title: "Saved", Duration: -1,
+		Style: core.Style{Background: itemBackground, BorderColor: itemBorder, CornerRadius: 22, Padding: core.All(24)}})
+	styled.Show(ToastContent{ID: "inherited", Title: "Saved", Duration: -1})
+	styled.Show(ToastContent{ID: "overridden", Title: "Saved", Duration: -1,
+		Style:     core.Style{Background: itemBackground, CornerRadius: 20},
+		StyleFunc: func() core.Style { return core.Style{CornerRadius: radius.Get()} }})
+	app.Settle()
+	if v := app.FindMounted("id:custom"); v.Style.Opacity != 0 || v.Style.Transform.TranslateY != -16 {
+		t.Fatalf("custom toast started at opacity %v and translation %v", v.Style.Opacity, v.Style.Transform.TranslateY)
+	}
+	app.Advance(time.Second)
+	for _, want := range []struct {
+		id            string
+		fill, border  core.Color
+		width, radius core.Points
+	}{
+		{"plain", Alpha(palette.Background, 0.92), palette.Border, 1, RadiusCard},
+		{"custom", itemBackground, itemBorder, 1, 22},
+		{"inherited", stackBackground, palette.Border, 3, 8},
+		{"overridden", itemBackground, palette.Border, 3, 24},
+	} {
+		s := app.Find(want.id).Style
+		if s.Background != want.fill || s.BorderColor != want.border || s.BorderWidth != want.width || s.CornerRadius != want.radius {
+			t.Errorf("%s surface: background %x, border %x at %v pt, radius %v", want.id, s.Background, s.BorderColor, s.BorderWidth, s.CornerRadius)
+		}
+		if s.Transition.Duration != 200*time.Millisecond || s.Opacity != 1 {
+			t.Errorf("%s lost its transition or starting phase did not end", want.id)
+		}
+	}
+	if plain, custom := app.Find("plain"), app.Find("custom"); custom.Frame.Size.Height-plain.Frame.Size.Height != 24 {
+		t.Fatalf("custom padding made the toast %v tall, want %v", custom.Frame.Size.Height, plain.Frame.Size.Height+24)
+	}
+
+	overridden := app.Find("overridden").ID
+	newFill := core.RGB(0x416631)
+	app.Post(func() {
+		stackFill.Set(newFill)
+		radius.Set(30)
+	})
+	app.Settle()
+	if got := app.Find("inherited").Style.Background; got != newFill {
+		t.Fatalf("stack style did not follow its signal: %x", got)
+	}
+	if got := app.Find("overridden"); got.Style.CornerRadius != 30 || got.Style.Background != itemBackground || got.ID != overridden {
+		t.Fatal("a reactive style lost the per-toast override or rebuilt the toast")
+	}
+	app.Drag("id:overridden", core.Point{Y: 32}, core.Point{Y: 80})
+	if s := app.FindMounted("id:overridden").Style; s.Opacity != 0 || s.Transform.Scale != 0.96 {
+		t.Fatalf("the swiped toast did not enter its ending style: opacity %v, scale %v", s.Opacity, s.Transform.Scale)
+	}
+	app.Advance(time.Second)
+	if app.Exists("overridden") || !app.Exists("inherited") {
+		t.Fatal("a swipe did not dismiss only the swiped toast")
+	}
+}
+
 // TestToastReplacementFollowsNewContent keeps a toast's mounted view when its
 // content is replaced with the same ID, while updating what it shows and does.
 func TestToastReplacementFollowsNewContent(t *testing.T) {

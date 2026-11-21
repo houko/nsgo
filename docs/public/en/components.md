@@ -46,7 +46,9 @@ func (b Badge) Render(*core.Scope) core.Node {
 }
 ```
 
-`ui.ToastContent` can omit its close button with `NoClose`, add a `Trailing` node, and make the whole toast dismiss through `OnPress`; `Toasts.NoClose` applies the close-button choice to a stack.
+`ui.ToastContent` can omit its close button with `NoClose`, add a `Trailing` node, and dismiss the toast through `OnPress`. `Toasts.NoClose` hides close buttons across the stack.
+
+`ui.Toasts.Style` and `StyleFunc` customize every toast surface, including its background, border, corners and padding. The stack's style merges over the theme, followed by each `ToastContent.Style` and `StyleFunc`. Each `StyleFunc` runs after its corresponding `Style` and updates when its signals change. The entry, exit and swipe phases still apply their motion styles. In TSX, set the `style` prop of `Toasts` and pass `style` or `styleFunc` to `show` for one toast.
 
 ## Signals
 

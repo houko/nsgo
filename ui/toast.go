@@ -44,7 +44,11 @@ type ToastContent struct {
 	NoClose  bool
 	OnClose  func()
 	Duration time.Duration
-	shown    uint64 // which Show it is, by which a replacement is told from the toast it replaces
+	// Style and StyleFunc style this toast's surface over the stack's style.
+	// StyleFunc follows the signals it reads and merges over Style.
+	Style     core.Style
+	StyleFunc func() core.Style
+	shown     uint64 // which Show it is, by which a replacement is told from the toast it replaces
 }
 
 type toastEntry = toast.Entry[string, ToastContent]
@@ -237,6 +241,10 @@ type Toasts struct {
 	Swipe      ToastSwipe
 	Inset      core.Points
 	CloseLabel string
+	// Style and StyleFunc style every toast's surface. StyleFunc merges
+	// over Style, and each ToastContent's styles merge over both.
+	Style     core.Style
+	StyleFunc func() core.Style
 	// NoClose omits the close button from every toast in the stack, whatever its ToastContent.NoClose.
 	NoClose bool
 	TestID  string
@@ -352,16 +360,25 @@ func (ts Toasts) item(cx *core.Scope, e func() toastEntry) core.Node {
 		EndingStyle:      core.Style{Opacity: core.Alpha(0), Transform: core.Transform{Scale: 0.96}},
 		SwipingStyle:     core.Style{Transition: core.Transition{}},
 		StyleFunc: func() core.Style {
+			c := content.Get()
 			align := core.AlignCenter
-			if content.Get().Description != "" {
+			if c.Description != "" {
 				align = core.AlignStart
 			}
 			glass := FinOf(cx).Glass()
-			return core.Style{Direction: core.Row, AlignItems: align, Gap: 12,
+			style := core.Style{Direction: core.Row, AlignItems: align, Gap: 12,
 				Padding: core.Edges{Top: 12, Right: 8, Bottom: 12, Left: 16}, CornerRadius: RadiusCard, BorderCurve: core.BorderCurveContinuous,
 				BorderWidth: 1, BorderColor: colors.Border(), Background: Alpha(colors.Background(), 0.92), Color: colors.Text(),
 				Shadows: glass.Shadows, BackdropFilters: glass.Backdrop,
-				Transition: core.Transition{Duration: 200 * time.Millisecond, Easing: core.EaseOut}}
+				Transition: core.Transition{Duration: 200 * time.Millisecond, Easing: core.EaseOut}}.Merge(ts.Style)
+			if ts.StyleFunc != nil {
+				style = style.Merge(ts.StyleFunc())
+			}
+			style = style.Merge(c.Style)
+			if c.StyleFunc != nil {
+				style = style.Merge(c.StyleFunc())
+			}
+			return style
 		},
 		Children: children}
 }

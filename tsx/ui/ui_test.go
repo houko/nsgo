@@ -157,6 +157,41 @@ mount(App);`)}}
 	}
 }
 
+func TestToastSurfaceStylesFromTSX(t *testing.T) {
+	files := fstest.MapFS{"App.tsx": {Data: []byte(`import { mount, signal, View } from "nsgo";
+import { Button, Toasts } from "nsgo/ui";
+function App() {
+    const toasts = signal(null);
+    const fill = signal("#334466"), radius = signal(20);
+    return <View>
+        <Button testID="show" onPress={() => {
+            toasts()?.show({id: "default", title: "Default", duration: -1});
+            toasts()?.show({id: "custom", title: "Custom", duration: -1,
+                style: {backgroundColor: "#121522"}, styleFunc: () => ({borderRadius: radius()})});
+        }}>Show</Button>
+        <Button testID="update" onPress={() => { fill.set("#416631"); radius.set(30); }}>Update</Button>
+        <Toasts placement="bottom" ref={toasts.set} style={{backgroundColor: fill(), borderWidth: 3, borderRadius: 8}} />
+    </View>;
+}
+mount(App);`)}}
+	app := nsgotest.Start(t, compiler.App(files, "App.tsx"))
+	app.Press("id:show")
+	app.Advance(time.Second)
+	if s := app.Find("id:default").Style; s.Background != core.RGB(0x334466) || s.BorderWidth != 3 || s.CornerRadius != 8 {
+		t.Fatalf("stack style did not reach the toast: background %x, border %v, radius %v", s.Background, s.BorderWidth, s.CornerRadius)
+	}
+	if s := app.Find("id:custom").Style; s.Background != core.RGB(0x121522) || s.BorderWidth != 3 || s.CornerRadius != 20 {
+		t.Fatalf("the toast's style did not override the stack: background %x, border %v, radius %v", s.Background, s.BorderWidth, s.CornerRadius)
+	}
+	app.Press("id:update")
+	if got := app.Find("id:default").Style.Background; got != core.RGB(0x416631) {
+		t.Fatalf("stack style did not update: %x", got)
+	}
+	if got := app.Find("id:custom").Style.CornerRadius; got != 30 {
+		t.Fatalf("per-toast style did not update: %v", got)
+	}
+}
+
 func TestTabShellSVGFromTSX(t *testing.T) {
 	files := fstest.MapFS{"App.tsx": {Data: []byte(`import { mount, signal, Text } from "nsgo";
 import { TabShell } from "nsgo/ui";
