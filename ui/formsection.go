@@ -8,6 +8,10 @@ type FormSection struct {
 	Children      []core.Node
 	TestID        string
 	Style         core.Style
+	// CardStyle styles the rows' surface. CardStyleFunc merges over it
+	// and follows the signals it reads.
+	CardStyle     core.Style
+	CardStyleFunc func() core.Style
 }
 
 // Render implements core.Node.
@@ -30,7 +34,13 @@ func (s FormSection) Render(cx *core.Scope) core.Node {
 		nodes = append(nodes, title)
 	}
 	nodes = append(nodes, core.View{Style: core.Style{CornerRadius: RadiusCard, BorderCurve: core.BorderCurveContinuous, Overflow: core.Hidden},
-		StyleFunc: func() core.Style { return core.Style{Background: Alpha(colors.Text(), 0.045)} }, Children: rows})
+		StyleFunc: func() core.Style {
+			style := core.Style{Background: Alpha(colors.Text(), 0.045)}.Merge(s.CardStyle)
+			if s.CardStyleFunc != nil {
+				style = style.Merge(s.CardStyleFunc())
+			}
+			return style
+		}, Children: rows})
 	if s.Footer != "" {
 		footer := Text(s.Footer, 11.5, Regular, colors.Muted)
 		footer.Style.LineHeight, footer.Style.Padding = 16, core.Symmetric(0, formRowPad)
@@ -61,11 +71,20 @@ func formRowHeightFor(cx *core.Scope) core.Points {
 	return formRowHeight
 }
 
-// formRowLead is where the hairline below row starts: the start of its
-// title, past an icon, as iOS insets a cell's separator.
+// formRowLead is where the hairline below row starts, aligned with the
+// title after the row's leading slot.
 func formRowLead(row core.Node) core.Points {
-	if r, ok := row.(FormRow); ok && r.Icon != nil {
-		return formRowPad + formIconTile + formRowGap
+	var width core.Points
+	switch r := row.(type) {
+	case FormRow:
+		width = r.leadingWidth()
+	case *FormRow:
+		if r != nil {
+			width = r.leadingWidth()
+		}
+	}
+	if width != 0 {
+		return formRowPad + width + formRowGap
 	}
 	return formRowPad
 }

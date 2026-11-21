@@ -84,6 +84,12 @@ quantity := core.NewSignal(cx, 1.0)
 ui.NumberInput{Value: quantity.Get, OnChange: quantity.Set, Min: 1, Max: 99, Step: 1, Label: "数量"}
 ```
 
+## 分组行
+
+`ui.FormSection` 将各行放在同一张卡片上，标题在卡片上方，页脚在下方。`CardStyle` 可设置卡片的背景、边框和圆角。`CardStyleFunc` 在其上合并样式，并跟随读取的信号更新。
+
+`ui.FormRow` 将 `Leading` 节点或图标底板放在标题前。用 `LeadingWidth` 为自定义节点预留宽度，使下方分隔线与标题对齐。预留宽度默认为 24 点。`TileSize` 同时调整图标底板、图标和圆角的大小。`TitleStyle` 和 `DetailStyle` 可覆盖两行的文字样式。
+
 ## 校验
 
 规则由应用自己保存：一个 signal 保存错误，`OnBlur` 或 `OnSubmit` 设置它，有错误时 `core.Show` 在输入框下方添加提示。

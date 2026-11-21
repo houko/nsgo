@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"cmp"
+
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -20,17 +22,24 @@ const (
 	FormRowDanger
 )
 
-// FormRow is a row of a FormSection: an Icon on a tile, Title over
-// Detail, then Value in the muted color and the Control. With OnPress it
-// is a button that darkens while pressed.
+// FormRow is a row of a FormSection: Leading or an Icon on a tile,
+// Title over Detail, then Value in the muted color and the Control.
+// With OnPress it is a button that darkens while pressed.
 type FormRow struct {
-	Icon          func() *core.SVG
-	Title, Detail string
-	Value         func() string
-	Control       core.Node
-	OnPress       func()
-	Disabled      func() bool
-	Variant       FormRowVariant
+	Icon func() *core.SVG
+	// TileSize is the side of the icon tile in points, 24 when zero.
+	TileSize core.Points
+	// Leading replaces the icon. LeadingWidth is the width reserved for
+	// it in points, 24 when zero, and aligns the section's divider.
+	Leading                 core.Node
+	LeadingWidth            core.Points
+	Title, Detail           string
+	TitleStyle, DetailStyle core.Style
+	Value                   func() string
+	Control                 core.Node
+	OnPress                 func()
+	Disabled                func() bool
+	Variant                 FormRowVariant
 	// Label names a pressable row for assistive technology, Title by
 	// default.
 	Label  string
@@ -48,21 +57,25 @@ func (r FormRow) Render(cx *core.Scope) core.Node {
 		tint = colors.Danger
 	}
 	var children []core.Node
-	if r.Icon != nil {
+	width := r.leadingWidth()
+	if r.Leading != nil {
+		children = append(children, core.View{Style: core.Style{Width: core.Pt(width), FlexShrink: 0,
+			AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter}, Children: []core.Node{r.Leading}})
+	} else if r.Icon != nil {
 		fill := colors.AccentFill
 		if r.Variant == FormRowDanger {
 			fill = colors.Danger
 		}
-		children = append(children, core.View{Style: core.Style{Width: core.Pt(formIconTile), Height: core.Pt(formIconTile), FlexShrink: 0,
-			CornerRadius: 6, BorderCurve: core.BorderCurveContinuous, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
-			StyleFunc: Filled(fill), Children: []core.Node{Icon(r.Icon, 14, colors.OnAccent)}})
+		children = append(children, core.View{Style: core.Style{Width: core.Pt(width), Height: core.Pt(width), FlexShrink: 0,
+			CornerRadius: width / 4, BorderCurve: core.BorderCurveContinuous, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+			StyleFunc: Filled(fill), Children: []core.Node{Icon(r.Icon, width*14/formIconTile, colors.OnAccent)}})
 	}
-	texts := []core.Node{core.Text{Content: r.Title, Style: TypeBody,
-		StyleFunc: func() core.Style { return core.Style{Color: tint()} }}}
+	texts := []core.Node{core.Text{Content: r.Title, Style: TypeBody.Merge(r.TitleStyle),
+		StyleFunc: func() core.Style { return core.Style{Color: cmp.Or(r.TitleStyle.Color, tint())} }}}
 	if r.Detail != "" {
-		detail := Text(r.Detail, 11.5, Regular, colors.Muted)
-		detail.Style.LineHeight = 15
-		texts = append(texts, detail)
+		texts = append(texts, core.Text{Content: r.Detail,
+			Style:     core.Style{FontSize: 11.5, FontWeight: Regular, LineHeight: 15}.Merge(r.DetailStyle),
+			StyleFunc: func() core.Style { return core.Style{Color: cmp.Or(r.DetailStyle.Color, colors.Muted())} }})
 	}
 	children = append(children, core.View{Style: core.Style{Gap: 1, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: texts})
 	if r.Value != nil {
@@ -92,4 +105,16 @@ func (r FormRow) Render(cx *core.Scope) core.Node {
 			return core.Style{Active: &core.Style{Background: colors.Hover()}, FocusVisible: FocusRing(cx, -2)}
 		},
 		Children: children}
+}
+
+// leadingWidth is the slot used by both the row and its hairline.
+func (r FormRow) leadingWidth() core.Points {
+	switch {
+	case r.Leading != nil:
+		return cmp.Or(r.LeadingWidth, formIconTile)
+	case r.Icon != nil:
+		return cmp.Or(r.TileSize, formIconTile)
+	default:
+		return 0
+	}
 }

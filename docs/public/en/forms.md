@@ -84,6 +84,12 @@ quantity := core.NewSignal(cx, 1.0)
 ui.NumberInput{Value: quantity.Get, OnChange: quantity.Set, Min: 1, Max: 99, Step: 1, Label: "Quantity"}
 ```
 
+## Grouped rows
+
+`ui.FormSection` puts its rows on a card, with the title above and footer below. Set `CardStyle` for the card’s background, border or corners. `CardStyleFunc` merges over it and follows the signals it reads.
+
+`ui.FormRow` places `Leading` or an icon tile before the title. Set `LeadingWidth` to reserve space for your node and align the divider below it with the title. The slot defaults to 24 points. Set `TileSize` to scale the icon tile, glyph and corners together. `TitleStyle` and `DetailStyle` override the typography of the two lines.
+
 ## Validation
 
 The app owns the rules: a signal holds the error, `OnBlur` or `OnSubmit` sets it, and a `core.Show` adds a message under the field while there is one.

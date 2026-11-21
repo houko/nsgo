@@ -45,6 +45,64 @@ func TestFormSection(t *testing.T) {
 	}
 }
 
+func TestStyledFormSectionAlignsDividersWithLeadingSlots(t *testing.T) {
+	fill, nextFill, border := core.RGB(0x223344), core.RGB(0x445566), core.RGB(0x667788)
+	var background *core.Signal[core.Color]
+	app, _ := start(t, desktopEnv, func(cx *core.Scope) core.Node {
+		background = core.NewSignal(cx, core.Color(0))
+		withIcon := core.Each(func() []string { return []string{"Alerts"} }, func(s string) string { return s },
+			func(_ *core.Scope, item func() string, _ func() int) core.Node {
+				return &FormRow{Title: item(), TestID: "alerts", Icon: lucide.Bell, TileSize: 30}
+			})
+		return FormSection{Title: "Account", Footer: "Kept on this device.", TestID: "section",
+			CardStyle:     core.Style{Background: fill, BorderColor: border, BorderWidth: 2, CornerRadius: 16},
+			CardStyleFunc: func() core.Style { return core.Style{Background: background.Get()} },
+			Children: []core.Node{
+				FormRow{Title: "Artwork", Detail: "Photo library", LeadingWidth: 38,
+					Leading:     core.View{TestID: "artwork", Style: core.Style{Width: core.Pt(38), Height: core.Pt(32)}},
+					TitleStyle:  core.Style{FontSize: 17, FontWeight: Semibold},
+					DetailStyle: core.Style{FontSize: 14, LineHeight: 18}},
+				withIcon,
+				FormRow{Title: "Sign out"},
+			}}
+	})
+	section := app.Find("section")
+	card := section.Children[1]
+	if section.Children[0].Text != "Account" || section.Children[2].Text != "Kept on this device." || section.Style.Background == fill {
+		t.Fatal("card style changed the section header, outer view or footer")
+	}
+	if style := card.Style; style.Background != fill || style.BorderColor != border || style.BorderWidth != 2 || style.CornerRadius != 16 {
+		t.Fatalf("card style = %+v", style)
+	}
+	app.Post(func() { background.Set(nextFill) })
+	app.Settle()
+	if got := card.Style.Background; got != nextFill {
+		t.Fatalf("card background = %v, want the reactive fill %v", got, nextFill)
+	}
+	if size := app.Find("artwork").Frame.Size; size.Width != 38 || size.Height != 32 {
+		t.Fatalf("leading node size = %v, want 38 by 32", size)
+	}
+	tile := app.Find("alerts").Children[0]
+	if size := tile.Frame.Size; size.Width != 30 || size.Height != 30 || tile.Style.CornerRadius != 7.5 {
+		t.Fatalf("tile = %v with radius %v, want 30 by 30 with radius 7.5", size, tile.Style.CornerRadius)
+	}
+	if got := cardRows(card); got != "r|r|r" {
+		t.Fatalf("card holds %q, want three rows and two dividers", got)
+	}
+	artwork, alerts := app.Find("text:Artwork"), app.Find("text:Alerts")
+	for i, title := range []*nsgotest.View{artwork, alerts} {
+		if got, want := card.Children[2*i+1].Bounds().Origin.X, title.Bounds().Origin.X; got != want {
+			t.Errorf("divider below %s starts at %v, want %v", title.Text, got, want)
+		}
+	}
+	if style := artwork.TextStyle; style.Font.Size != 17 || style.Font.Weight != Semibold {
+		t.Fatalf("title style = %+v", style)
+	}
+	if style := app.Find("text:Photo library").TextStyle; style.Font.Size != 14 || style.LineHeight != 18 {
+		t.Fatalf("detail style = %+v", style)
+	}
+}
+
 // TestFormSectionDividesRowsOfEach gives each row from core.Each the hairline below it, from where its title starts, and keeps the card's last view free of one, as rows come, go and move, and as an Each next to rows of their own empties.
 func TestFormSectionDividesRowsOfEach(t *testing.T) {
 	headless(t)
