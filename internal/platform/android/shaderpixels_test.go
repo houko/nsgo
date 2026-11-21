@@ -15,8 +15,8 @@ func TestShaderPixelsStayWithinTheBatchBudget(t *testing.T) {
 	images := []driver.ImageSource{{Pixels: a, Version: 2}, {Pixels: b, Version: 2}, {Pixels: c, Version: 2}}
 	sent := []*image.RGBA{nil, nil, old}
 
-	fresh, held, left := shaderPixels(images, sent, maxShaderPixels)
-	if !fresh[0] || !fresh[1] || fresh[2] {
+	fresh, held, left, deferred := shaderPixels(images, sent, maxShaderPixels)
+	if !fresh[0] || !fresh[1] || fresh[2] || !deferred {
 		t.Fatalf("fresh %v, want the first two", fresh)
 	}
 	if held[0] != a || held[1] != b || held[2] != old {
@@ -27,14 +27,14 @@ func TestShaderPixelsStayWithinTheBatchBudget(t *testing.T) {
 	}
 
 	// The next batch sends only the copy Java lacks.
-	fresh, held, left = shaderPixels(images, held, maxShaderPixels)
-	if fresh[0] || fresh[1] || !fresh[2] || held[2] != c || left != maxShaderPixels-size {
+	fresh, held, left, deferred = shaderPixels(images, held, maxShaderPixels)
+	if fresh[0] || fresh[1] || !fresh[2] || held[2] != c || left != maxShaderPixels-size || deferred {
 		t.Fatalf("next batch: fresh %v, left %d", fresh, left)
 	}
 
 	// Another shader item in a batch draws on what the items before it left.
-	fresh, held, _ = shaderPixels(images[:1], nil, size-1)
-	if fresh[0] || held[0] != nil {
+	fresh, held, _, deferred = shaderPixels(images[:1], nil, size-1)
+	if fresh[0] || held[0] != nil || !deferred {
 		t.Fatal("an item over the budget the batch has left was sent")
 	}
 }
@@ -44,8 +44,8 @@ func TestShaderPixelsOverTheLimitAreNotBudgeted(t *testing.T) {
 	huge := &image.RGBA{Rect: image.Rect(0, 0, 4096, 4097)}
 	small := image.NewRGBA(image.Rect(0, 0, 2, 2))
 	images := []driver.ImageSource{{Pixels: huge, Version: 1}, {Pixels: small, Version: 1}}
-	fresh, held, left := shaderPixels(images, nil, maxShaderPixels)
-	if !fresh[0] || !fresh[1] || held[0] != huge || left != maxShaderPixels-16 {
+	fresh, held, left, deferred := shaderPixels(images, nil, maxShaderPixels)
+	if !fresh[0] || !fresh[1] || held[0] != huge || left != maxShaderPixels-16 || deferred {
 		t.Fatalf("fresh %v, left %d", fresh, left)
 	}
 }

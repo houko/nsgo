@@ -867,8 +867,8 @@ func (s *surface) RequestFrame() {
 	s.send(msgWantFrame, func(*writer) {})
 }
 
-// Mount implements engine.Platform: one message per commit, then the
-// loads of the image sources it changed.
+// Mount implements engine.Platform: the commit and any follow-up shader
+// pixel batches, then the loads of the image sources it changed.
 func (s *surface) Mount(b *driver.MountBatch) {
 	s.openOverlays(b)
 	s.mount(&s.main, b)
@@ -900,13 +900,22 @@ func (s *surface) mount(v *treeView, b *driver.MountBatch) {
 		}
 	}
 	natives := s.trackNatives(v.id, b)
-	shaders := s.trackShaders(v, b)
 	first := !v.defaultsSent
 	v.defaultsSent = true
-	s.send(msgBatch, func(w *writer) {
-		w.u32(v.id)
-		encode(w, b, first, requests, natives, shaders)
-	})
+	for batch := b; ; {
+		shaders, pending := s.trackShaders(v, batch)
+		err := s.send(msgBatch, func(w *writer) {
+			w.u32(v.id)
+			encode(w, batch, first, requests, natives, shaders)
+		})
+		if err != nil || len(pending) == 0 {
+			break
+		}
+		// A fresh budget can send at least one deferred copy per batch.
+		// Keep these batches ahead of the next commit to this tree.
+		batch = &driver.MountBatch{Root: b.Root, Items: pending}
+		first, requests, natives = false, nil, nil
+	}
 	for _, l := range loads {
 		go s.load(l)
 	}

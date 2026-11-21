@@ -61,16 +61,26 @@ void main() {
 }
 `
 
-// trackShaders translates the programs a batch's shader items draw, and says which of their pixels Java lacks, on the engine goroutine.
-func (s *surface) trackShaders(tv *treeView, b *driver.MountBatch) []shaderItem {
+// trackShaders translates the programs a batch's shader items draw and
+// prepares the copies that fit. Only the latest item of a live shader
+// can be retried, so a follow-up never restores superseded state.
+func (s *surface) trackShaders(tv *treeView, b *driver.MountBatch) ([]shaderItem, []driver.MountItem) {
 	var out []shaderItem
+	var retry map[driver.NodeID]*driver.MountItem
 	budget := maxShaderPixels
 	for i := range b.Items {
 		it := &b.Items[i]
-		if it.Kind == driver.ItemCreate || it.Kind == driver.ItemDelete {
+		switch it.Kind {
+		case driver.ItemCreate, driver.ItemDelete:
 			delete(tv.shaderPixels, it.ID)
-		}
-		if it.Kind != driver.ItemShader || it.Shader == nil {
+			delete(retry, it.ID)
+			continue
+		case driver.ItemShader:
+			delete(retry, it.ID)
+			if it.Shader == nil {
+				continue
+			}
+		default:
 			continue
 		}
 		p := s.programs[it.Shader.Program]
@@ -84,7 +94,7 @@ func (s *surface) trackShaders(tv *treeView, b *driver.MountBatch) []shaderItem 
 			s.programs[it.Shader.Program] = p
 		}
 		// The core sends the same copy while the version stays, which Java has.
-		pixels, held, left := shaderPixels(it.Shader.Images, tv.shaderPixels[it.ID], budget)
+		pixels, held, left, deferred := shaderPixels(it.Shader.Images, tv.shaderPixels[it.ID], budget)
 		budget = left
 		if tv.shaderPixels == nil {
 			tv.shaderPixels = map[driver.NodeID][]*image.RGBA{}
@@ -92,8 +102,24 @@ func (s *surface) trackShaders(tv *treeView, b *driver.MountBatch) []shaderItem 
 		tv.shaderPixels[it.ID] = held
 		out = append(out, shaderItem{prog: p, source: !p.sent, pixels: pixels})
 		p.sent = true
+		if deferred {
+			if retry == nil {
+				retry = map[driver.NodeID]*driver.MountItem{}
+			}
+			retry[it.ID] = it
+		}
 	}
-	return out
+	if len(retry) == 0 {
+		return out, nil
+	}
+	pending := make([]driver.MountItem, 0, len(retry))
+	for i := range b.Items {
+		it := &b.Items[i]
+		if retry[it.ID] == it {
+			pending = append(pending, *it)
+		}
+	}
+	return out, pending
 }
 
 // translate turns prog into GLSL ES.
