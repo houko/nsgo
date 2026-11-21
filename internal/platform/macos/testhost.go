@@ -42,7 +42,7 @@ func (host) Open(app func(cx *core.Scope) core.Node, o testhost.Options) (testho
 func (host) Several() bool { return true }
 
 // OpensWindows implements testhost.WindowHost: the app opens its windows itself, as Run's does.
-func (host) OpensWindows() bool { return true }
+func (host) OpensWindows(bool) bool { return true }
 
 func (t *testSurface) RequestQuit(id uint32, forced bool) {
 	t.own.engine.Dispatch(driver.Event{Kind: driver.EventQuitRequest, Count: id, Forced: forced})

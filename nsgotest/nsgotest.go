@@ -395,11 +395,16 @@ type App struct {
 	// loads, by URI, which answer Scope.ImageSize; others fail to load.
 	ImageSizes map[string]driver.Size
 	// tree is the surface steps act on and the model shows: the app's only one, or with a desktop environment its main window (main) once it opened. appTree is the app's own surface with a desktop environment, which opens the windows, nil without one; surfaces are the windows that have opened, and clear the windows and panels that are transparent, opened so or made so by SetWindowTransparent, which report it as a compositing desktop does (surfaceEnv).
-	tree     *core.Tree
-	appTree  *core.Tree
-	main     *core.Tree
-	surfaces map[uint32]bool
-	clear    map[uint32]bool
+	// Secondary surface models share this app's graph and clock. owner is
+	// the app that settles the graph and possesses app-wide services.
+	owner         *App
+	surfaceModels map[uint32]*Surface
+	surfaceMain   *Surface
+	tree          *core.Tree
+	appTree       *core.Tree
+	main          *core.Tree
+	surfaces      map[uint32]bool
+	clear         map[uint32]bool
 	// own are the changes SetWindowEnvironment made to one window's environment, by surface, which surfaceEnv applies over the app's until SetEnvironment sets every window's again.
 	own   map[uint32][]func(*driver.Environment)
 	root  *core.Scope
@@ -657,6 +662,10 @@ func (a *App) Storage() core.Storage {
 
 // Settle runs what the app's goroutines posted and applies the commits that follow, until nothing is left. On a target it first waits for the engine to hand its pending commits to the platform, then until no batch came and nothing finite animated for 100 ms, checking the engine again before it returns, five seconds at most in all.
 func (a *App) Settle() {
+	if a.owner != nil {
+		a.owner.Settle()
+		return
+	}
 	if a.target != nil {
 		a.target.settle()
 		return
@@ -680,20 +689,28 @@ func (a *App) Settle() {
 			a.traceBatch(b, time.Since(began))
 			a.responseTree = t
 			a.setTransparent(t, b)
+			if s := a.surfaceModels[t.ID()]; s != nil {
+				s.updateTitle(b)
+			}
 			if t == a.tree {
 				a.apply(b)
 			} else {
 				a.applyAside(b)
+				if window := a.surfaceModels[t.ID()]; window != nil {
+					window.model.applySurface(b)
+				}
 			}
 			a.responseTree = nil
 		}
 		if a.appTree == nil {
+			a.openSurface(a.surfaceConfig(a.tree.ID()), a.tree, true)
 			commit(a.tree)
 		} else {
 			// The app's own surface first: it opens the windows, the main one among them, whose batches follow.
 			commit(a.appTree)
 			for _, surface := range slices.Clone(a.appTree.Surfaces()) {
 				if surface.Closed() {
+					a.closeSurface(surface.ID())
 					a.closed(surface)
 					surface.Forget()
 					continue
@@ -710,7 +727,15 @@ func (a *App) Settle() {
 						a.showMenu()
 					}
 				}
+				s := a.openSurface(a.surfaceConfig(surface.ID()), surface, surface == a.main)
+				if s.model != a && a.env != nil {
+					env := a.surfaceEnv(surface, *a.env)
+					s.model.env = &env
+				}
 				commit(surface)
+				if s.model != a {
+					s.model.animate()
+				}
 			}
 		}
 		overlaid := a.commitOverlay()
@@ -761,6 +786,10 @@ const settleLimit = 2 * time.Second
 func (a *App) step(format string, args ...any) {
 	a.t.Helper()
 	a.stepName = fmt.Sprintf(format, args...)
+	if a.owner != nil {
+		a.owner.step(format, args...)
+		return
+	}
 	for len(a.alerts) > 0 && !a.pendingAlerts {
 		index, err := defaultAnswer(a.alerts[0])
 		if err != nil {
@@ -773,6 +802,10 @@ func (a *App) step(format string, args ...any) {
 // done ends a step: it settles, then takes display frames while an animation that ends runs, a style transition waits for its OnTransitionEnd or lists bind the rows they pace, for at most settleLimit of the clock's time, and has OnAlert answer the alerts shown, taking the frames of what those answers start in turn. Frames the app asks for itself do not hold a step, since its own loops may never end: Advance runs them.
 func (a *App) done() {
 	a.t.Helper()
+	if a.owner != nil {
+		a.owner.done()
+		return
+	}
 	answered := 0
 	for {
 		if a.target != nil {
@@ -794,7 +827,7 @@ func (a *App) takeFrames() {
 	a.t.Helper()
 	a.Settle()
 	limit := a.Clock.Now().Add(settleLimit)
-	for !a.manualFrames && (a.anim.Ending() || a.tree.Pacing() || a.tree.PendingTransitionEnds()) && a.Clock.Now().Before(limit) {
+	for !a.manualFrames && a.surfaceWork() && a.Clock.Now().Before(limit) {
 		a.Clock.Advance(driver.FrameInterval)
 		a.runFrame()
 		a.Settle()
@@ -857,6 +890,10 @@ func (a *App) Advance(d time.Duration) {
 
 // elapse moves the clock by d a frame at a time, as Advance does.
 func (a *App) elapse(d time.Duration) {
+	if a.owner != nil {
+		a.owner.elapse(d)
+		return
+	}
 	for d > 0 {
 		step := min(d, driver.FrameInterval)
 		a.Clock.Advance(step)

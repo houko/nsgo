@@ -92,11 +92,13 @@ type Options struct {
 type testOpen struct {
 	options testhost.Options
 	pin     engine.TestPin
+	windows map[uint32]*window // opened surfaces, on the GTK thread
 }
 
 // window is one GTK window and the tree it shows. The engine's goroutine
 // reaches its main-thread half only through Mount and post.
 type window struct {
+	testID  uint32  // the opened test surface, 0 for a regular window
 	batch   uint64  // batches applied
 	win     uintptr // GtkWindow, 0 for an embedded surface
 	surface uintptr // the NsgoView holding the root view
@@ -446,8 +448,8 @@ func (w *window) openSurface(cfg driver.SurfaceConfig) {
 	opts.Hidden = cfg.Hidden
 	opts.Constraints = cfg.Constraints
 	// Only a window is transparent, shadowless or off the task list of its own choice.
-	window := cfg.Kind == driver.SurfaceWindow
-	opts.Transparent, opts.NoShadow, opts.SkipTaskbar = cfg.Transparent && window, cfg.NoShadow && window, cfg.SkipTaskbar && window
+	normalWindow := cfg.Kind == driver.SurfaceWindow
+	opts.Transparent, opts.NoShadow, opts.SkipTaskbar = cfg.Transparent && normalWindow, cfg.NoShadow && normalWindow, cfg.SkipTaskbar && normalWindow
 	if cfg.Kind == driver.SurfaceTrayIcon {
 		// The status item is still registered, but Linux does not yet draw a
 		// surface into it. Keep the attached tree out of sight until that
@@ -483,6 +485,13 @@ func (w *window) openSurface(cfg driver.SurfaceConfig) {
 	child.setPointerEvents(cfg.PointerEvents)
 	child.env = child.environment()
 	child.engine = w.engine.Attach(cfg.ID, child)
+	if opts.test != nil {
+		if opts.test.windows == nil {
+			opts.test.windows = map[uint32]*window{}
+		}
+		child.testID = cfg.ID
+		opts.test.windows[cfg.ID] = child
+	}
 	size := driver.Size{Width: opts.Width, Height: opts.Height}
 	child.engine.Resize(size, driver.Geometry{})
 	child.engine.SetEnvironment(child.env)
@@ -818,6 +827,9 @@ func (w *window) close() {
 
 // destroy ends an opened surface once its tree is gone (WindowDestroy): its views, its window and the handle its callbacks find it by go with it.
 func (w *window) destroy() {
+	if w.testID != 0 {
+		delete(w.opts.test.windows, w.testID)
+	}
 	if w.primary || w.embedded || w.win == 0 {
 		return
 	}

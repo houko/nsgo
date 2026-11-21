@@ -261,6 +261,9 @@ func (w *window) chromeChanged() {
 func (w *window) windowCommand(c *driver.WindowCommand) {
 	switch c.Action {
 	case driver.WindowDestroy:
+		if w.testID != 0 {
+			delete(w.opts.test.windows, w.testID)
+		}
 		w.destroying = true
 		w.visible = false
 		destroyWindow.Call(w.hwnd)

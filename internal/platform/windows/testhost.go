@@ -35,11 +35,13 @@ type host struct{}
 // thread of its own.
 func (host) Main(run func() int) { os.Exit(run()) }
 
+func (host) OpensWindows(app bool) bool { return app }
+
 func (host) Open(app func(cx *core.Scope) core.Node, o testhost.Options) (testhost.Surface, error) {
-	test := &testOpen{options: o, ready: make(chan *window, 1)}
+	test := &testOpen{options: o, ready: make(chan *window, 1), windows: map[uint32]*window{}}
 	go func() {
 		runtime.LockOSThread()
-		Run(app, Options{Title: "NSGo test", Width: o.Size.Width, Height: o.Size.Height, test: test})
+		Run(app, Options{Title: "NSGo test", Width: o.Size.Width, Height: o.Size.Height, Hidden: o.Windows, test: test})
 	}()
 	select {
 	case w := <-test.ready:
@@ -91,6 +93,20 @@ func (t *testSurface) onMain(fn func()) {
 	case <-done:
 	case <-time.After(10 * time.Second):
 	}
+}
+
+func (t *testSurface) WindowSurface(id uint32) testhost.Surface {
+	var opened *window
+	t.onMain(func() { opened = t.test.windows[id] })
+	if opened == nil {
+		return nil
+	}
+	return &testSurface{w: opened, test: t.test}
+}
+
+func (t *testSurface) RequestClose() error {
+	t.onMain(func() { hostSendMessage.Call(t.w.hwnd, wmClose, 0, 0) })
+	return nil
 }
 
 // lParam is at, in client pixels, as mouse messages carry it.

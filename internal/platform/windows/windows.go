@@ -352,9 +352,10 @@ func (v *view) detach() {
 }
 
 type window struct {
-	batch uint64 // batches applied
-	hwnd  uintptr
-	title string
+	testID uint32 // the opened test surface, 0 for a regular window
+	batch  uint64 // batches applied
+	hwnd   uintptr
+	title  string
 	// primary is the backend's own surface. Opened surfaces share its engine
 	// and message loop, but closing one must not end the process.
 	primary    bool
@@ -1005,6 +1006,13 @@ func (w *window) openSurface(cfg driver.SurfaceConfig) {
 	getClientRect.Call(hwnd, uintptr(unsafe.Pointer(&client)))
 	size := child.point(client.Right, client.Bottom)
 	child.engine = w.engine.Attach(cfg.ID, child)
+	if opts.test != nil {
+		if opts.test.windows == nil {
+			opts.test.windows = map[uint32]*window{}
+		}
+		child.testID = cfg.ID
+		opts.test.windows[cfg.ID] = child
+	}
 	child.engine.Resize(driver.Size{Width: size.X, Height: size.Y}, driver.Geometry{})
 	child.engine.SetEnvironment(child.env)
 	if !opts.Hidden {
@@ -1085,6 +1093,7 @@ type testOpen struct {
 	options testhost.Options
 	pin     engine.TestPin
 	ready   chan *window
+	windows map[uint32]*window // opened surfaces, on the window thread
 }
 
 // chromeItem applies an item of the window's own: its title, a window

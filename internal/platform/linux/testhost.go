@@ -55,7 +55,7 @@ func (h *host) Main(run func() int) {
 		for req := range h.opens {
 			w.post(func() {
 				o, err := start(req.app, req.opts)
-				if err == nil {
+				if err == nil && !req.opts.Hidden {
 					gtkWindowPresent(o.win)
 				}
 				req.reply <- openReply{o, err}
@@ -66,10 +66,12 @@ func (h *host) Main(run func() int) {
 	select {}
 }
 
+func (*host) OpensWindows(app bool) bool { return app }
+
 func (h *host) Open(app func(cx *core.Scope) core.Node, o testhost.Options) (testhost.Surface, error) {
-	test := &testOpen{options: o}
+	test := &testOpen{options: o, windows: map[uint32]*window{}}
 	reply := make(chan openReply, 1)
-	h.opens <- openRequest{app: app, opts: Options{Title: "NSGo test", Width: o.Size.Width, Height: o.Size.Height, test: test}, reply: reply}
+	h.opens <- openRequest{app: app, opts: Options{Title: "NSGo test", Width: o.Size.Width, Height: o.Size.Height, Hidden: o.Windows, test: test}, reply: reply}
 	r := <-reply
 	if r.err != nil {
 		return nil, r.err
@@ -108,6 +110,20 @@ func (t *testSurface) onLoop(fn func()) {
 	case <-done:
 	case <-time.After(10 * time.Second):
 	}
+}
+
+func (t *testSurface) WindowSurface(id uint32) testhost.Surface {
+	var opened *window
+	t.onLoop(func() { opened = t.test.windows[id] })
+	if opened == nil {
+		return nil
+	}
+	return &testSurface{w: opened, test: t.test}
+}
+
+func (t *testSurface) RequestClose() error {
+	t.onLoop(func() { gtkWindowClose(t.w.win) })
+	return nil
 }
 
 // focusAt gives the field at at the keyboard, as a click in it does.

@@ -290,17 +290,29 @@ func (a *App) applyAside(b *driver.MountBatch) {
 	aside := *b
 	aside.LayoutAnimation = nil
 	aside.Items = slices.DeleteFunc(slices.Clone(b.Items), func(it driver.MountItem) bool {
-		switch it.Kind {
-		case driver.ItemAnimation, driver.ItemDismissKeyboard, driver.ItemBlockNative, driver.ItemAccessibilityFocus, driver.ItemTitle, driver.ItemWindow, driver.ItemKeymap:
-			return true
-		case driver.ItemMenu:
-			return a.responseTree != a.appTree
-		}
-		return it.ID != 0
+		return surfaceItem(it) && !(it.Kind == driver.ItemMenu && a.responseTree == a.appTree)
 	})
 	root := a.rootID
 	a.apply(&aside)
 	a.rootID = root
+}
+
+// surfaceItem identifies requests and view changes that belong to the
+// window's own model rather than acting on the app's shared services.
+func surfaceItem(it driver.MountItem) bool {
+	switch it.Kind {
+	case driver.ItemAnimation, driver.ItemDismissKeyboard, driver.ItemBlockNative, driver.ItemAccessibilityFocus, driver.ItemTitle, driver.ItemWindow, driver.ItemKeymap, driver.ItemMenu:
+		return true
+	}
+	return it.ID != 0
+}
+
+func (a *App) applySurface(b *driver.MountBatch) {
+	window := *b
+	window.Items = slices.DeleteFunc(slices.Clone(b.Items), func(it driver.MountItem) bool {
+		return !surfaceItem(it)
+	})
+	a.apply(&window)
 }
 
 // setMenu records the application menu tree set, nil restoring the platform's.
@@ -1188,6 +1200,10 @@ func (a *App) postTo(tree *core.Tree, ev driver.Event) {
 	}
 	if tree == nil {
 		tree = a.tree
+	}
+	if a.owner != nil {
+		a.owner.postTo(tree, ev)
+		return
 	}
 	a.mu.Lock()
 	a.posts = append(a.posts, func() { tree.Dispatch(ev) })

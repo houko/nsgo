@@ -72,6 +72,10 @@ func Target() string { return os.Getenv("NSGO_TEST_TARGET") }
 type target struct {
 	a       *App
 	surface testhost.Surface
+	// source is the first native surface, which owns the engine's barrier.
+	source testhost.Surface
+	// owner is the target that follows all of this app's surfaces.
+	owner *target
 	// live is set for a running app's surface the automation follows (automation.go), whose model also drops the alerts the user answers.
 	live bool
 	// quiet reports whether the last settle came to quiet before settleWait.
@@ -92,12 +96,14 @@ type target struct {
 	ownMenu  []driver.MenuEntry
 }
 
-// targetUpdate is a batch or an event that came: a batch of the app's own surface while the model follows the main window is aside, and closed is set on the main window's last.
+// targetUpdate is a batch or an event reported by the named surface.
 type targetUpdate struct {
-	batch  *driver.MountBatch
-	aside  bool
-	closed bool
-	event  driver.Event
+	surface uint32
+	batch   *driver.MountBatch
+	aside   bool
+	main    bool
+	closed  bool
+	event   driver.Event
 }
 
 // Desktop hosts settle native focus events with their input and mount queues. A focus request can be refused, so only the reported events change their model's focus.
@@ -105,33 +111,29 @@ func (t *target) reportsNativeFocus() bool {
 	return t.live || slices.Contains([]string{"macos", "windows", "linux"}, Target())
 }
 
-// observe queues a batch the app's engine sent for surface, which the next drain applies: the followed surface's, and with windows the app's own, aside. Other windows' are not modeled.
+// observe queues the next batch of a surface, including the app's own
+// surface, which puts its menu and app-wide services in the model.
 func (t *target) observe(surface uint32, b *driver.MountBatch) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.lost != "" {
+	if t.lost != "" || !t.windowed && surface != 0 {
 		return
 	}
-	switch {
-	case !t.windowed:
-		if surface == 0 {
-			t.updates = append(t.updates, targetUpdate{batch: b})
-		}
-	case surface == 0:
+	u := targetUpdate{surface: surface, batch: b, aside: t.windowed && surface == 0}
+	if u.aside {
 		for _, it := range b.Items {
 			if it.Kind == driver.ItemOpenSurface && it.Surface != nil && it.Surface.Main {
 				t.main = it.Surface.ID
 			}
 		}
-		t.updates = append(t.updates, targetUpdate{batch: b, aside: true})
-	case surface == t.main:
-		u := targetUpdate{batch: b}
-		if destroys(b) {
-			// Its views go with it; a later SetMainView opens another, which the model follows from its first batch.
-			u.closed, t.main = true, 0
+	} else {
+		u.main = !t.windowed || surface == t.main
+		u.closed = destroys(b)
+		if u.closed && u.main {
+			t.main = 0
 		}
-		t.updates = append(t.updates, u)
 	}
+	t.updates = append(t.updates, u)
 }
 
 // destroys reports whether b is the last batch of an opened surface, which the engine sends as its tree goes.
@@ -141,18 +143,8 @@ func destroys(b *driver.MountBatch) bool {
 	})
 }
 
-// surfaceEvent queues an event the platform reported for surface when the model follows it.
+// surfaceEvent queues edits and input reports alongside the surface's batches.
 func (t *target) surfaceEvent(surface uint32, ev driver.Event) {
-	t.mu.Lock()
-	followed := surface == 0 && !t.windowed || t.windowed && surface != 0 && surface == t.main
-	t.mu.Unlock()
-	if followed {
-		t.event(ev)
-	}
-}
-
-// event queues what the next drain takes of an event the platform reported: scrolls, the focus, texts and their selections, and for a live app alerts answered.
-func (t *target) event(ev driver.Event) {
 	switch ev.Kind {
 	case driver.EventScroll, driver.EventFocus, driver.EventBlur, driver.EventChangeText, driver.EventSelectionChange:
 	case driver.EventAlert:
@@ -163,11 +155,14 @@ func (t *target) event(ev driver.Event) {
 		return
 	}
 	t.mu.Lock()
-	if t.lost == "" {
-		t.updates = append(t.updates, targetUpdate{event: ev})
+	if t.lost == "" && (t.live || t.windowed == (surface != 0)) {
+		t.updates = append(t.updates, targetUpdate{surface: surface, event: ev})
 	}
 	t.mu.Unlock()
 }
+
+// event is used by the live automation model, which follows one surface.
+func (t *target) event(ev driver.Event) { t.surfaceEvent(0, ev) }
 
 // lostWhy says why a live model stopped following its surface, "" while it follows.
 func (t *target) lostWhy() string {
@@ -221,7 +216,7 @@ func (a *App) startTarget(view func(cx *core.Scope) core.Node, fn func(app *core
 		a.store = core.NewStore(nil)
 	}
 	t := &target{a: a}
-	if w, ok := h.(testhost.WindowHost); ok && w.OpensWindows() {
+	if w, ok := h.(testhost.WindowHost); ok && w.OpensWindows(fn != nil) {
 		t.windowed = true
 		if view != nil {
 			// A root view is the main view of a function of its own, as the backend's Run shows it.
@@ -262,7 +257,7 @@ func (a *App) startTarget(view func(cx *core.Scope) core.Node, fn func(app *core
 	if err != nil {
 		a.t.Fatalf("nsgotest: the platform cannot open the app: %v", err)
 	}
-	t.surface = s
+	t.source, t.surface = s, s
 	// The first batch can take longer than a step's quiet time to come,
 	// as on Windows, where the window opens first; with windows, the main window's first, which comes once the platform opened it, unless the app's own surface opened none.
 	for deadline := time.Now().Add(settleWait); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
@@ -322,7 +317,7 @@ func (a *App) targetOptions(t *target) testhost.Options {
 	}
 	return testhost.Options{
 		CheckCommits: !automationBuild && !a.measure,
-		Size:         size, Environment: a.env, Storage: a.store, Secrets: a.Secrets, Host: a.host, Clock: clock,
+		Size:         size, Windows: t.windowed, Environment: a.env, Storage: a.store, Secrets: a.Secrets, Host: a.host, Clock: clock,
 		FPS:        os.Getenv("NSGO_TEST_FPS") != "",
 		Observe:    t.observe,
 		Event:      t.surfaceEvent,
@@ -357,42 +352,86 @@ func (t *target) drain() bool {
 			case t.live:
 				t.applyLive(b)
 			default:
-				t.a.apply(b)
-			}
-			if u.closed {
-				t.mainClosed()
+				t.applySurface(u)
 			}
 			continue
 		}
-		ev := u.event
-		if ev.Kind == driver.EventAlert {
-			// The user answered it, or the app's own code did.
-			t.a.alerts = slices.DeleteFunc(t.a.alerts, func(c driver.AlertConfig) bool { return c.ID == ev.Count })
-			continue
-		}
-		v := t.a.views[ev.ID]
-		if v == nil {
-			continue
-		}
-		switch ev.Kind {
-		case driver.EventScroll:
-			v.Offset, v.Applied = ev.Point, ev.Count
-			if ev.Value != 0 {
-				v.ZoomScale = ev.Value
+		a := t.a
+		if t.windowed {
+			s := a.surfaceModels[u.surface]
+			if s == nil {
+				continue
 			}
-		case driver.EventFocus, driver.EventBlur:
-			v.Focused = ev.Kind == driver.EventFocus
-		case driver.EventChangeText:
-			t.a.edits[ev.ID] = max(t.a.edits[ev.ID], ev.Count)
-			v.Text = ev.Text
-		case driver.EventSelectionChange:
-			// A field's; a selection area's carries its text instead.
-			if v.Kind == driver.KindInput {
-				v.Selection = driver.TextRange{Start: ev.Index, End: int(ev.Count)}
-			}
+			a = s.model
 		}
+		a.applyPlatformEvent(u.event)
 	}
 	return len(updates) > 0
+}
+
+func (a *App) applyPlatformEvent(ev driver.Event) {
+	if ev.Kind == driver.EventAlert {
+		a.alerts = slices.DeleteFunc(a.alerts, func(c driver.AlertConfig) bool { return c.ID == ev.Count })
+		return
+	}
+	v := a.views[ev.ID]
+	if v == nil {
+		return
+	}
+	switch ev.Kind {
+	case driver.EventScroll:
+		v.Offset, v.Applied = ev.Point, ev.Count
+		if ev.Value != 0 {
+			v.ZoomScale = ev.Value
+		}
+	case driver.EventFocus, driver.EventBlur:
+		v.Focused = ev.Kind == driver.EventFocus
+	case driver.EventChangeText:
+		a.edits[ev.ID] = max(a.edits[ev.ID], ev.Count)
+		v.Text = ev.Text
+	case driver.EventSelectionChange:
+		// A field's; a selection area's carries its text instead.
+		if v.Kind == driver.KindInput {
+			v.Selection = driver.TextRange{Start: ev.Index, End: int(ev.Count)}
+		}
+	}
+}
+
+func (t *target) applySurface(u targetUpdate) {
+	a := t.a
+	if u.closed {
+		if u.main {
+			a.apply(u.batch)
+		}
+		a.closeSurface(u.surface)
+		if u.main {
+			t.mainClosed()
+		}
+		return
+	}
+	first := a.surfaceModels[u.surface] == nil
+	s := a.openSurface(a.surfaceConfig(u.surface), nil, u.main || !t.windowed)
+	s.updateTitle(u.batch)
+	if s.model == a {
+		if t.windowed && t.source != nil && first {
+			// Native operations on App still act on its main window.
+			t.surface = t.windowSurface(u.surface)
+		}
+		a.apply(u.batch)
+		return
+	}
+	if s.model.target == nil {
+		s.model.target = &target{a: s.model, owner: t, surface: t.windowSurface(u.surface)}
+	}
+	a.applyAside(u.batch)
+	s.model.applySurface(u.batch)
+}
+
+func (t *target) windowSurface(id uint32) testhost.Surface {
+	if windows, ok := t.source.(testhost.WindowSurfaces); ok {
+		return windows.WindowSurface(id)
+	}
+	return t.source
 }
 
 // applyOwn applies a batch of the app's own surface aside: its application menu, which shows while the main window sets none, goes to ownMenu.
@@ -412,6 +451,7 @@ func (t *target) applyOwn(b *driver.MountBatch) {
 // mainClosed forgets what the main window that closed left in the model: its views, keyboard shortcuts and menu, as nothing is left there for steps to reach.
 func (t *target) mainClosed() {
 	a := t.a
+	t.surface = t.source
 	a.views, a.rootID, a.Keymap, a.keyBindings = map[driver.NodeID]*View{}, 0, nil, nil
 	delete(a.menus, nil)
 	a.showMenu()
@@ -426,7 +466,11 @@ func (t *target) sync(deadline time.Time) bool {
 	if t.syncing == nil {
 		done := make(chan struct{})
 		t.syncing = done
-		go func() { t.surface.Sync(); close(done) }()
+		source := t.source
+		if source == nil {
+			source = t.surface
+		}
+		go func() { source.Sync(); close(done) }()
 	}
 	timer := time.NewTimer(remaining)
 	defer timer.Stop()
@@ -445,6 +489,11 @@ func (t *target) settle() {
 }
 
 func (t *target) settleUntil(deadline time.Time) {
+	if t.owner != nil {
+		t.owner.settleUntil(deadline)
+		t.quiet = t.owner.quiet
+		return
+	}
 	t.runPosts()
 	if !t.sync(deadline) {
 		t.drain()
@@ -467,7 +516,7 @@ func (t *target) settleUntil(deadline time.Time) {
 				t.quiet = false
 				return
 			}
-			if time.Since(quiet) >= quietFor && !t.surface.Animating() {
+			if time.Since(quiet) >= quietFor && !t.animating() {
 				if !t.drainEvents() {
 					t.quiet = time.Now().Before(deadline)
 					return
@@ -481,7 +530,7 @@ func (t *target) settleUntil(deadline time.Time) {
 	for {
 		// Posts handed to the engine are work in flight, as a batch is.
 		posted := t.runPosts()
-		if t.drain() || posted || t.surface.Animating() {
+		if t.drain() || posted || t.animating() {
 			quiet = time.Now()
 		}
 		if time.Now().After(deadline) {
@@ -496,7 +545,7 @@ func (t *target) settleUntil(deadline time.Time) {
 				return
 			}
 			// Check the platform before draining: it can report events as it applies the engine's last commit. Those events and any new posts need another turn.
-			if t.surface.Animating() || t.drain() || t.pending() {
+			if t.animating() || t.drain() || t.pending() {
 				quiet = time.Now()
 				continue
 			}
@@ -505,6 +554,27 @@ func (t *target) settleUntil(deadline time.Time) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+func (t *target) animating() bool {
+	if t.surface != nil && t.surface.Animating() {
+		return true
+	}
+	for _, s := range t.a.surfaceModels {
+		if other := s.model.target; other != nil && other != t && other.surface != nil && other.surface.Animating() {
+			return true
+		}
+	}
+	return false
+}
+
+func (t *target) closeWindow() {
+	t.a.t.Helper()
+	if s, ok := t.surface.(testhost.CloseWindow); ok {
+		t.check(s.RequestClose())
+		return
+	}
+	t.a.t.Fatalf("nsgotest: this surface has no native window to close")
 }
 
 // runPosts runs what the test's own graph posted and hands App.Post's functions to the engine, reporting whether there were any.
@@ -615,6 +685,10 @@ func (t *target) menu(step func(testhost.Surface) error) {
 // a frame at a time, settling between, when run, else at once. The
 // platform's own animations run in real time.
 func (t *target) advance(d time.Duration, run bool) {
+	if t.owner != nil {
+		t.owner.advance(d, run)
+		return
+	}
 	if t.a.measure {
 		time.Sleep(d)
 		t.runPosts()

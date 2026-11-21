@@ -24,10 +24,13 @@ type Host interface {
 	Several() bool
 }
 
-// WindowHost is a Host whose apps open their windows themselves, as the backend's Run has them do (core.RootOptions.Windows), macOS's: Open's surface is then the app's own, which shows no view, and the main window, which SetMainView opens (driver.SurfaceConfig.Main), is the one a test acts on. Open's Surface acts on the main window once it opened, and opens it at the platform's default size when Options.Size is zero.
+// WindowHost is a Host whose apps can open their own windows, as Run
+// does with core.RootOptions.Windows. app says whether StartApp supplied
+// an app function; macOS uses its own windowless surface in either case.
+// The main window opens at the platform's default size when Options.Size is zero.
 type WindowHost interface {
 	Host
-	OpensWindows() bool
+	OpensWindows(app bool) bool
 }
 
 // Options are what a test opens an app with.
@@ -35,6 +38,8 @@ type Options struct {
 	// CheckCommits enables full-layout diagnostics for this app only.
 	CheckCommits bool
 	Size         driver.Size
+	// Windows runs the app with the windowless surface that opens its windows.
+	Windows bool
 	// Environment pins what the test sets over what the platform reports
 	// (Pin's fields), from the first frame.
 	Environment *driver.Environment
@@ -114,6 +119,17 @@ type Surface interface {
 	SetEnvironment(env driver.Environment) error
 	// Sync returns once the app's engine ran what was posted to it before and handed the resulting commits to the platform.
 	Sync()
+}
+
+// WindowSurfaces resolves the native test surface an app opened. It is
+// implemented by the surface returned from a desktop test host's Open.
+type WindowSurfaces interface {
+	WindowSurface(id uint32) Surface
+}
+
+// CloseWindow is the native close-button action on a desktop test surface.
+type CloseWindow interface {
+	RequestClose() error
 }
 
 // KeyboardSurface is a surface whose window takes the keyboard only while its app is active, as macOS's does.

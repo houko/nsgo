@@ -69,6 +69,7 @@ type testSurface struct {
 	s       *surface
 	own     *surface
 	test    *testWindow
+	fixed   bool // act on s even when another window is main
 	hovered []objc.ID
 	clicks  testhost.Clicks
 	pressID int // the last press's marker, read and written on the main thread
@@ -76,7 +77,7 @@ type testSurface struct {
 
 // follow has a test's surface act on the main window its app opened, while one is open, as the test's model follows it (testhost.WindowHost), else on its own surface.
 func (t *testSurface) follow() {
-	if t.test == nil {
+	if t.test == nil || t.fixed {
 		return
 	}
 	if main := t.test.main.Load(); main != nil {
@@ -84,6 +85,31 @@ func (t *testSurface) follow() {
 	} else {
 		t.s = t.own
 	}
+}
+
+func (t *testSurface) WindowSurface(id uint32) testhost.Surface {
+	var out *testSurface
+	onMainSync(func() {
+		for s := range surfaces {
+			if s.test == t.test && s.id == id && !s.closed {
+				out = &testSurface{s: s, own: t.own, test: t.test, fixed: true}
+				break
+			}
+		}
+	})
+	if out == nil {
+		return nil
+	}
+	return out
+}
+
+func (t *testSurface) RequestClose() error {
+	t.follow()
+	if t.s.window == 0 {
+		return errors.New("this surface has no window to close")
+	}
+	onMainSync(func() { t.s.window.Send(sel("performClose:"), objc.ID(0)) })
+	return nil
 }
 
 // windowPoint is p, in the surface's points from its top left, in the
@@ -486,7 +512,7 @@ func (t *testSurface) activates() bool {
 
 // keyboard readies the window for a key step. A live surface's window becomes key within the app, without activating it, as the test host gives a test's window as it opens. A test's window is activated only with the run's opt-in; otherwise key delivers to it in the background.
 func (t *testSurface) keyboard() error {
-	if t.test != nil {
+	if t.test != nil && (!t.fixed || t.activates()) {
 		return t.PrepareKeyboard()
 	}
 	onMainSync(func() {
