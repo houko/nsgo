@@ -1,4 +1,4 @@
-//go:build !(darwin && !ios) && !windows && !(linux && !android)
+//go:build nsgoandroidhost || (!(darwin && !ios) && !windows && !(linux && !android))
 
 package backend
 

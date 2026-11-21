@@ -26,6 +26,8 @@ go tool nsgo dev -target android            # on a connected device or emulator,
 
 `-h` lists every flag.
 
+Use `go tool nsgo dev -target android -android-host` for Android UI work with a shorter Go rebuild loop. The tool installs the native runtime once and runs Go on the development machine. Each Go rebuild reconnects to the same Activity over adb. Changes to packaged resources, launcher icons or `nsgo.yaml` install the runtime APK again. The Go process uses the host's build constraints, files and networking. Use the regular Android dev command to exercise `_android.go` files and on-device Go behavior.
+
 ## Errors
 
 A failed build shows over the running app, with buttons to copy the error and to build again; fix the file and the next save replaces it. A component that panics while it renders shows the same way. Command+R in the app, Control+R off Apple platforms, builds and starts it again at any time, over the error too, unless the app binds the key itself, with `cx.OnKey` or as an enabled item of its application menu; in the browser the key reloads the page as usual. The app's own output, such as `log.Print`, appears in the terminal under the tool's lines.

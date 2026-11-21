@@ -32,6 +32,8 @@ Use `-template <module>[@version]` to scaffold from a module's published [templa
 
 Go 1.27.3 or later builds every target from a Mac, with Xcode for Apple's; nothing else (no NDK, Android SDK, JDK or GTK) is needed to build. Never hand-write C or add cgo to reach a platform: use NSGo's services first, then purego or `syscall`.
 
+For Android UI work, `go tool nsgo dev -target android -android-host` rebuilds Go on the development machine and reconnects to the installed Activity. Use ordinary Android dev for Go code that needs the device OS. [Debugging](https://nsgo.dev/docs/debugging.md#run)
+
 ## Writing an app
 
 ```go

@@ -104,22 +104,23 @@ func (o *overrides) apply(p *project) {
 // it when the user gives them.
 type devFlags struct {
 	*overrides
-	target    *override[string]
-	hotReload *boolOverride
-	fps       bool
-	port      int
-	open      bool
-	device    string
-	team      string
-	release   bool
-	trace     bool
-	highlight bool
-	devtools  bool
-	auto      bool
-	lang      string
-	clip      string
-	limits    limitsFlag
-	layout    layoutFlag
+	target      *override[string]
+	hotReload   *boolOverride
+	fps         bool
+	port        int
+	open        bool
+	device      string
+	androidHost bool
+	team        string
+	release     bool
+	trace       bool
+	highlight   bool
+	devtools    bool
+	auto        bool
+	lang        string
+	clip        string
+	limits      limitsFlag
+	layout      layoutFlag
 }
 
 // layoutFlag is -layout: alone bounds, or what DevTools' layout audit starts showing, joined by commas: bounds, grid and grid=N, N from 4 to 1000000 points (-layout=bounds,grid=4). It holds the parts without spaces, as the dev client reads them (the root package's parseDevLayout).
@@ -188,6 +189,7 @@ func bindDevFlags(fs *flag.FlagSet) *devFlags {
 	fs.IntVar(&f.port, "port", 8080, "the dev server's `port`, which serves the web target; the next free one when taken")
 	fs.BoolVar(&f.open, "open", true, "open the web target in the browser")
 	fs.StringVar(&f.device, "device", "", "the `device` to run on: an iPhone's name, UDID, serial or ECID, a simulator's name or UDID, or an adb serial or emulator's AVD name (default: the only one connected, or the booted simulator)")
+	fs.BoolVar(&f.androidHost, "android-host", false, "run Go on this machine and show the app on the Android device over adb")
 	fs.BoolVar(&f.release, "release", false, "build stripped release binaries, as nsgo build does, for measuring with -fps")
 	fs.BoolVar(&f.trace, "trace", false, "print each commit's time, mount items and the writes that caused it from the running app")
 	fs.BoolVar(&f.highlight, "highlight", false, "outline for a moment each view a commit of the running app changed")
@@ -203,7 +205,7 @@ func bindDevFlags(fs *flag.FlagSet) *devFlags {
 
 // options are dev's options of the flags that name no nsgo.yaml value.
 func (f *devFlags) options() devOptions {
-	return devOptions{apply: f.apply, port: f.port, open: f.open, device: f.device, team: f.team, release: f.release, trace: f.trace,
+	return devOptions{apply: f.apply, port: f.port, open: f.open, device: f.device, androidHost: f.androidHost, team: f.team, release: f.release, trace: f.trace,
 		highlight: f.highlight, devtools: f.devtools, layout: string(f.layout), automation: f.auto, fps: f.fps, lang: f.lang, clip: f.clip}
 }
 

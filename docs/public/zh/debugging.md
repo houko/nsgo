@@ -26,6 +26,8 @@ go tool nsgo dev -target android            # 通过 adb 在连接的设备或�
 
 `-h` 列出全部参数。
 
+开发 Android 界面时，可以用 `go tool nsgo dev -target android -android-host` 缩短 Go 重建流程。工具先安装原生运行时，再在开发机上运行 Go。每次 Go 重建都会通过 adb 重连到同一个 Activity。打包资源、启动器图标或 `nsgo.yaml` 变化时，会重新安装运行时 APK。Go 进程使用开发机的构建约束、文件系统和网络。验证 `_android.go` 文件或 Go 在设备上的行为时，请使用常规 Android dev 命令。
+
 ## 错误
 
 构建失败时，错误显示在运行中的应用上方，带有复制错误和重新构建的按钮；修好文件后，下一次保存就会替换它。组件渲染时 panic 也以同样方式显示。在应用里按 Command+R（非 Apple 平台为 Control+R）随时可以重新构建并重启应用，错误显示时也可以，除非应用自己绑定了这个键，无论是用 `cx.OnKey` 还是作为应用菜单里一个启用的菜单项；在浏览器里这个键照常刷新页面。应用自己的输出（比如 `log.Print`）出现在终端里工具输出的下方。

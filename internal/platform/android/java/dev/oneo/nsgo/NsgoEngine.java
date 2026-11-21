@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.net.LocalSocket;
 import android.util.Log;
 
 import java.io.BufferedInputStream;
@@ -14,6 +15,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.TimeZone;
 
@@ -37,6 +39,8 @@ public final class NsgoEngine {
 
     private final Context application;
     private Process process;
+    private LocalSocket socket;
+    private InputStream input;
     private DataOutputStream out;
     private Listener listener;
     private boolean readerStarted;
@@ -62,9 +66,20 @@ public final class NsgoEngine {
         builder.environment().put("TZ", TimeZone.getDefault().getID());
         testRun = builder.environment().get("NSGO_TEST_RUN");
         process = builder.start();
+        input = process.getInputStream();
         out = new DataOutputStream(new BufferedOutputStream(process.getOutputStream()));
         String dir = builder.environment().get("NSGO_DATA_DIR");
         data = dir == null ? application.getFilesDir() : new File(dir);
+        watchTimeZone();
+    }
+
+    /** Starts serving the host process over its adb-forwarded socket. */
+    synchronized void start(LocalSocket peer) throws IOException {
+        if (!canStart()) throw new IllegalStateException("engine already started");
+        socket = peer;
+        input = socket.getInputStream();
+        out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
+        data = application.getFilesDir();
         watchTimeZone();
     }
 
@@ -111,7 +126,7 @@ public final class NsgoEngine {
 
     /** Says whether the engine has neither started a process nor been destroyed. */
     synchronized boolean canStart() {
-        return !closed && process == null;
+        return !closed && process == null && socket == null;
     }
 
     /**
@@ -123,20 +138,22 @@ public final class NsgoEngine {
             throw new IllegalStateException("engine serves another NsgoView: until the surface protocol lands, an engine serves the one view that first attached to it");
         }
         listener = next;
-        if (readerStarted || process == null) return;
+        if (readerStarted || input == null) return;
         readerStarted = true;
         Process running = process;
-        Thread reader = new Thread(() -> read(running), "nsgo-reader");
+        Thread reader = new Thread(this::read, "nsgo-reader");
         reader.setDaemon(true);
         reader.start();
-        Thread logger = new Thread(() -> log(running, next), "nsgo-log");
-        logger.setDaemon(true);
-        logger.start();
+        if (running != null) {
+            Thread logger = new Thread(() -> log(running, next), "nsgo-log");
+            logger.setDaemon(true);
+            logger.start();
+        }
     }
 
     /** Says whether the process is running and the engine has not been closed. */
     public synchronized boolean isAlive() {
-        return !closed && process != null && process.isAlive();
+        return !closed && (process != null ? process.isAlive() : socket != null && out != null);
     }
 
     /** Writes one protocol message, serialized with every other writer. */
@@ -162,6 +179,7 @@ public final class NsgoEngine {
         synchronized (this) {
             if (closed) return;
             closed = true;
+            if (socket != null) AndroidHostDev.closeSocket(socket);
             if (out != null) {
                 try {
                     out.close();
@@ -179,9 +197,9 @@ public final class NsgoEngine {
         if (idle != null) idle.onProcessEnded(null);
     }
 
-    private void read(Process running) {
+    private void read() {
         IOException failure = null;
-        try (DataInputStream in = new DataInputStream(new BufferedInputStream(running.getInputStream()))) {
+        try (DataInputStream in = new DataInputStream(new BufferedInputStream(input))) {
             for (Protocol.Message message; (message = Protocol.readMessage(in)) != null; ) {
                 Listener current;
                 synchronized (this) {
@@ -198,6 +216,7 @@ public final class NsgoEngine {
         RecordingService.ownerEnded(this);
         Listener current;
         synchronized (this) {
+            if (socket != null) AndroidHostDev.closeSocket(socket);
             current = listener;
             listener = null;
             out = null;

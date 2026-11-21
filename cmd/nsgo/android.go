@@ -98,6 +98,11 @@ func buildAndroidPackage(ctx context.Context, p *project, dir, goarch, ext strin
 	if err != nil {
 		return "", err
 	}
+	return writeAndroidPackage(ctx, p, dir, goarch, ext, app, abi, "", write)
+}
+
+func writeAndroidPackage(ctx context.Context, p *project, dir, goarch, ext string, app []byte, abi, hostConfig string,
+	write func(io.Writer, []byte, apk.Manifest, []apk.File, *apk.Key) error) (string, error) {
 	if ext == ".aab" {
 		stage(ctx, "packaging the App Bundle")
 	} else {
@@ -107,12 +112,17 @@ func buildAndroidPackage(ctx context.Context, p *project, dir, goarch, ext strin
 	if err != nil {
 		return "", err
 	}
-	files := []apk.File{
-		{Name: "classes.dex", Data: androidruntime.ClassesDex},
-		{Name: "lib/" + abi + "/libnsgo.so", Data: app},
+	files := []apk.File{{Name: "classes.dex", Data: androidruntime.ClassesDex}}
+	if hostConfig == "" {
+		files = append(files, apk.File{Name: "lib/" + abi + "/libnsgo.so", Data: app})
+	} else {
+		files = append(files, apk.File{Name: "assets/__nsgo_android_host", Data: []byte(hostConfig)})
 	}
 	// Resources go in the APK's assets, where the app reads them.
 	err = walkMobileResources(p, func(rel string, data []byte) error {
+		if hostConfig != "" && rel == "__nsgo_android_host" {
+			return errors.New("resources/__nsgo_android_host is reserved by the Android development runtime")
+		}
 		files = append(files, apk.File{Name: "assets/" + rel, Data: data})
 		return nil
 	})
@@ -148,6 +158,10 @@ func buildAndroidPackage(ctx context.Context, p *project, dir, goarch, ext strin
 	if err != nil {
 		return "", err
 	}
+	if hostConfig != "" {
+		// The optional extension must be available to later Go rebuilds too.
+		libraries = []string{windowExtensions}
+	}
 	err = write(f, androidruntime.Manifest, apk.Manifest{
 		Package:           p.ID,
 		Label:             p.Name,
@@ -158,7 +172,7 @@ func buildAndroidPackage(ctx context.Context, p *project, dir, goarch, ext strin
 		Icon:              icon,
 		Adaptive:          adaptive,
 		Theme:             androidThemes[p.Appearance],
-		Debuggable:        p.testBinary,
+		Debuggable:        p.testBinary || hostConfig != "",
 		Permissions:       p.androidPermissions(),
 		TargetSDK:         p.Android.TargetSDK,
 		LoopbackCleartext: p.Android.LoopbackCleartext,

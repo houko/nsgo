@@ -28,6 +28,8 @@ import (
 type session struct {
 	build func(ctx context.Context, p *project) error
 	start func(ctx context.Context, p *project) (app, error)
+	watch func(*project) string // additional inputs the target packages
+	close func()                // releases a target that lives across rebuilds
 }
 
 // app is one started dev app. stop ends it, and wait returns once it has
@@ -42,15 +44,16 @@ type app struct {
 // The rest of the flags have replaced nsgo.yaml's values already, and apply
 // replaces them again after each reload.
 type devOptions struct {
-	apply     func(*project)
-	port      int    // the dev server's, which the web target is served from
-	open      bool   // whether to open the web target in the browser
-	device    string // the iPhone, simulator or Android device to run on
-	team      string // the Apple developer team the iOS target signs with
-	release   bool   // build as nsgo build does, for measuring
-	trace     bool   // print the running app's commits
-	highlight bool   // outline what the running app's commits changed
-	devtools  bool   // open DevTools for the running app
+	apply       func(*project)
+	port        int    // the dev server's, which the web target is served from
+	open        bool   // whether to open the web target in the browser
+	device      string // the iPhone, simulator or Android device to run on
+	androidHost bool   // runs the Go side of an Android app on this machine
+	team        string // the Apple developer team the iOS target signs with
+	release     bool   // build as nsgo build does, for measuring
+	trace       bool   // print the running app's commits
+	highlight   bool   // outline what the running app's commits changed
+	devtools    bool   // open DevTools for the running app
 	// automation lets tools drive the running app (automation.go); hub relays their requests.
 	automation bool
 	hub        *automationHub
@@ -96,6 +99,9 @@ func dev(ctx context.Context, p *project, opts devOptions) error {
 	if err != nil {
 		return err
 	}
+	if s.close != nil {
+		defer s.close()
+	}
 
 	stop := func() {}
 	defer func() { stop() }()
@@ -134,7 +140,14 @@ func dev(ctx context.Context, p *project, opts devOptions) error {
 			dirs = append(dirs, p.I18n.Dir)
 		}
 		dirs, sources := splitSources(dirs)
-		fingerprint := scan(dirs)
+		scanBuild := func() string {
+			files := scan(dirs)
+			if s.watch != nil {
+				files += s.watch(p)
+			}
+			return files
+		}
+		fingerprint := scanBuild()
 		err = catalogErr
 		if err == nil {
 			err = s.build(ctx, p)
@@ -194,7 +207,7 @@ func dev(ctx context.Context, p *project, opts devOptions) error {
 			}
 		}
 		first = false
-		if reason := waitForChange(ctx, p, srv, dirs, sources, fingerprint, exited); reason != nil {
+		if reason := waitForChange(ctx, p, srv, scanBuild, sources, fingerprint, exited); reason != nil {
 			return *reason
 		}
 		// The flags and the rest of nsgo.yaml may have changed too.
@@ -234,7 +247,7 @@ func (o devOptions) appFlags() []string {
 //
 // A change of the app's TSX alone builds no Go: its bundles are compiled
 // again and the running apps load them (compiler.App under nsgodev).
-func waitForChange(ctx context.Context, p *project, srv *devServer, dirs, sources []string, fingerprint string, exited chan error) *error {
+func waitForChange(ctx context.Context, p *project, srv *devServer, scanBuild func() string, sources []string, fingerprint string, exited chan error) *error {
 	tick := time.NewTicker(300 * time.Millisecond)
 	defer tick.Stop()
 	tsx := scan(sources)
@@ -251,7 +264,7 @@ func waitForChange(ctx context.Context, p *project, srv *devServer, dirs, source
 			if !p.hotReload() {
 				continue
 			}
-			if scan(dirs) != fingerprint {
+			if scanBuild() != fingerprint {
 				// Let the editor finish writing.
 				time.Sleep(100 * time.Millisecond)
 				return nil
@@ -644,6 +657,9 @@ func (s *devServer) events(w http.ResponseWriter, r *http.Request) {
 
 // sessionFor picks how dev builds and shows nsgo.yaml's target.
 func sessionFor(p *project, opts devOptions) (session, error) {
+	if opts.androidHost && (p.Dev.Target != "android" || opts.release) {
+		return session{}, errors.New("-android-host needs -target android and a development build")
+	}
 	if opts.clip != "" {
 		switch {
 		case p.AppClip == nil:
@@ -672,6 +688,9 @@ func sessionFor(p *project, opts devOptions) (session, error) {
 		sys, _, _ := appleOSOf(p.Dev.Target)
 		return iosSession(sys, opts), nil
 	case "android":
+		if opts.androidHost {
+			return androidHostSession(opts)
+		}
 		return androidSession(opts), nil
 	default:
 		if mp, ok := miniProgramPlatformOf(p.Dev.Target); ok {
