@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -302,11 +303,32 @@ func (ts Toasts) item(cx *core.Scope, e func() toastEntry) core.Node {
 		}
 		return nil
 	})
+	// custom is the app's surface style, the stack's under the toast's own.
+	custom := func() core.Style {
+		c := content.Get()
+		style := ts.Style
+		if ts.StyleFunc != nil {
+			style = style.Merge(ts.StyleFunc())
+		}
+		style = style.Merge(c.Style)
+		if c.StyleFunc != nil {
+			style = style.Merge(c.StyleFunc())
+		}
+		return style
+	}
+	// The title and description take the surface's Color when the app sets one, so text stays legible on a surface of the app's own, such as a dark pill.
+	titleColor := func() core.Color { return cmp.Or(custom().Color, colors.Text()) }
+	detailColor := func() core.Color {
+		if c := custom().Color; c != 0 {
+			return Alpha(c, 0.7)
+		}
+		return colors.Muted()
+	}
 	textBody := core.Dynamic(func(*core.Scope) core.Node {
 		c := content.Get()
-		texts := []core.Node{core.Text{Content: c.Title, Style: TypeLabel, StyleFunc: Colored(colors.Text)}}
+		texts := []core.Node{core.Text{Content: c.Title, Style: TypeLabel, StyleFunc: Colored(titleColor)}}
 		if c.Description != "" {
-			texts = append(texts, core.Text{Content: c.Description, Style: TypeCaption, StyleFunc: Colored(colors.Muted)})
+			texts = append(texts, core.Text{Content: c.Description, Style: TypeCaption, StyleFunc: Colored(detailColor)})
 		}
 		return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: texts}
 	})
@@ -366,19 +388,11 @@ func (ts Toasts) item(cx *core.Scope, e func() toastEntry) core.Node {
 				align = core.AlignStart
 			}
 			glass := FinOf(cx).Glass()
-			style := core.Style{Direction: core.Row, AlignItems: align, Gap: 12,
+			return core.Style{Direction: core.Row, AlignItems: align, Gap: 12,
 				Padding: core.Edges{Top: 12, Right: 8, Bottom: 12, Left: 16}, CornerRadius: RadiusCard, BorderCurve: core.BorderCurveContinuous,
 				BorderWidth: 1, BorderColor: colors.Border(), Background: Alpha(colors.Background(), 0.92), Color: colors.Text(),
 				Shadows: glass.Shadows, BackdropFilters: glass.Backdrop,
-				Transition: core.Transition{Duration: 200 * time.Millisecond, Easing: core.EaseOut}}.Merge(ts.Style)
-			if ts.StyleFunc != nil {
-				style = style.Merge(ts.StyleFunc())
-			}
-			style = style.Merge(c.Style)
-			if c.StyleFunc != nil {
-				style = style.Merge(c.StyleFunc())
-			}
-			return style
+				Transition: core.Transition{Duration: 200 * time.Millisecond, Easing: core.EaseOut}}.Merge(custom())
 		},
 		Children: children}
 }

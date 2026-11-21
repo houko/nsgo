@@ -87,15 +87,15 @@ func TestToastSurfaceStyles(t *testing.T) {
 		return core.View{Children: []core.Node{
 			Toasts{Toaster: plain, NoClose: true},
 			Toasts{Toaster: styled, Placement: ToastBottom, NoClose: true,
-				Style:     core.Style{Background: core.RGB(0x334422), BorderWidth: 3, CornerRadius: 8},
+				Style:     core.Style{Background: core.RGB(0x334422), BorderWidth: 3, CornerRadius: 8, Color: core.RGB(0xf0f0f0)},
 				StyleFunc: func() core.Style { return core.Style{Background: stackFill.Get()} }},
 		}}
 	}, nsgotest.ManualFrames())
 	plain.Show(ToastContent{ID: "plain", Title: "Saved", Duration: -1})
-	plain.Show(ToastContent{ID: "custom", Title: "Saved", Duration: -1,
-		Style: core.Style{Background: itemBackground, BorderColor: itemBorder, CornerRadius: 22, Padding: core.All(24)}})
-	styled.Show(ToastContent{ID: "inherited", Title: "Saved", Duration: -1})
-	styled.Show(ToastContent{ID: "overridden", Title: "Saved", Duration: -1,
+	plain.Show(ToastContent{ID: "custom", Title: "Copied", Duration: -1,
+		Style: core.Style{Background: itemBackground, BorderColor: itemBorder, CornerRadius: 22, Padding: core.All(24), Color: core.RGB(0xffffff)}})
+	styled.Show(ToastContent{ID: "inherited", Title: "Uploading", Description: "3 files", Duration: -1})
+	styled.Show(ToastContent{ID: "overridden", Title: "Synced", Duration: -1,
 		Style:     core.Style{Background: itemBackground, CornerRadius: 20},
 		StyleFunc: func() core.Style { return core.Style{CornerRadius: radius.Get()} }})
 	app.Settle()
@@ -120,6 +120,15 @@ func TestToastSurfaceStyles(t *testing.T) {
 		if s.Transition.Duration != 200*time.Millisecond || s.Opacity != 1 {
 			t.Errorf("%s lost its transition or starting phase did not end", want.id)
 		}
+	}
+	if got := app.Find("text:Copied").TextStyle.Color; got != core.RGB(0xffffff) {
+		t.Errorf("the toast's title is %x, want the surface's own color", got)
+	}
+	if title, detail := app.Find("text:Uploading").TextStyle.Color, app.Find("text:3 files").TextStyle.Color; title != core.RGB(0xf0f0f0) || detail != Alpha(core.RGB(0xf0f0f0), 0.7) {
+		t.Errorf("the stack's color gave a title of %x and a description of %x", title, detail)
+	}
+	if got := app.Find("text:Saved").TextStyle.Color; got != palette.Text {
+		t.Errorf("a default toast's title is %x, want the palette's text", got)
 	}
 	if plain, custom := app.Find("plain"), app.Find("custom"); custom.Frame.Size.Height-plain.Frame.Size.Height != 24 {
 		t.Fatalf("custom padding made the toast %v tall, want %v", custom.Frame.Size.Height, plain.Frame.Size.Height+24)
